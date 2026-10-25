@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
@@ -53,19 +54,30 @@ class DockerSource:
     NAME_LABEL = "cloudsentinel.agent_name"
     BUDGET_LABEL = "cloudsentinel.token_budget"
 
-    def __init__(self, cfg: Settings):
-        import docker  # only needed in docker mode
+    def __init__(self, cfg: Settings, client=None):
+        if client is None:
+            import docker  # only needed in docker mode
 
-        self.client = docker.from_env()
-        self.client.ping()  # fails fast with a clear error if Docker Desktop isn't running
+            client = docker.from_env()
+            client.ping()  # fails fast with a clear error if Docker Desktop isn't running
+        self.client = client
         self.cfg = cfg
         self._containers: dict = {}
         self._last_log: dict[str, tuple[int, int]] = {}
+        # container.stats() takes ~1-2s each, so memory is read in the background and the
+        # tick uses the latest value it has (one read in flight per container at most).
+        self._memory: dict[str, tuple[float, float]] = {}
+        self._memory_reads: dict[str, Future] = {}
+        self._stats_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-stats")
 
     def list_agents(self) -> list[AgentHandle]:
         containers = self.client.containers.list(
             all=True, filters={"label": f"{self.cfg.monitor_label}=true", "status": ["running", "paused"]})
         self._containers = {c.id: c for c in containers}
+        for gone in (set(self._last_log) | set(self._memory_reads)) - set(self._containers):  # removed / recreated
+            self._last_log.pop(gone, None)
+            self._memory.pop(gone, None)
+            self._memory_reads.pop(gone, None)
         handles = []
         for c in containers:
             labels = c.labels or {}
@@ -99,6 +111,19 @@ class DockerSource:
         return events
 
     def read_memory(self, h: AgentHandle) -> tuple[float, float]:
+        """Latest known memory (never blocks); starts a background refresh if none is running."""
+        fut = self._memory_reads.get(h.id)
+        if fut is None or fut.done():
+            self._memory_reads[h.id] = self._stats_pool.submit(self._refresh_memory, h)
+        return self._memory.get(h.id, (0.0, 0.0))
+
+    def _refresh_memory(self, h: AgentHandle) -> None:
+        try:
+            self._memory[h.id] = self._read_stats(h)
+        except Exception as exc:  # container gone / restarting: keep the last value
+            log.warning("cannot read memory of %s: %s", h.name, exc)
+
+    def _read_stats(self, h: AgentHandle) -> tuple[float, float]:
         c = self._containers[h.id]
         try:
             stats = c.stats(stream=False, one_shot=True)
