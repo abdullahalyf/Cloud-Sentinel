@@ -64,6 +64,9 @@ class Sentinel:
         if st is None:
             st = self.states[h.id] = AgentState(h.name, h.id, h.token_budget)
             log.info("Now watching %s (budget %s tokens)", h.name, f"{h.token_budget:,}")
+        if self.source.is_paused(h):
+            self.store.insert_metric(st.snapshot(now).to_metric("paused"))
+            return
         for event in self.source.read_events(h):
             st.add(event)
         st.set_memory(*self.source.read_memory(h))
@@ -147,7 +150,23 @@ class Sentinel:
                     ok = self.kill(h, actor="human", reason=cmd.get("reason") or "Emergency kill switch")
                     self.store.finish_command(cmd["id"], "done" if ok else "failed",
                                               "killed" if ok else "not killed (dry run or error)")
+                elif cmd["command"] in ("PAUSE", "RESUME"):
+                    if self.dry_run:
+                        self.store.finish_command(cmd["id"], "failed", "not changed (dry run)")
+                        continue
+                    if cmd["command"] == "PAUSE":
+                        result = self.source.pause(h)
+                        pending = self.pending.pop(h.id, None)
+                        if pending is not None:
+                            pending.cancel()  # discard even a verdict already running
+                        self.store.insert_action(ActionRow(
+                            h.name, "PAUSE", "human", cmd.get("reason") or "Quarantine"))
+                    else:
+                        result = self.source.resume(h)
+                    self.store.finish_command(cmd["id"], "done", result)
                 elif cmd["command"] == "GO_ROGUE":
+                    if self.source.is_paused(h):
+                        raise ValueError("agent is paused; resume before switching to rogue mode")
                     self.store.finish_command(cmd["id"], "done", self.source.go_rogue(h))
                 else:
                     self.store.finish_command(cmd["id"], "failed", f"unknown command {cmd['command']}")
