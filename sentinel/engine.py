@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 
 from sentinel.brain import Brain, Verdict
 from sentinel.collector import AgentState, Snapshot
@@ -75,7 +76,8 @@ class Sentinel:
             st.add(event)
         st.set_memory(*self.source.read_memory(h))
         snap = st.snapshot(now)
-        finding = evaluate(snap, self.cfg, (e.prompt for e in st.calls))
+        policy = self._policy(h)
+        finding = evaluate(snap, policy, (e.prompt for e in st.calls))
         self.store.insert_metric(snap.to_metric("warned" if st.warned else "running"))
 
         if finding.level == Level.CRITICAL:
@@ -87,10 +89,17 @@ class Sentinel:
         if self._collect_verdict(h, st, snap):
             return  # killed: don't ask the brain about a dead agent
         if finding.level == Level.SUSPICIOUS:
-            self._ask_brain(h, st, snap, finding, now)
+            self._ask_brain(h, st, snap, finding, now, policy)
+
+    def _policy(self, h: AgentHandle) -> Settings:
+        """Global settings, with this agent's label overrides (e.g. its own token limits)."""
+        overrides = {k: v for k in ("soft_tokens_per_min", "hard_tokens_per_min")
+                     if (v := getattr(h, k)) is not None}
+        return replace(self.cfg, **overrides) if overrides else self.cfg
 
     # ── brain ────────────────────────────────────────────────────────────────
-    def _ask_brain(self, h: AgentHandle, st: AgentState, snap: Snapshot, finding: Finding, now: float) -> None:
+    def _ask_brain(self, h: AgentHandle, st: AgentState, snap: Snapshot, finding: Finding, now: float,
+                   policy: Settings | None = None) -> None:
         new_evidence = not set(finding.rules) <= st.last_brain_rules  # a new rule skips the cooldown
         if h.id in self.pending or (now - st.last_brain_check < self.cfg.brain_cooldown_seconds
                                     and not new_evidence):
@@ -98,7 +107,8 @@ class Sentinel:
         st.last_brain_check, st.last_brain_rules = now, frozenset(finding.rules)
         log.warning("%s looks suspicious: %s → asking the brain", h.name, "; ".join(finding.reasons))
         self.store.insert_alert(AlertRow(h.name, "warning", ",".join(finding.rules), "; ".join(finding.reasons)))
-        self.pending[h.id] = self.pool.submit(self.brain.judge, snap, finding, st.recent_events(12))
+        self.pending[h.id] = self.pool.submit(self.brain.judge, snap, finding, st.recent_events(12),
+                                              policy or self.cfg)
 
     def _collect_verdict(self, h: AgentHandle, st: AgentState, snap: Snapshot) -> bool:
         """Act on a finished brain verdict. True if the agent was killed."""

@@ -183,10 +183,12 @@ class Brain:
         # Then we switch to "auto" once; the system prompt still says to call report_verdict.
         self.tool_choice: dict = {"type": "tool", "name": "report_verdict"}
 
-    def judge(self, snap: Snapshot, finding: Finding, recent: list[AgentEvent]) -> Verdict:
+    def judge(self, snap: Snapshot, finding: Finding, recent: list[AgentEvent],
+              cfg: Settings | None = None) -> Verdict:
+        """`cfg` = this agent's limits (global settings + its label overrides)."""
         now = time.time()
         history = self.history.setdefault(snap.agent, deque(maxlen=HISTORY_SIZE))
-        verdict = self._decide(snap, finding, recent, list(history), now)
+        verdict = self._decide(snap, finding, recent, list(history), now, cfg or self.cfg)
         history.append((now, verdict))
         return verdict
 
@@ -195,10 +197,10 @@ class Brain:
         self.history.pop(agent, None)
 
     def _decide(self, snap: Snapshot, finding: Finding, recent: list[AgentEvent], past: Past,
-                now: float) -> Verdict:
+                now: float, cfg: Settings) -> Verdict:
         if self.client is None:
-            return fallback_verdict(snap, finding, self.cfg, past=past, now=now)
-        message = build_user_message(snap, finding, recent, self.cfg, past, now)
+            return fallback_verdict(snap, finding, cfg, past=past, now=now)
+        message = build_user_message(snap, finding, recent, cfg, past, now)
         try:
             try:
                 response = self._call(message)
@@ -208,7 +210,7 @@ class Brain:
                 log.warning("%s rejects a forced tool_choice — using auto", self.cfg.claude_model)
                 self.tool_choice = {"type": "auto"}
                 response = self._call(message)
-            verdict = fallback_verdict(snap, finding, self.cfg, "claude gave no verdict", past, now)
+            verdict = fallback_verdict(snap, finding, cfg, "claude gave no verdict", past, now)
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use":
                     verdict = self._parse(block.input)
@@ -216,7 +218,7 @@ class Brain:
             return self._with_cost(verdict, getattr(response, "usage", None))
         except Exception as exc:  # network, auth, rate limit, timeout…
             log.error("Claude call failed: %s", exc)
-            return fallback_verdict(snap, finding, self.cfg, "claude unavailable", past, now)
+            return fallback_verdict(snap, finding, cfg, "claude unavailable", past, now)
 
     def _call(self, message: str):
         return self.client.messages.create(

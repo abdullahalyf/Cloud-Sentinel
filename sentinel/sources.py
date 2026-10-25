@@ -27,6 +27,8 @@ class AgentHandle:
     id: str          # container id (or fake id)
     name: str        # short human name: alpha / beta / gamma
     token_budget: int
+    soft_tokens_per_min: int | None = None   # per-agent override of the global limit (label)
+    hard_tokens_per_min: int | None = None
 
 
 class AgentSource(Protocol):
@@ -50,9 +52,26 @@ def parse_docker_ts(ts: str) -> tuple[int, int]:
     return int(dt.timestamp()), nanos
 
 
+def _int_label(labels: dict, key: str, agent: str) -> int | None:
+    """Optional positive int label; missing or invalid → None (use the global setting)."""
+    raw = labels.get(key)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        log.warning("ignoring label %s=%r on %s (not a positive number)", key, raw, agent)
+        return None
+    return value
+
+
 class DockerSource:
     NAME_LABEL = "cloudsentinel.agent_name"
     BUDGET_LABEL = "cloudsentinel.token_budget"
+    SOFT_TPM_LABEL = "cloudsentinel.soft_tokens_per_min"
+    HARD_TPM_LABEL = "cloudsentinel.hard_tokens_per_min"
 
     def __init__(self, cfg: Settings, client=None):
         if client is None:
@@ -81,11 +100,11 @@ class DockerSource:
         handles = []
         for c in containers:
             labels = c.labels or {}
-            try:
-                budget = int(labels.get(self.BUDGET_LABEL, self.cfg.default_token_budget))
-            except ValueError:
-                budget = self.cfg.default_token_budget
-            handles.append(AgentHandle(c.id, labels.get(self.NAME_LABEL, c.name), budget))
+            name = labels.get(self.NAME_LABEL, c.name)
+            budget = _int_label(labels, self.BUDGET_LABEL, name)
+            handles.append(AgentHandle(
+                c.id, name, self.cfg.default_token_budget if budget is None else budget,
+                _int_label(labels, self.SOFT_TPM_LABEL, name), _int_label(labels, self.HARD_TPM_LABEL, name)))
         return handles
 
     def read_events(self, h: AgentHandle) -> list[AgentEvent]:

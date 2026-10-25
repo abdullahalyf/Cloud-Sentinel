@@ -17,7 +17,7 @@ class FixedBrain(Brain):
     def __init__(self, verdict):
         self.cfg, self.client, self.verdict, self.calls, self.history = cfg, None, verdict, 0, {}
 
-    def judge(self, snap, finding, recent):
+    def judge(self, snap, finding, recent, cfg=None):
         self.calls += 1
         return self.verdict
 
