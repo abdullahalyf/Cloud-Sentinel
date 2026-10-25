@@ -48,6 +48,9 @@ class Verdict:
     pattern: str         # one of PATTERNS
     reason: str
     source: str          # "claude" | "fallback"
+    tokens_in: int = 0   # what this Claude call cost (0 for fallback verdicts)
+    tokens_out: int = 0
+    cost_usd: float = 0.0
 
 
 Past = Sequence[tuple[float, Verdict]]  # (unix time, verdict), oldest first
@@ -190,13 +193,23 @@ class Brain:
                 messages=[{"role": "user",
                            "content": build_user_message(snap, finding, recent, self.cfg, past, now)}],
             )
+            verdict = fallback_verdict(snap, finding, self.cfg, "claude gave no verdict", past, now)
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use":
-                    return self._parse(block.input)
-            return fallback_verdict(snap, finding, self.cfg, "claude gave no verdict", past, now)
+                    verdict = self._parse(block.input)
+                    break
+            return self._with_cost(verdict, getattr(response, "usage", None))
         except Exception as exc:  # network, auth, rate limit, timeout…
             log.error("Claude call failed: %s", exc)
             return fallback_verdict(snap, finding, self.cfg, "claude unavailable", past, now)
+
+    def _with_cost(self, v: Verdict, usage) -> Verdict:
+        """Attach the tokens + estimated USD of the Claude call that produced `v`."""
+        v.tokens_in = int(getattr(usage, "input_tokens", 0) or 0)
+        v.tokens_out = int(getattr(usage, "output_tokens", 0) or 0)
+        v.cost_usd = (v.tokens_in * self.cfg.claude_price_in_per_mtok
+                      + v.tokens_out * self.cfg.claude_price_out_per_mtok) / 1_000_000
+        return v
 
     @staticmethod
     def _parse(data: dict) -> Verdict:

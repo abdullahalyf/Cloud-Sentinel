@@ -33,6 +33,8 @@ class Sentinel:
         self.states: dict[str, AgentState] = {}
         self.pending: dict[str, Future] = {}
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="brain")
+        self.brain_spent_usd = 0.0   # what Claude calls cost so far
+        self.saved_usd = 0.0         # estimated agent spend stopped by kills so far
 
     # ── main loop ────────────────────────────────────────────────────────────
     def run_forever(self) -> None:
@@ -107,6 +109,10 @@ class Sentinel:
         self.store.insert_alert(AlertRow(
             h.name, severity, f"{v.source}_verdict",
             f"{v.action} ({v.confidence:.0%}, {v.pattern}): {v.reason}"))
+        if v.tokens_in or v.tokens_out:
+            self.brain_spent_usd += v.cost_usd
+            self._report_cost(h.name, f"claude call {v.tokens_in:,} in + {v.tokens_out:,} out tokens "
+                                      f"= ${v.cost_usd:.6f} ({self.cfg.claude_model})")
         if v.action == "KILL" and v.confidence >= self.cfg.brain_kill_confidence:
             self.kill(h, actor=v.source, reason=v.reason, snap=snap)
         elif v.action in ("WARN", "KILL") and not st.warned:
@@ -131,12 +137,21 @@ class Sentinel:
         saved = snap.tokens_per_min * 60 if snap else 0
         log.critical("☠ KILLED %s by %s — %s (%s)", h.name, actor, reason, result)
         self.store.insert_action(ActionRow(h.name, "KILL", actor, reason, saved))
+        self.saved_usd += saved * self.cfg.agent_price_per_mtok / 1_000_000
+        self._report_cost(h.name, f"kill saved ~{saved:,} tokens")
         if snap:
             self.store.insert_metric(snap.to_metric("killed"))
         self.states.pop(h.id, None)
         self.pending.pop(h.id, None)
         self.brain.forget(h.name)
         return True
+
+    def _report_cost(self, agent: str, detail: str) -> None:
+        """Running totals for the dashboard: latest alert with rule 'brain_cost'."""
+        self.store.insert_alert(AlertRow(
+            agent, "info", "brain_cost",
+            f"Sentinel spent ${self.brain_spent_usd:.4f} to save ${self.saved_usd:.2f} — {detail} "
+            f"[spent_usd={self.brain_spent_usd:.6f} saved_usd={self.saved_usd:.4f}]"))
 
     def _process_commands(self) -> None:
         commands = self.store.pending_commands()
