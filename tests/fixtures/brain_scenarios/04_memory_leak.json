@@ -1,0 +1,103 @@
+{
+ "name": "memory_leak",
+ "expected": "KILL",
+ "description": "Normal-looking work but memory keeps climbing; warned 20s ago at 78%.",
+ "token_budget": 150000,
+ "memory_mb": 440,
+ "memory_pct": 86,
+ "past": [
+  [
+   20,
+   "WARN",
+   0.5,
+   "memory_leak",
+   "memory 78% and climbing"
+  ]
+ ],
+ "events": [
+  [
+   -56,
+   250,
+   90,
+   "Resize product image batch 1 and cache thumbnails"
+  ],
+  [
+   -52,
+   250,
+   90,
+   "Resize product image batch 2 and cache thumbnails"
+  ],
+  [
+   -48,
+   250,
+   90,
+   "Resize product image batch 3 and cache thumbnails"
+  ],
+  [
+   -44,
+   250,
+   90,
+   "Resize product image batch 4 and cache thumbnails"
+  ],
+  [
+   -40,
+   250,
+   90,
+   "Resize product image batch 5 and cache thumbnails"
+  ],
+  [
+   -36,
+   250,
+   90,
+   "Resize product image batch 6 and cache thumbnails"
+  ],
+  [
+   -32,
+   250,
+   90,
+   "Resize product image batch 7 and cache thumbnails"
+  ],
+  [
+   -28,
+   250,
+   90,
+   "Resize product image batch 8 and cache thumbnails"
+  ],
+  [
+   -24,
+   250,
+   90,
+   "Resize product image batch 9 and cache thumbnails"
+  ],
+  [
+   -20,
+   250,
+   90,
+   "Resize product image batch 10 and cache thumbnails"
+  ],
+  [
+   -16,
+   250,
+   90,
+   "Resize product image batch 11 and cache thumbnails"
+  ],
+  [
+   -12,
+   250,
+   90,
+   "Resize product image batch 12 and cache thumbnails"
+  ],
+  [
+   -8,
+   250,
+   90,
+   "Resize product image batch 13 and cache thumbnails"
+  ],
+  [
+   -4,
+   250,
+   90,
+   "Resize product image batch 14 and cache thumbnails"
+  ]
+ ]
+}

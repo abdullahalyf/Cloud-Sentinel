@@ -1,0 +1,131 @@
+{
+ "name": "infinite_loop",
+ "expected": "KILL",
+ "description": "Same API retry prompt once a second for 20 seconds.",
+ "token_budget": 150000,
+ "memory_mb": 110,
+ "memory_pct": 21,
+ "past": [],
+ "events": [
+  [
+   -20,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -19,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -18,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -17,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -16,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -15,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -14,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -13,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -12,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -11,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -10,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -9,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -8,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -7,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -6,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -5,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -4,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -3,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -2,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ],
+  [
+   -1,
+   300,
+   80,
+   "Retry: fetch order #4471 status from API and summarize the result"
+  ]
+ ]
+}

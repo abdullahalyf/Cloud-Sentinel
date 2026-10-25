@@ -1,0 +1,29 @@
+{
+ "name": "token_bomb",
+ "expected": "KILL",
+ "description": "A few enormous calls: ~4,500 tokens each, close to the hard limit.",
+ "token_budget": 150000,
+ "memory_mb": 180,
+ "memory_pct": 35,
+ "past": [],
+ "events": [
+  [
+   -14,
+   4400,
+   100,
+   "Summarize the entire data warehouse dump, part 1"
+  ],
+  [
+   -9,
+   4400,
+   100,
+   "Summarize the entire data warehouse dump, part 2"
+  ],
+  [
+   -4,
+   4400,
+   100,
+   "Summarize the entire data warehouse dump, part 3"
+  ]
+ ]
+}
