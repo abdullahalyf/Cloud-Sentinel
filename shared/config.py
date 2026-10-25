@@ -52,6 +52,7 @@ class Settings:
     # ── Claude (the brain) ──
     anthropic_api_key: str
     claude_model: str
+    claude_timeout_seconds: float     # one Claude call may take at most this long (then fallback)
     claude_price_in_per_mtok: float   # USD per 1M input tokens of CLAUDE_MODEL (brain cost tracking)
     claude_price_out_per_mtok: float  # USD per 1M output tokens of CLAUDE_MODEL
     agent_price_per_mtok: float       # USD per 1M tokens the watched agents spend ("money saved")
@@ -99,6 +100,7 @@ def load_settings() -> Settings:
     return Settings(
         anthropic_api_key=_str("ANTHROPIC_API_KEY"),
         claude_model=_str("CLAUDE_MODEL", "claude-haiku-5-5"),
+        claude_timeout_seconds=_float("CLAUDE_TIMEOUT_SECONDS", 10.0),
         claude_price_in_per_mtok=_float("CLAUDE_PRICE_IN_PER_MTOK", 0.10),
         claude_price_out_per_mtok=_float("CLAUDE_PRICE_OUT_PER_MTOK", 0.50),
         agent_price_per_mtok=_float("AGENT_PRICE_PER_MTOK", 4.0),

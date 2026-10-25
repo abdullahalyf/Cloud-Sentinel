@@ -162,11 +162,15 @@ class Brain:
             import anthropic
 
             # Short timeout: a circuit breaker can't wait 60s for an answer.
-            self.client = anthropic.Anthropic(api_key=cfg.anthropic_api_key, timeout=10.0, max_retries=1)
+            self.client = anthropic.Anthropic(api_key=cfg.anthropic_api_key,
+                                              timeout=cfg.claude_timeout_seconds, max_retries=1)
             log.info("Brain online: %s", cfg.claude_model)
         else:
             log.warning("No ANTHROPIC_API_KEY — brain runs in FALLBACK (rule-based) mode")
         self.history: dict[str, deque[tuple[float, Verdict]]] = {}
+        # Some models (e.g. Opus 5.5, Sonnet 5.5) reject a forced tool_choice with a 400.
+        # Then we switch to "auto" once; the system prompt still says to call report_verdict.
+        self.tool_choice: dict = {"type": "tool", "name": "report_verdict"}
 
     def judge(self, snap: Snapshot, finding: Finding, recent: list[AgentEvent]) -> Verdict:
         now = time.time()
@@ -183,16 +187,16 @@ class Brain:
                 now: float) -> Verdict:
         if self.client is None:
             return fallback_verdict(snap, finding, self.cfg, past=past, now=now)
+        message = build_user_message(snap, finding, recent, self.cfg, past, now)
         try:
-            response = self.client.messages.create(
-                model=self.cfg.claude_model,
-                max_tokens=400,
-                system=SYSTEM_PROMPT,
-                tools=[VERDICT_TOOL],
-                tool_choice={"type": "tool", "name": "report_verdict"},
-                messages=[{"role": "user",
-                           "content": build_user_message(snap, finding, recent, self.cfg, past, now)}],
-            )
+            try:
+                response = self._call(message)
+            except Exception as exc:
+                if "tool_choice" not in str(exc) or self.tool_choice["type"] == "auto":
+                    raise
+                log.warning("%s rejects a forced tool_choice — using auto", self.cfg.claude_model)
+                self.tool_choice = {"type": "auto"}
+                response = self._call(message)
             verdict = fallback_verdict(snap, finding, self.cfg, "claude gave no verdict", past, now)
             for block in response.content:
                 if getattr(block, "type", None) == "tool_use":
@@ -202,6 +206,16 @@ class Brain:
         except Exception as exc:  # network, auth, rate limit, timeout…
             log.error("Claude call failed: %s", exc)
             return fallback_verdict(snap, finding, self.cfg, "claude unavailable", past, now)
+
+    def _call(self, message: str):
+        return self.client.messages.create(
+            model=self.cfg.claude_model,
+            max_tokens=400,
+            system=SYSTEM_PROMPT,
+            tools=[VERDICT_TOOL],
+            tool_choice=self.tool_choice,
+            messages=[{"role": "user", "content": message}],
+        )
 
     def _with_cost(self, v: Verdict, usage) -> Verdict:
         """Attach the tokens + estimated USD of the Claude call that produced `v`."""

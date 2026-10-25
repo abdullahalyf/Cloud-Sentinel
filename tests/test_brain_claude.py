@@ -132,3 +132,36 @@ def test_engine_reports_spent_and_saved(tmp_path):
     assert len(costs) == 2                     # one for the Claude call, one for the kill
     assert any(f"saved_usd={s.saved_usd:.4f}" in a["message"] for a in costs)
     assert all(a["message"].startswith("Sentinel spent $") for a in costs)
+
+
+class RejectsForcedTool(MockMessages):
+    def create(self, **kw):
+        self.calls.append(kw)
+        if kw["tool_choice"]["type"] == "tool":
+            raise anthropic.BadRequestError(
+                "tool_choice: type \"tool\" and \"any\" are not supported for this model.",
+                response=httpx.Response(400, request=req()), body=None)
+        return tool_response()
+
+
+def test_model_without_forced_tool_choice_switches_to_auto():
+    m = RejectsForcedTool()
+    b = brain_with(m)
+    v = b.judge(LOOP, finding(), [])
+    assert v.source == "claude"
+    assert [c["tool_choice"]["type"] for c in m.calls] == ["tool", "auto"]
+    b.judge(LOOP, finding(), [])
+    assert m.calls[-1]["tool_choice"] == {"type": "auto"}   # remembered, no second 400
+
+
+def test_client_uses_timeout_from_settings(monkeypatch):
+    seen = {}
+
+    class FakeAnthropic:
+        def __init__(self, **kw):
+            seen.update(kw)
+
+    monkeypatch.setattr(anthropic, "Anthropic", FakeAnthropic)
+    keyed = cfg.__class__(**{**cfg.__dict__, "anthropic_api_key": "sk-test", "claude_timeout_seconds": 3.5})
+    Brain(keyed)
+    assert seen["timeout"] == 3.5 and seen["api_key"] == "sk-test"
