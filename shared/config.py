@@ -62,6 +62,10 @@ class Settings:
     supabase_key: str
     local_db_path: str
 
+    # ── Notifications ── (empty URL = off)
+    webhook_url: str               # Discord/Slack incoming webhook, told about every KILL/PAUSE
+    webhook_timeout_seconds: float
+
     # ── Sentinel loop ──
     tick_seconds: float
     dry_run: bool                  # True = log "would kill" but never kill
@@ -107,6 +111,8 @@ def load_settings() -> Settings:
         supabase_url=_str("SUPABASE_URL"),
         supabase_key=_str("SUPABASE_KEY"),
         local_db_path=_str("LOCAL_DB_PATH", "data/cloudsentinel.db"),
+        webhook_url=_str("WEBHOOK_URL"),
+        webhook_timeout_seconds=_float("WEBHOOK_TIMEOUT_SECONDS", 5.0),
         tick_seconds=_float("TICK_SECONDS", 1.0),
         dry_run=_bool("DRY_RUN", False),
         monitor_label=_str("MONITOR_LABEL", "cloudsentinel.monitor"),

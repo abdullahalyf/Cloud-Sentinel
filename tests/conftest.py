@@ -1,0 +1,6 @@
+"""Shared test setup."""
+import os
+
+# A developer's .env must never make the test suite post to a real chat channel.
+# Set before shared.config is imported; load_dotenv does not override existing variables.
+os.environ["WEBHOOK_URL"] = ""

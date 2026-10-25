@@ -17,6 +17,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from sentinel.brain import Brain, Verdict
 from sentinel.collector import AgentState, Snapshot
 from sentinel.detector import Finding, Level, evaluate
+from sentinel.notifier import Notifier
 from sentinel.sources import AgentHandle, AgentSource
 from shared.config import Settings
 from shared.contracts import ActionRow, AlertRow
@@ -27,8 +28,9 @@ log = logging.getLogger("sentinel.engine")
 
 class Sentinel:
     def __init__(self, source: AgentSource, store: Store, brain: Brain, cfg: Settings,
-                 dry_run: bool = False):
+                 dry_run: bool = False, notifier: Notifier | None = None):
         self.source, self.store, self.brain, self.cfg = source, store, brain, cfg
+        self.notifier = notifier or Notifier(cfg)
         self.dry_run = dry_run
         self.states: dict[str, AgentState] = {}
         self.pending: dict[str, Future] = {}
@@ -140,6 +142,7 @@ class Sentinel:
         saved = snap.tokens_per_min * 60 if snap else 0
         log.critical("☠ KILLED %s by %s — %s (%s)", h.name, actor, reason, result)
         self.store.insert_action(ActionRow(h.name, "KILL", actor, reason, saved))
+        self.notifier.notify(h.name, "KILL", actor, reason)
         self.saved_usd += saved * self.cfg.agent_price_per_mtok / 1_000_000
         self._report_cost(h.name, f"kill saved ~{saved:,} tokens")
         if snap:
@@ -182,6 +185,7 @@ class Sentinel:
                             pending.cancel()  # discard even a verdict already running
                         self.store.insert_action(ActionRow(
                             h.name, "PAUSE", "human", cmd.get("reason") or "Quarantine"))
+                        self.notifier.notify(h.name, "PAUSE", "human", cmd.get("reason") or "Quarantine")
                     else:
                         result = self.source.resume(h)
                     self.store.finish_command(cmd["id"], "done", result)
