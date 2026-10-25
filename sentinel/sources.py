@@ -143,6 +143,10 @@ class _FakeAgent:
         self.base_mem = self.rng.uniform(60, 95)
         self.calls = 0
 
+    def go_rogue(self) -> None:
+        self.rogue_since = time.time()
+        self.next_call = min(self.next_call, self.rogue_since)  # start looping now, not after the idle sleep
+
 
 class FakeSource:
     MEMORY_LIMIT_MB = 512.0
@@ -158,7 +162,7 @@ class FakeSource:
         if self.auto_rogue and time.time() - self.started >= self.rogue_after:
             a = self.agents.get(self.auto_rogue)
             if a and a.alive and a.rogue_since is None:
-                a.rogue_since = time.time()
+                a.go_rogue()
                 log.info("[fake] %s went rogue", a.name)
             self.auto_rogue = None
         return [AgentHandle(a.id, a.name, a.budget) for a in self.agents.values() if a.alive]
@@ -200,5 +204,5 @@ class FakeSource:
     def go_rogue(self, h: AgentHandle) -> str:
         a = self._agent(h)
         if a.rogue_since is None:
-            a.rogue_since = time.time()
+            a.go_rogue()
         return f"fake agent {h.name} switched to rogue mode"

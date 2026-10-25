@@ -95,7 +95,7 @@ def load_settings() -> Settings:
         soft_tokens_per_min=_int("SOFT_TOKENS_PER_MIN", 25_000),
         soft_calls_per_sec=_float("SOFT_CALLS_PER_SEC", 2.0),
         soft_memory_pct=_float("SOFT_MEMORY_PCT", 70.0),
-        loop_repeat_threshold=_int("LOOP_REPEAT_THRESHOLD", 8),
+        loop_repeat_threshold=_int("LOOP_REPEAT_THRESHOLD", 5),
         hard_tokens_per_min=_int("HARD_TOKENS_PER_MIN", 60_000),
         hard_calls_per_sec=_float("HARD_CALLS_PER_SEC", 8.0),
         hard_memory_pct=_float("HARD_MEMORY_PCT", 90.0),

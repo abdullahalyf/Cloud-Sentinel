@@ -77,3 +77,16 @@ def test_docker_timestamp_parsing_orders_correctly():
     a = parse_docker_ts("2026-10-25T12:00:00.100000000Z")
     b = parse_docker_ts("2026-10-25T12:00:00.123Z")
     assert a < b
+
+
+def test_brain_kills_rogue_within_10s_before_hard_limits(tmp_path):
+    s, source, store = make(tmp_path)  # real fallback brain (no API key)
+    s.tick()
+    source.go_rogue(next(h for h in source.list_agents() if h.name == "beta"))
+    started = time.time()
+    while source.agents["beta"].alive and time.time() - started < 10:
+        run_ticks(s, 1)
+    assert not source.agents["beta"].alive
+    assert source.agents["alpha"].alive and source.agents["gamma"].alive
+    kills = [a for a in store.recent_actions() if a["action"] == "KILL"]
+    assert [(k["agent"], k["actor"]) for k in kills] == [("beta", "fallback")]  # brain, not hard rules
