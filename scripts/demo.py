@@ -1,7 +1,11 @@
-"""Offline rehearsal: python scripts/demo.py [--timeout 60].
+"""Demo rehearsal: python scripts/demo.py [--docker] [--timeout 60].
 
-Uses a fresh temporary SQLite database, never the dashboard's database.
-Sends GO_ROGUE at 10 seconds; prints persisted flag/kill times and cleans up.
+Default (fake): simulated agents and a fresh temporary SQLite database, never the
+dashboard's database.
+--docker: the real sentinel against the real agent containers and the database from
+.env (so the dashboard shows it too). Run `docker compose up -d --build` first.
+
+Both send GO_ROGUE to beta at 10 seconds and print persisted flag/kill times.
 """
 from __future__ import annotations
 
@@ -61,12 +65,48 @@ def timeline(store: Store, child: subprocess.Popen, timeout: float) -> str:
     raise RuntimeError(f"rehearsal timed out after {timeout:g}s without a complete timeline")
 
 
-def main() -> int:
+RESET_HINT = "Reset the agents for the next run:  docker compose up -d --force-recreate"
+
+
+def rehearse(store: Store, command: list[str], timeout: float) -> int:
+    """Run the sentinel as a child process, print the timeline, always stop the child."""
+    with tempfile.TemporaryFile(mode='w+t') as log:
+        child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+                                 stdin=subprocess.DEVNULL)
+        try:
+            result = timeline(store, child, timeout)
+        except (RuntimeError, KeyboardInterrupt) as exc:
+            print(f"Rehearsal stopped: {exc or 'interrupted'}", file=sys.stderr)
+            log.seek(0)
+            print(log.read()[-4000:], file=sys.stderr, end='')
+            return 1
+        finally:
+            if child.poll() is None:
+                child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
+        print(result)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60, help='total rehearsal deadline in seconds')
-    args = parser.parse_args()
+    parser.add_argument('--docker', action='store_true',
+                        help='real sentinel + real agent containers + the .env database')
+    args = parser.parse_args(argv)
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error('--timeout must be a finite positive number')
+
+    if args.docker:
+        from shared.store import get_store
+
+        code = rehearse(get_store(), [sys.executable, '-m', 'sentinel'], args.timeout)
+        print(RESET_HINT)
+        return code
 
     with tempfile.TemporaryDirectory(prefix='cloudsentinel-demo-') as directory:
         # Set overrides before importing settings; .env must not enable remote services.
@@ -74,28 +114,8 @@ def main() -> int:
                           LOCAL_DB_PATH=str(Path(directory) / 'rehearsal.db'), DRY_RUN='false')
         from shared.store import get_store
 
-        store = get_store()
-        with tempfile.TemporaryFile(mode='w+t') as log:
-            child = subprocess.Popen(
-                [sys.executable, '-m', 'sentinel', '--fake', '--no-auto-rogue'],
-                cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            try:
-                result = timeline(store, child, args.timeout)
-            except (RuntimeError, KeyboardInterrupt) as exc:
-                print(f"Rehearsal stopped: {exc or 'interrupted'}", file=sys.stderr)
-                log.seek(0)
-                print(log.read()[-4000:], file=sys.stderr, end='')
-                return 1
-            finally:
-                if child.poll() is None:
-                    child.terminate()
-                try:
-                    child.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    child.kill()
-                    child.wait()
-            print(result)
-    return 0
+        return rehearse(get_store(), [sys.executable, '-m', 'sentinel', '--fake', '--no-auto-rogue'],
+                        args.timeout)
 
 
 if __name__ == '__main__':
