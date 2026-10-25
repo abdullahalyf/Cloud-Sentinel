@@ -223,3 +223,25 @@ def test_kill_clears_brain_history(tmp_path):
     h = next(h for h in source.list_agents() if h.name == "beta")
     assert s.kill(h, actor="human", reason="test")
     assert "beta" not in s.brain.history
+
+
+def test_new_rule_skips_brain_cooldown(tmp_path):
+    from sentinel.collector import AgentState
+    from sentinel.detector import Finding, Level
+
+    s, source, store = make(tmp_path, Verdict("WARN", 0.5, "other", "hm", "fallback"))
+    h = source.list_agents()[0]
+    st = AgentState(h.name, h.id, 1000)
+    snap = st.snapshot()
+    first, same, more = Finding(), Finding(), Finding()
+    first.add(Level.SUSPICIOUS, "prompt_injection", "x")
+    same.add(Level.SUSPICIOUS, "prompt_injection", "x")
+    more.add(Level.SUSPICIOUS, "loop_detected", "y")
+    more.add(Level.SUSPICIOUS, "prompt_injection", "x")
+    now = time.time()
+    for finding, t in ((first, now), (same, now + 2), (more, now + 3)):
+        s._ask_brain(h, st, snap, finding, t)
+        fut = s.pending.pop(h.id, None)
+        if fut:
+            fut.result(timeout=5)
+    assert s.brain.calls == 2   # same rules waited for the cooldown, a new rule did not

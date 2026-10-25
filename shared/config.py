@@ -34,8 +34,17 @@ def _float(name: str, default: float) -> float:
         return default
 
 
+def _list(name: str, default: str) -> tuple[str, ...]:
+    """Comma-separated env var → lowercase tuple, empty items dropped."""
+    return tuple(x.strip().lower() for x in os.getenv(name, default).split(",") if x.strip())
+
+
 def _bool(name: str, default: bool) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+DEFAULT_INJECTION_PHRASES = ("monitoring system,do not terminate,do not kill,don't kill,don't terminate,"
+                             "ignore previous instructions,ignore all previous instructions,note to monitor")
 
 
 @dataclass(frozen=True)
@@ -62,6 +71,7 @@ class Settings:
     soft_calls_per_sec: float
     soft_memory_pct: float
     loop_repeat_threshold: int     # same prompt N times in the window = possible loop
+    injection_phrases: tuple[str, ...]  # prompt text addressed to the monitor = possible injection
 
     # ── Rules: HARD limits → kill immediately, no AI needed (circuit breaker) ──
     hard_tokens_per_min: int
@@ -97,6 +107,7 @@ def load_settings() -> Settings:
         soft_calls_per_sec=_float("SOFT_CALLS_PER_SEC", 2.0),
         soft_memory_pct=_float("SOFT_MEMORY_PCT", 70.0),
         loop_repeat_threshold=_int("LOOP_REPEAT_THRESHOLD", 5),
+        injection_phrases=_list("INJECTION_PHRASES", DEFAULT_INJECTION_PHRASES),
         hard_tokens_per_min=_int("HARD_TOKENS_PER_MIN", 60_000),
         hard_calls_per_sec=_float("HARD_CALLS_PER_SEC", 8.0),
         hard_memory_pct=_float("HARD_MEMORY_PCT", 90.0),

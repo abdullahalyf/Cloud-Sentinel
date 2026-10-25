@@ -62,6 +62,7 @@ class AgentState:
         self.memory_mb = 0.0
         self.memory_pct = 0.0
         self.last_brain_check = 0.0
+        self.last_brain_rules: frozenset[str] = frozenset()  # rules the brain was last asked about
         self.warned = False
 
     def add(self, event: AgentEvent) -> None:

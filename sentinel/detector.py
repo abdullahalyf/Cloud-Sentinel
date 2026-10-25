@@ -8,6 +8,7 @@ Detector: fast, dumb, reliable rules. Runs every tick for every agent. No AI, no
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -33,7 +34,19 @@ class Finding:
         self.reasons.append(reason)
 
 
-def evaluate(s: Snapshot, cfg: Settings) -> Finding:
+def find_injection(prompts: Iterable[str], phrases: Iterable[str]) -> str:
+    """First phrase from `phrases` that appears in any prompt, or ''."""
+    phrases = tuple(phrases)
+    for prompt in prompts:
+        text = prompt.lower()
+        for phrase in phrases:
+            if phrase in text:
+                return phrase
+    return ""
+
+
+def evaluate(s: Snapshot, cfg: Settings, prompts: Iterable[str] = ()) -> Finding:
+    """`prompts` = the agent's recent prompts, checked for text addressed to the monitor."""
     f = Finding()
 
     # ── HARD limits (CRITICAL) ──
@@ -64,6 +77,10 @@ def evaluate(s: Snapshot, cfg: Settings) -> Finding:
         if s.memory_pct >= cfg.soft_memory_pct:
             f.add(Level.SUSPICIOUS, "memory_high",
                   f"memory {s.memory_pct:.0f}% ≥ soft limit {cfg.soft_memory_pct:.0f}%")
+        phrase = find_injection(prompts, cfg.injection_phrases)
+        if phrase:
+            f.add(Level.SUSPICIOUS, "prompt_injection",
+                  f'prompt is addressed to the monitor ("{phrase}") — possible prompt injection')
         if s.token_budget and s.budget_used_pct >= 80:
             f.add(Level.SUSPICIOUS, "budget_80pct",
                   f"{s.budget_used_pct:.0f}% of token budget used")

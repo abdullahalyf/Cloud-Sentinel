@@ -71,7 +71,7 @@ class Sentinel:
             st.add(event)
         st.set_memory(*self.source.read_memory(h))
         snap = st.snapshot(now)
-        finding = evaluate(snap, self.cfg)
+        finding = evaluate(snap, self.cfg, (e.prompt for e in st.calls))
         self.store.insert_metric(snap.to_metric("warned" if st.warned else "running"))
 
         if finding.level == Level.CRITICAL:
@@ -86,9 +86,11 @@ class Sentinel:
 
     # ── brain ────────────────────────────────────────────────────────────────
     def _ask_brain(self, h: AgentHandle, st: AgentState, snap: Snapshot, finding: Finding, now: float) -> None:
-        if h.id in self.pending or now - st.last_brain_check < self.cfg.brain_cooldown_seconds:
+        new_evidence = not set(finding.rules) <= st.last_brain_rules  # a new rule skips the cooldown
+        if h.id in self.pending or (now - st.last_brain_check < self.cfg.brain_cooldown_seconds
+                                    and not new_evidence):
             return
-        st.last_brain_check = now
+        st.last_brain_check, st.last_brain_rules = now, frozenset(finding.rules)
         log.warning("%s looks suspicious: %s → asking the brain", h.name, "; ".join(finding.reasons))
         self.store.insert_alert(AlertRow(h.name, "warning", ",".join(finding.rules), "; ".join(finding.reasons)))
         self.pending[h.id] = self.pool.submit(self.brain.judge, snap, finding, st.recent_events(12))

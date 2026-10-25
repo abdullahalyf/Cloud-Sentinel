@@ -134,11 +134,12 @@ def fallback_verdict(snap: Snapshot, finding: Finding, cfg: Settings, note: str 
         snap.tokens_per_min >= cfg.soft_tokens_per_min or snap.calls_per_sec >= cfg.soft_calls_per_sec
     )
     prefix = f"[{note}] " if note else ""
+    injection = " It also wrote text addressed to the monitor." if "prompt_injection" in finding.rules else ""
     if looping:
         conf = 0.85 if spending else 0.7
         return Verdict("KILL", conf, "infinite_loop",
-                       prefix + f"Same prompt repeated {snap.loop_repeats}× in a minute — stuck in a loop.",
-                       "fallback")
+                       prefix + f"Same prompt repeated {snap.loop_repeats}× in a minute — stuck in a loop."
+                       + injection, "fallback")
     if snap.memory_pct >= cfg.soft_memory_pct and looping:
         return Verdict("KILL", 0.7, "memory_leak",
                        prefix + "Memory climbing while repeating the same work.", "fallback")
