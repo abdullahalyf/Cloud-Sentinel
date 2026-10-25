@@ -11,14 +11,14 @@ Task-গুলো ক্রম অনুযায়ী সাজানো: আ�
 **MVP**
 1. Claude API key `.env`-এ বসাও, তারপর `python scripts/check_setup.py` চালাও।
 2. Docker mode পরীক্ষা: `docker compose up -d --build` → `python -m sentinel` → `python scripts/command.py rogue beta` চালিয়ে দেখো beta সত্যিই kill হচ্ছে কিনা।
-3. Demo-র timing ঠিক করা: rogue হওয়ার ~১০ সেকেন্ডের মধ্যে যেন **Claude**-ই kill করে, hard limit নয়। দরকার হলে `.env`-এর threshold বদলাও।
+3. `python scripts/demo.py` দিয়ে offline rehearsal: ১০s-এ beta rogue → flagged → killed timeline যাচাই করো। এটি আলাদা temporary SQLite ও fallback brain ব্যবহার করে; Claude timing আলাদা করে যাচাই করো।
 4. Fojle-এর Supabase তৈরি হয়ে গেলে Supabase-এর সাথে পুরো flow একবার চালিয়ে দেখো।
 
 **Polish**
-5. Brain-কে আগের verdict-গুলো মনে রাখানো ("একবার WARN দেওয়া হয়েছে, এখন আরও খারাপ হচ্ছে")।
-6. নতুন action **PAUSE** (`docker pause`): quarantine হিসেবে, যাতে মানুষ চাইলে আবার resume করতে পারে।
+5. Brain history তৈরি আছে; `.env`-এর `BRAIN_ESCALATE_WINDOW_SECONDS=60` দিয়ে fallback escalation window যাচাই করো। `LOOP_REPEAT_THRESHOLD=5` এখন default।
+6. **PAUSE/RESUME** তৈরি আছে: quarantine-এ execution ও বিচার বন্ধ; resume-এ monitoring ফেরে। Fake ও Docker mode-এ যাচাই করো; paused অবস্থায় Emergency Kill-ও কাজ করতে হবে।
 
-> AI prompt (task 5): *Read AGENTS.md. In `sentinel/`, give the brain a short per-agent history of its previous verdicts (last 3) and include it in the Claude user message. Do not change shared/contracts.py. Add a test in tests/test_engine.py. Run pytest.*
+> যাচাই: `python -m pytest -q` এখন rehearsal test-ও চালায়; প্রতিটি push ও PR-এ GitHub Actions একই suite চালাবে।
 
 ---
 
@@ -31,10 +31,11 @@ Task-গুলো ক্রম অনুযায়ী সাজানো: আ�
 2. "💰 Money saved" counter একদম উপরে বড় করে, judge-রা যেন প্রথমেই দেখে।
 3. 🛑 Emergency Kill-এ চাপলে একটা confirm dialog আসবে (`st.dialog`)।
 4. Claude-এর verdict-এর **reason** আলাদা একটা highlighted box-এ দেখানো ("🧠 Claude: stuck in a loop…")। এটা demo-র সবচেয়ে শক্তিশালী মুহূর্ত।
+5. [Pause/Resume button code](handoff/tamjid-pause-buttons.md) বসাও; paused status/card আলাদা দেখাও, running count থেকে বাদ দাও, Simulate rogue disable করো। Dashboard শুধু `CommandRow` পাঠাবে।
 
 **Polish**
-5. Kill হওয়ার মুহূর্তে লাল flash বা animation।
-6. প্রতিটা agent-এর জন্য memory chart।
+6. Kill হওয়ার মুহূর্তে লাল flash বা animation।
+7. প্রতিটা agent-এর জন্য memory chart।
 
 > AI prompt (task 1–2): *Read AGENTS.md. Improve dashboard/app.py only. Make a dark, modern Command Center: a big "Money saved" number at the top, one large colored card per agent (running/warned/killed), keep the token flow chart and the kill/rogue buttons. Read data only through get_store(); send actions only by inserting CommandRow. Keep the @st.fragment(run_every="2s") auto-refresh. Run pytest.*
 
@@ -62,7 +63,7 @@ Task-গুলো ক্রম অনুযায়ী সাজানো: আ�
 1. Pitch deck (৮–১০ slide): Problem (rogue AI-র কারণে বিল লাখ টাকা) → Solution → **Live demo** → কীভাবে কাজ করে (README-র diagram) → কেন Claude আর কেন শুধু rule যথেষ্ট নয় → Business model (প্রতি agent হিসেবে মাসিক SaaS ফি) → Market → Team।
 2. `docs/QA.md` বানাও: test case-এর একটা table, কলাম হবে *কী করলাম → কী হওয়ার কথা → কী হলো → Pass/Fail*। উদাহরণ: "dashboard-এ alpha-র Kill চাপলাম → ১–২ সেকেন্ডে 💀"।
 3. Bug পেলে GitHub-এ **Issues → New issue** খুলবে, সাথে screenshot দেবে।
-4. Demo-র script লেখা: কে কোন সময়ে কী বলবে আর কী চাপবে। পুরো demo ৩ মিনিটের মধ্যে।
+4. Demo-র script লেখা: কে কোন সময়ে কী বলবে আর কী চাপবে। পুরো demo ৩ মিনিটের মধ্যে। `python scripts/demo.py` দিয়ে offline timing মাপো; default timeout ৬০s।
 
 > AI prompt (task 2): *Read README.md and AGENTS.md of this project. Write docs/QA.md: a table of 20 manual test cases for CloudSentinel (dashboard kill switch, rogue agent detection, normal agents not killed, no API key, no Docker, database empty, killing an already-dead agent, etc.). Columns: ID, Steps, Expected, Actual, Pass/Fail. Use simple English.*
 
