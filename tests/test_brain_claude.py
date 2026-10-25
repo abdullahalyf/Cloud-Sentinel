@@ -3,7 +3,11 @@ import time
 from types import SimpleNamespace
 
 import anthropic
-import httpx
+
+try:  # anthropic 1.x+ is built on httpx2, older versions on httpx
+    import httpx2 as httpx
+except ImportError:
+    import httpx
 
 from sentinel.brain import SYSTEM_PROMPT, VERDICT_TOOL, Brain, Verdict
 from sentinel.collector import Snapshot
