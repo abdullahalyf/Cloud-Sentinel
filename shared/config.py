@@ -71,6 +71,7 @@ class Settings:
     # ── Brain behaviour ──
     brain_cooldown_seconds: float  # don't ask Claude about the same agent more often than this
     brain_kill_confidence: float   # Claude must be at least this sure to kill
+    brain_escalate_window_seconds: float  # fallback: a WARN after a WARN/KILL within this window → KILL
 
     @property
     def use_supabase(self) -> bool:
@@ -101,6 +102,7 @@ def load_settings() -> Settings:
         hard_memory_pct=_float("HARD_MEMORY_PCT", 90.0),
         brain_cooldown_seconds=_float("BRAIN_COOLDOWN_SECONDS", 10.0),
         brain_kill_confidence=_float("BRAIN_KILL_CONFIDENCE", 0.6),
+        brain_escalate_window_seconds=_float("BRAIN_ESCALATE_WINDOW_SECONDS", 60.0),
     )
 
 

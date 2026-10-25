@@ -47,3 +47,17 @@ def test_brain_keeps_last_3_verdicts_per_agent():
     assert actions == ["WARN", "KILL", "KILL", "KILL", "KILL"]
     assert len(brain.history["beta"]) == 3
     assert brain.judge(spiky_snapshot("gamma"), spike_finding(), []).action == "WARN"  # per agent
+
+
+def test_escalation_window_comes_from_settings():
+    short = cfg.__class__(**{**cfg.__dict__, "brain_escalate_window_seconds": 5.0})
+    v = fallback_verdict(spiky_snapshot(), spike_finding(), short, past=[(NOW - 12, WARN)], now=NOW)
+    assert v.action == "WARN"  # 12s ago is outside a 5s window
+
+
+def test_forget_clears_history_so_restart_starts_clean():
+    brain = Brain(cfg.__class__(**{**cfg.__dict__, "anthropic_api_key": ""}))
+    brain.judge(spiky_snapshot(), spike_finding(), [])
+    brain.forget("beta")
+    assert "beta" not in brain.history
+    assert brain.judge(spiky_snapshot(), spike_finding(), []).action == "WARN"

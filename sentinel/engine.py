@@ -133,6 +133,7 @@ class Sentinel:
             self.store.insert_metric(snap.to_metric("killed"))
         self.states.pop(h.id, None)
         self.pending.pop(h.id, None)
+        self.brain.forget(h.name)
         return True
 
     def _process_commands(self) -> None:

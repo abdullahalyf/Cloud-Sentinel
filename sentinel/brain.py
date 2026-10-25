@@ -17,7 +17,8 @@ Design rules (important — read before changing):
   4. If there's no API key, or the API fails/times out → fallback_verdict(). The demo
      must never break because of the network.
   5. The brain remembers its last few verdicts per agent and shows them to Claude, so
-     repeated warnings escalate. Fallback: a WARN after a WARN/KILL within 60s becomes KILL.
+     repeated warnings escalate. Fallback: a WARN after a WARN/KILL within
+     BRAIN_ESCALATE_WINDOW_SECONDS becomes KILL. History is cleared when the agent is killed.
 """
 from __future__ import annotations
 
@@ -38,7 +39,6 @@ log = logging.getLogger("sentinel.brain")
 ACTIONS = ("KILL", "WARN", "IGNORE")
 PATTERNS = ("infinite_loop", "token_spike", "memory_leak", "legitimate_burst", "other")
 HISTORY_SIZE = 3          # verdicts remembered per agent
-ESCALATE_WINDOW = 60.0    # fallback: WARN after a WARN/KILL within this many seconds → KILL
 
 
 @dataclass
@@ -143,7 +143,7 @@ def fallback_verdict(snap: Snapshot, finding: Finding, cfg: Settings, note: str 
         return Verdict("KILL", 0.7, "memory_leak",
                        prefix + "Memory climbing while repeating the same work.", "fallback")
     now = time.time() if now is None else now
-    if any(v.action in ("WARN", "KILL") and now - ts <= ESCALATE_WINDOW for ts, v in past):
+    if any(v.action in ("WARN", "KILL") and now - ts <= cfg.brain_escalate_window_seconds for ts, v in past):
         return Verdict("KILL", 0.7, "other",
                        prefix + "Still suspicious after a warning — escalating: " + "; ".join(finding.reasons),
                        "fallback")
@@ -170,6 +170,10 @@ class Brain:
         verdict = self._decide(snap, finding, recent, list(history), now)
         history.append((now, verdict))
         return verdict
+
+    def forget(self, agent: str) -> None:
+        """Drop an agent's verdict history (after a kill), so a restarted container starts clean."""
+        self.history.pop(agent, None)
 
     def _decide(self, snap: Snapshot, finding: Finding, recent: list[AgentEvent], past: Past,
                 now: float) -> Verdict:

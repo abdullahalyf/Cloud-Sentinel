@@ -209,6 +209,8 @@ class FakeSource:
                                          tokens_out=a.rng.randint(50, 250), model="sim",
                                          prompt=f"{task} (job {a.rng.randint(1000, 9999)})"))
                 a.next_call = t + a.rng.uniform(2.0, 5.0)
+                if a.rogue_since is not None:  # an overdue healthy call must not delay the loop
+                    a.next_call = min(a.next_call, max(a.rogue_since, t))
         return events
 
     def read_memory(self, h: AgentHandle) -> tuple[float, float]:

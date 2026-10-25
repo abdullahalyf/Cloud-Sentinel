@@ -15,7 +15,7 @@ cfg = load_settings()
 
 class FixedBrain(Brain):
     def __init__(self, verdict):
-        self.cfg, self.client, self.verdict, self.calls = cfg, None, verdict, 0
+        self.cfg, self.client, self.verdict, self.calls, self.history = cfg, None, verdict, 0, {}
 
     def judge(self, snap, finding, recent):
         self.calls += 1
@@ -215,3 +215,11 @@ def test_resume_failure_keeps_agent_quarantined(tmp_path, monkeypatch):
     assert store._select('select status from commands order by id')[-1]['status'] == 'failed'
     assert [m for m in store.recent_metrics() if m['agent'] == 'beta'][-1]['status'] == 'paused'
     s.pool.shutdown()
+
+
+def test_kill_clears_brain_history(tmp_path):
+    s, source, store = make(tmp_path)
+    s.brain.history["beta"] = ["old verdict"]
+    h = next(h for h in source.list_agents() if h.name == "beta")
+    assert s.kill(h, actor="human", reason="test")
+    assert "beta" not in s.brain.history
