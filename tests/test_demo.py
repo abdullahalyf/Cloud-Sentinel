@@ -1,4 +1,4 @@
-"""Run explicitly: python -m pytest -q scripts/test_demo.py."""
+"""Offline rehearsal integration tests; included in python -m pytest -q."""
 import os
 import re
 import subprocess
