@@ -69,6 +69,7 @@ class Settings:
     # ── Sentinel loop ──
     tick_seconds: float
     dry_run: bool                  # True = log "would kill" but never kill
+    log_file: str                  # sentinel log for judges/debugging (empty = console only)
 
     # ── Docker ──
     monitor_label: str             # only containers with <label>=true are watched
@@ -115,6 +116,7 @@ def load_settings() -> Settings:
         webhook_timeout_seconds=_float("WEBHOOK_TIMEOUT_SECONDS", 5.0),
         tick_seconds=_float("TICK_SECONDS", 1.0),
         dry_run=_bool("DRY_RUN", False),
+        log_file=_str("LOG_FILE", "logs/sentinel.log"),
         monitor_label=_str("MONITOR_LABEL", "cloudsentinel.monitor"),
         default_token_budget=_int("DEFAULT_TOKEN_BUDGET", 150_000),
         soft_tokens_per_min=_int("SOFT_TOKENS_PER_MIN", 25_000),

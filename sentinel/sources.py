@@ -158,6 +158,9 @@ class DockerSource:
         limit = mem.get("limit") or 0
         return used / 1_048_576, (100.0 * used / limit if limit else 0.0)
 
+    def shutdown(self) -> None:
+        self._stats_pool.shutdown(wait=False, cancel_futures=True)
+
     def kill(self, h: AgentHandle) -> str:
         if self.is_paused(h):
             self.resume(h)

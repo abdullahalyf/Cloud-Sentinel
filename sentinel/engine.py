@@ -37,18 +37,40 @@ class Sentinel:
         self.pending: dict[str, Future] = {}
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="brain")
         self.brain_spent_usd = 0.0   # what Claude calls cost so far
+        self.watched: set[str] = set()   # agent names seen this run
+        self.kills = 0
+        self.tokens_saved = 0
         self.saved_usd = 0.0         # estimated agent spend stopped by kills so far
 
     # ── main loop ────────────────────────────────────────────────────────────
     def run_forever(self) -> None:
+        """Loop until Ctrl+C, then stop the worker threads and log a summary."""
         log.info("Sentinel running (tick %.1fs, dry_run=%s)", self.cfg.tick_seconds, self.dry_run)
-        while True:
-            started = time.time()
-            try:
-                self.tick()
-            except Exception:
-                log.exception("tick failed — continuing")  # the guard must never die
-            time.sleep(max(0.0, self.cfg.tick_seconds - (time.time() - started)))
+        try:
+            while True:
+                started = time.time()
+                try:
+                    self.tick()
+                except Exception:
+                    log.exception("tick failed — continuing")  # the guard must never die
+                time.sleep(max(0.0, self.cfg.tick_seconds - (time.time() - started)))
+        except KeyboardInterrupt:
+            log.info("Ctrl+C — stopping")
+        finally:
+            self.shutdown()
+            log.info(self.summary())
+
+    def shutdown(self) -> None:
+        """Drop queued brain/webhook work; a call already running finishes in its thread."""
+        self.pool.shutdown(wait=False, cancel_futures=True)
+        self.notifier.shutdown()
+        if hasattr(self.source, "shutdown"):
+            self.source.shutdown()
+
+    def summary(self) -> str:
+        return (f"Summary: watched {len(self.watched)} agent(s) ({', '.join(sorted(self.watched)) or '-'}), "
+                f"{self.kills} kill(s), ~{self.tokens_saved:,} tokens saved "
+                f"(≈${self.saved_usd:.2f}), brain spent ${self.brain_spent_usd:.4f}")
 
     def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
@@ -68,6 +90,7 @@ class Sentinel:
         st = self.states.get(h.id)
         if st is None:
             st = self.states[h.id] = AgentState(h.name, h.id, h.token_budget)
+            self.watched.add(h.name)
             log.info("Now watching %s (budget %s tokens)", h.name, f"{h.token_budget:,}")
         if self.source.is_paused(h):
             self.store.insert_metric(st.snapshot(now).to_metric("paused"))
@@ -153,6 +176,8 @@ class Sentinel:
         log.critical("☠ KILLED %s by %s — %s (%s)", h.name, actor, reason, result)
         self.store.insert_action(ActionRow(h.name, "KILL", actor, reason, saved))
         self.notifier.notify(h.name, "KILL", actor, reason)
+        self.kills += 1
+        self.tokens_saved += saved
         self.saved_usd += saved * self.cfg.agent_price_per_mtok / 1_000_000
         self._report_cost(h.name, f"kill saved ~{saved:,} tokens")
         if snap:

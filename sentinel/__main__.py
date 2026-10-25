@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from pathlib import Path
 
 from sentinel.brain import Brain
 from sentinel.engine import Sentinel
@@ -27,10 +28,15 @@ def main() -> None:
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
 
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if settings.log_file:
+        Path(settings.log_file).parent.mkdir(parents=True, exist_ok=True)
+        handlers.append(logging.FileHandler(settings.log_file, encoding="utf-8"))
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-8s %(name)-16s %(message)s",
         datefmt="%H:%M:%S",
+        handlers=handlers,
     )
     log = logging.getLogger("sentinel")
 
@@ -55,5 +61,6 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except KeyboardInterrupt:
-        print("\nSentinel stopped.")
+    except KeyboardInterrupt:  # Ctrl+C during startup; the loop handles its own
+        pass
+    print("\nSentinel stopped.")

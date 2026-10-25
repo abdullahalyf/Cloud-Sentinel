@@ -111,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix='cloudsentinel-demo-') as directory:
         # Set overrides before importing settings; .env must not enable remote services.
         os.environ.update(ANTHROPIC_API_KEY='', SUPABASE_URL='', SUPABASE_KEY='',
-                          LOCAL_DB_PATH=str(Path(directory) / 'rehearsal.db'), DRY_RUN='false')
+                          LOCAL_DB_PATH=str(Path(directory) / 'rehearsal.db'), DRY_RUN='false',
+                          LOG_FILE='', WEBHOOK_URL='')
         from shared.store import get_store
 
         return rehearse(get_store(), [sys.executable, '-m', 'sentinel', '--fake', '--no-auto-rogue'],
