@@ -89,10 +89,13 @@ class DockerSource:
         return handles
 
     def read_events(self, h: AgentHandle) -> list[AgentEvent]:
-        c = self._containers[h.id]
         last = self._last_log.get(h.id)
         since = last[0] if last else int(time.time()) - 10
-        raw = c.logs(stdout=True, stderr=False, timestamps=True, since=since)
+        try:
+            raw = self._containers[h.id].logs(stdout=True, stderr=False, timestamps=True, since=since)
+        except Exception as exc:  # container vanished / restarting / log driver error
+            log.warning("cannot read logs of %s: %s", h.name, exc)
+            return []
         events, newest = [], last
         for line in raw.decode("utf-8", errors="replace").splitlines():
             ts_str, _, message = line.partition(" ")
@@ -143,7 +146,8 @@ class DockerSource:
         return f"container {h.name} killed"
 
     def is_paused(self, h: AgentHandle) -> bool:
-        return self._containers[h.id].status == "paused"
+        c = self._containers.get(h.id)
+        return c is not None and c.status == "paused"
 
     def pause(self, h: AgentHandle) -> str:
         if not self.is_paused(h):
