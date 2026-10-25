@@ -34,6 +34,9 @@ class AgentSource(Protocol):
     def read_memory(self, h: AgentHandle) -> tuple[float, float]: ...  # (MB, % of limit)
     def kill(self, h: AgentHandle) -> str: ...
     def go_rogue(self, h: AgentHandle) -> str: ...
+    def pause(self, h: AgentHandle) -> str: ...
+    def resume(self, h: AgentHandle) -> str: ...
+    def is_paused(self, h: AgentHandle) -> bool: ...
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -60,7 +63,8 @@ class DockerSource:
         self._last_log: dict[str, tuple[int, int]] = {}
 
     def list_agents(self) -> list[AgentHandle]:
-        containers = self.client.containers.list(filters={"label": f"{self.cfg.monitor_label}=true"})
+        containers = self.client.containers.list(
+            all=True, filters={"label": f"{self.cfg.monitor_label}=true", "status": ["running", "paused"]})
         self._containers = {c.id: c for c in containers}
         handles = []
         for c in containers:
@@ -108,8 +112,25 @@ class DockerSource:
         return used / 1_048_576, (100.0 * used / limit if limit else 0.0)
 
     def kill(self, h: AgentHandle) -> str:
+        if self.is_paused(h):
+            self.resume(h)
         self._containers[h.id].kill()
         return f"container {h.name} killed"
+
+    def is_paused(self, h: AgentHandle) -> bool:
+        return self._containers[h.id].status == "paused"
+
+    def pause(self, h: AgentHandle) -> str:
+        if not self.is_paused(h):
+            self._containers[h.id].pause()
+            self._containers[h.id].reload()
+        return f"container {h.name} paused"
+
+    def resume(self, h: AgentHandle) -> str:
+        if self.is_paused(h):
+            self._containers[h.id].unpause()
+            self._containers[h.id].reload()
+        return f"container {h.name} resumed"
 
     def go_rogue(self, h: AgentHandle) -> str:
         self._containers[h.id].exec_run(["sh", "-c", "touch /tmp/go_rogue"])
@@ -138,6 +159,7 @@ class _FakeAgent:
         self.budget = budget
         self.rng = random.Random(seed)
         self.alive = True
+        self.paused_since: float | None = None
         self.rogue_since: float | None = None
         self.next_call = time.time() + self.rng.uniform(0.5, 2)
         self.base_mem = self.rng.uniform(60, 95)
@@ -172,7 +194,7 @@ class FakeSource:
 
     def read_events(self, h: AgentHandle) -> list[AgentEvent]:
         a, now, events = self._agent(h), time.time(), []
-        while a.alive and a.next_call <= now:
+        while a.alive and a.paused_since is None and a.next_call <= now:
             t = a.next_call
             a.calls += 1
             if a.rogue_since is not None and t >= a.rogue_since:
@@ -193,9 +215,29 @@ class FakeSource:
         a = self._agent(h)
         mb = a.base_mem + a.rng.uniform(-3, 3)
         if a.rogue_since is not None:
-            mb += 8.0 * (time.time() - a.rogue_since)       # leaks 8 MB/sec
+            now = a.paused_since if a.paused_since is not None else time.time()
+            mb += 8.0 * max(0.0, now - a.rogue_since)       # leaks 8 MB/sec
         mb = min(mb, self.MEMORY_LIMIT_MB)
         return mb, 100.0 * mb / self.MEMORY_LIMIT_MB
+
+    def is_paused(self, h: AgentHandle) -> bool:
+        return self._agent(h).paused_since is not None
+
+    def pause(self, h: AgentHandle) -> str:
+        a = self._agent(h)
+        if a.paused_since is None:
+            a.paused_since = time.time()
+        return f"fake agent {h.name} paused"
+
+    def resume(self, h: AgentHandle) -> str:
+        a = self._agent(h)
+        if a.paused_since is not None:
+            now = time.time()
+            a.next_call = max(a.next_call + now - a.paused_since, now)
+            if a.rogue_since is not None:
+                a.rogue_since += now - max(a.paused_since, a.rogue_since)
+            a.paused_since = None
+        return f"fake agent {h.name} resumed"
 
     def kill(self, h: AgentHandle) -> str:
         self._agent(h).alive = False
