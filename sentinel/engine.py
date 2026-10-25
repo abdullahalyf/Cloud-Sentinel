@@ -82,7 +82,8 @@ class Sentinel:
             self.kill(h, actor="rules", reason="Hard limit: " + "; ".join(finding.reasons), snap=snap)
             return
 
-        self._collect_verdict(h, st, snap)
+        if self._collect_verdict(h, st, snap):
+            return  # killed: don't ask the brain about a dead agent
         if finding.level == Level.SUSPICIOUS:
             self._ask_brain(h, st, snap, finding, now)
 
@@ -97,10 +98,11 @@ class Sentinel:
         self.store.insert_alert(AlertRow(h.name, "warning", ",".join(finding.rules), "; ".join(finding.reasons)))
         self.pending[h.id] = self.pool.submit(self.brain.judge, snap, finding, st.recent_events(12))
 
-    def _collect_verdict(self, h: AgentHandle, st: AgentState, snap: Snapshot) -> None:
+    def _collect_verdict(self, h: AgentHandle, st: AgentState, snap: Snapshot) -> bool:
+        """Act on a finished brain verdict. True if the agent was killed."""
         fut = self.pending.get(h.id)
         if fut is None or not fut.done():
-            return
+            return False
         self.pending.pop(h.id)
         v: Verdict = fut.result()
         log.warning("Brain verdict for %s: %s (%.0f%%, %s) — %s [%s]",
@@ -114,10 +116,11 @@ class Sentinel:
             self._report_cost(h.name, f"claude call {v.tokens_in:,} in + {v.tokens_out:,} out tokens "
                                       f"= ${v.cost_usd:.6f} ({self.cfg.claude_model})")
         if v.action == "KILL" and v.confidence >= self.cfg.brain_kill_confidence:
-            self.kill(h, actor=v.source, reason=v.reason, snap=snap)
-        elif v.action in ("WARN", "KILL") and not st.warned:
+            return self.kill(h, actor=v.source, reason=v.reason, snap=snap)
+        if v.action in ("WARN", "KILL") and not st.warned:
             st.warned = True
             self.store.insert_action(ActionRow(h.name, "WARN", v.source, v.reason))
+        return False
 
     # ── actions ──────────────────────────────────────────────────────────────
     def kill(self, h: AgentHandle, actor: str, reason: str, snap: Snapshot | None = None) -> bool:

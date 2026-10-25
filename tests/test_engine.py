@@ -245,3 +245,13 @@ def test_new_rule_skips_brain_cooldown(tmp_path):
         if fut:
             fut.result(timeout=5)
     assert s.brain.calls == 2   # same rules waited for the cooldown, a new rule did not
+
+
+def test_no_brain_call_after_a_kill(tmp_path):
+    s, source, store = make(tmp_path, Verdict("KILL", 0.9, "infinite_loop", "loop", "claude"))
+    s.cfg = cfg.__class__(**{**cfg.__dict__, "brain_cooldown_seconds": 0.0})  # cooldown can't hide it
+    source.agents["beta"].rogue_since = time.time() - 15
+    source.agents["beta"].next_call = time.time() - 15
+    run_ticks(s, 1)
+    assert not source.agents["beta"].alive
+    assert s.brain.calls == 1 and not s.pending
