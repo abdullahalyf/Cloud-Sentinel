@@ -5,7 +5,7 @@
 2. **Git** → git-scm.com
 3. **Docker Desktop** → docker.com (শুধু Alif, Fojle আর Taseen-এর বাধ্যতামূলক; অন্যরা `--fake` mode দিয়েই কাজ চালাতে পারবে)
 4. **Editor**: AntiGravity / VS Code / Codex, যার যেটা আছে।
-5. GitHub account খুলে Alif-কে username পাঠাও। ও repo-তে collaborator হিসেবে add করে দেবেন, তারপর email-এ আসা invite accept করবে।
+5. GitHub account খুলে Alif-কে username পাঠাও। ও repo-তে collaborator হিসেবে add করে দেবে, তারপর email-এ আসা invite accept করবে।
 
 ## ২. Project নিজের কম্পিউটারে আনা
 Terminal খোলো (Windows-এ "PowerShell"), তারপর:
