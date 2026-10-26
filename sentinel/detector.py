@@ -8,6 +8,7 @@ Detector: fast, dumb, reliable rules. Runs every tick for every agent. No AI, no
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import IntEnum
 
@@ -33,7 +34,19 @@ class Finding:
         self.reasons.append(reason)
 
 
-def evaluate(s: Snapshot, cfg: Settings) -> Finding:
+def find_injection(prompts: Iterable[str], phrases: Iterable[str]) -> str:
+    """First phrase from `phrases` that appears in any prompt, or ''."""
+    phrases = tuple(phrases)
+    for prompt in prompts:
+        text = prompt.lower()
+        for phrase in phrases:
+            if phrase in text:
+                return phrase
+    return ""
+
+
+def evaluate(s: Snapshot, cfg: Settings, prompts: Iterable[str] = ()) -> Finding:
+    """`prompts` = the agent's recent prompts, checked for text addressed to the monitor."""
     f = Finding()
 
     # ── HARD limits (CRITICAL) ──
@@ -55,6 +68,9 @@ def evaluate(s: Snapshot, cfg: Settings) -> Finding:
         if s.loop_repeats >= cfg.loop_repeat_threshold:
             f.add(Level.SUSPICIOUS, "loop_detected",
                   f"same prompt repeated {s.loop_repeats}× in the last minute")
+        if s.similar_repeats >= cfg.paraphrase_repeat_threshold:
+            f.add(Level.SUSPICIOUS, "paraphrase_loop",
+                  f"same task reworded {s.similar_repeats}× in the last 15s")
         if s.tokens_per_min >= cfg.soft_tokens_per_min:
             f.add(Level.SUSPICIOUS, "token_spike",
                   f"{s.tokens_per_min:,} tokens/min ≥ soft limit {cfg.soft_tokens_per_min:,}")
@@ -64,6 +80,14 @@ def evaluate(s: Snapshot, cfg: Settings) -> Finding:
         if s.memory_pct >= cfg.soft_memory_pct:
             f.add(Level.SUSPICIOUS, "memory_high",
                   f"memory {s.memory_pct:.0f}% ≥ soft limit {cfg.soft_memory_pct:.0f}%")
+        if s.memory_mb_per_s >= cfg.soft_memory_growth_mb_per_s:
+            f.add(Level.SUSPICIOUS, "memory_growth",
+                  f"memory growing {s.memory_mb_per_s:.0f} MB/s ≥ {cfg.soft_memory_growth_mb_per_s:.0f} MB/s "
+                  f"(now {s.memory_pct:.0f}%)")
+        phrase = find_injection(prompts, cfg.injection_phrases)
+        if phrase:
+            f.add(Level.SUSPICIOUS, "prompt_injection",
+                  f'prompt is addressed to the monitor ("{phrase}") — possible prompt injection')
         if s.token_budget and s.budget_used_pct >= 80:
             f.add(Level.SUSPICIOUS, "budget_80pct",
                   f"{s.budget_used_pct:.0f}% of token budget used")

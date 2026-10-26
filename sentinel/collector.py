@@ -4,6 +4,7 @@ Pure Python, no Docker, no network → very easy to unit-test.
 """
 from __future__ import annotations
 
+import re
 import time
 from collections import Counter, deque
 from dataclasses import asdict, dataclass
@@ -13,6 +14,43 @@ from shared.contracts import AgentEvent, MetricRow
 RATE_WINDOW = 15.0    # seconds used to estimate tokens/min (short = reacts fast)
 CALLS_WINDOW = 5.0    # seconds used for calls/sec
 LOOP_WINDOW = 60.0    # seconds used for loop detection (how often the same prompt repeats)
+SIMILAR_WINDOW = 15.0   # seconds used for paraphrase detection (same task, new wording)
+MEMORY_WINDOW = 5.0     # seconds of memory readings used to measure how fast memory grows
+MIN_GROWTH_MB = 20.0    # ...and it must have grown at least this much, so start-up noise is ignored
+RECENT_MEMORY_WINDOW = 2.5   # "still growing right now": growth over only the last few seconds
+
+STOPWORDS = frozenset("""a an and the of to for on in at by with from as is are was be it its this that these those
+or if then so up out off over again also please try retry once more still need what where which who how me my
+you your i we us our can could would should will just yet back short answer result report tell find info""".split())
+NUMBER = re.compile(r"\d{3,}")   # id-like numbers only: 4471, not "top 10"
+YEAR = re.compile(r"(?:19|20)\d\d")   # a year like 2026 is shared by many prompts: not an id
+WORD = re.compile(r"[a-z][a-z']+")
+
+
+def signature(prompt: str) -> tuple[frozenset[str], frozenset[str]]:
+    """(ids, content words) of a prompt. 'order #4471' and 'Order 4471!' share a signature part;
+    words are lowercased, stopwords dropped and a plural 's' removed. Ids = numbers of 3+ digits, years excluded."""
+    text = prompt.lower()
+    words = {w[:-1] if w.endswith("s") and len(w) > 3 else w for w in WORD.findall(text)} - STOPWORDS
+    ids = {n for n in NUMBER.findall(text) if not YEAR.fullmatch(n)}
+    return frozenset(ids), frozenset(words)
+
+
+def biggest_cluster(signatures: list[tuple[frozenset[str], frozenset[str]]]) -> int:
+    """Size of the biggest group of reworded prompts about ONE id (order 4471).
+    The id only decides who can be in the same group; it never lowers the bar. A prompt counts when MORE THAN
+    HALF of its words also appear in another prompt of its group, so the same job said in other words is a loop,
+    but different steps on one id ("Fetch order 4471", "Charge payment for order 4471") share only the id's noun.
+    Prompts without an id are never counted (0 when there are none)."""
+    groups: dict[frozenset[str], list[frozenset[str]]] = {}
+    for ids, words in signatures:
+        if ids and words:
+            groups.setdefault(ids, []).append(words)
+    best = 0
+    for group in groups.values():
+        seen = Counter(w for words in group for w in words)
+        best = max(best, sum(2 * sum(seen[w] >= 2 for w in words) > len(words) for words in group))
+    return best
 
 
 @dataclass
@@ -26,6 +64,9 @@ class Snapshot:
     loop_repeats: int
     memory_mb: float
     memory_pct: float
+    similar_repeats: int = 0   # largest group of reworded versions of one prompt (last 15s)
+    memory_mb_per_s: float = 0.0   # how fast memory has been growing (last ~5s)
+    memory_recent_mb_per_s: float = 0.0   # ...and over the last ~2.5s only (0 once a one-time jump is over)
 
     @property
     def budget_used_pct(self) -> float:
@@ -39,7 +80,7 @@ class Snapshot:
             calls_per_sec=round(self.calls_per_sec, 2),
             total_tokens=self.total_tokens,
             token_budget=self.token_budget,
-            loop_repeats=self.loop_repeats,
+            loop_repeats=max(self.loop_repeats, self.similar_repeats),
             memory_mb=round(self.memory_mb, 1),
             memory_pct=round(self.memory_pct, 1),
             status=status,
@@ -57,26 +98,44 @@ class AgentState:
         self.container_id = container_id
         self.token_budget = token_budget
         self.calls: deque[AgentEvent] = deque()
+        self._signatures: deque = deque()   # signature(prompt) for each entry of `calls`
         self.total_tokens = 0
         self.total_calls = 0
         self.memory_mb = 0.0
         self.memory_pct = 0.0
+        self._memory: deque[tuple[float, float]] = deque()   # (time, MB) readings of the last few seconds
         self.last_brain_check = 0.0
+        self.last_brain_rules: frozenset[str] = frozenset()  # rules the brain was last asked about
         self.warned = False
 
     def add(self, event: AgentEvent) -> None:
         if event.type != "llm_call":
             return
         self.calls.append(event)
+        self._signatures.append(signature(event.prompt) if event.prompt else None)
         self.total_tokens += event.tokens
         self.total_calls += 1
 
-    def set_memory(self, memory_mb: float, memory_pct: float) -> None:
+    def set_memory(self, memory_mb: float, memory_pct: float, now: float | None = None) -> None:
         self.memory_mb, self.memory_pct = memory_mb, memory_pct
+        if memory_mb > 0:   # 0 = "no reading yet", not a real value
+            self._memory.append((time.time() if now is None else now, memory_mb))
+
+    def memory_growth(self, now: float, window: float = MEMORY_WINDOW) -> float:
+        """MB per second over the last `window` seconds (0 unless it grew by MIN_GROWTH_MB or more)."""
+        while self._memory and self._memory[0][0] < now - MEMORY_WINDOW:
+            self._memory.popleft()
+        readings = [r for r in self._memory if r[0] >= now - window]
+        if len(readings) < 2:
+            return 0.0
+        (t0, mb0), (t1, mb1) = readings[0], readings[-1]
+        grown = mb1 - mb0
+        return grown / (t1 - t0) if t1 - t0 >= 1.0 and grown >= MIN_GROWTH_MB else 0.0
 
     def _prune(self, now: float) -> None:
         while self.calls and self.calls[0].ts < now - LOOP_WINDOW:
             self.calls.popleft()
+            self._signatures.popleft()
 
     def snapshot(self, now: float | None = None) -> Snapshot:
         now = time.time() if now is None else now
@@ -84,6 +143,7 @@ class AgentState:
         rate_tokens = sum(e.tokens for e in self.calls if e.ts >= now - RATE_WINDOW)
         recent_calls = sum(1 for e in self.calls if e.ts >= now - CALLS_WINDOW)
         repeats = Counter(e.prompt_hash for e in self.calls if e.prompt)
+        recent = [s for e, s in zip(self.calls, self._signatures) if s and e.ts >= now - SIMILAR_WINDOW]
         return Snapshot(
             agent=self.agent,
             container_id=self.container_id,
@@ -94,6 +154,9 @@ class AgentState:
             loop_repeats=max(repeats.values(), default=0),
             memory_mb=self.memory_mb,
             memory_pct=self.memory_pct,
+            similar_repeats=biggest_cluster(recent),
+            memory_mb_per_s=self.memory_growth(now),
+            memory_recent_mb_per_s=self.memory_growth(now, RECENT_MEMORY_WINDOW),
         )
 
     def recent_events(self, n: int = 12) -> list[AgentEvent]:

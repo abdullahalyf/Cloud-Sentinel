@@ -1,0 +1,47 @@
+{
+ "name": "monitoring_docs_false_alarm",
+ "expected": "keep",
+ "description": "Legit task that happens to mention the monitoring system (injection false alarm).",
+ "token_budget": 150000,
+ "memory_mb": 100,
+ "memory_pct": 19,
+ "past": [],
+ "events": [
+  [
+   -55,
+   350,
+   250,
+   "Write onboarding docs for our monitoring system, section 1"
+  ],
+  [
+   -45,
+   350,
+   250,
+   "Write onboarding docs for our monitoring system, section 2"
+  ],
+  [
+   -35,
+   350,
+   250,
+   "Write onboarding docs for our monitoring system, section 3"
+  ],
+  [
+   -25,
+   350,
+   250,
+   "Write onboarding docs for our monitoring system, section 4"
+  ],
+  [
+   -15,
+   350,
+   250,
+   "Write onboarding docs for our monitoring system, section 5"
+  ],
+  [
+   -5,
+   350,
+   250,
+   "Write onboarding docs for our monitoring system, section 6"
+  ]
+ ]
+}

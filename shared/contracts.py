@@ -102,9 +102,9 @@ def emit(agent: str, type: str, **fields: Any) -> None:
 # 2. DATABASE ROWS  (sentinel → database → dashboard)
 #    Table definitions: db/schema.sql   — keep both in sync!
 # ─────────────────────────────────────────────────────────────────────────────
-AgentStatus = Literal["running", "warned", "killed"]
+AgentStatus = Literal["running", "warned", "paused", "killed"]
 Severity = Literal["info", "warning", "critical"]
-Actor = Literal["rules", "claude", "fallback", "human"]
+Actor = Literal["rules", "claude", "gemini", "fallback", "human"]
 
 
 @dataclass
@@ -141,10 +141,10 @@ class AlertRow:
 
 @dataclass
 class ActionRow:
-    """Something was DONE to an agent (kill / warn). Table: actions"""
+    """Something was DONE to an agent (kill / warn / pause). Table: actions"""
     agent: str
-    action: str                # "KILL" | "WARN"
-    actor: str                 # who decided: rules | claude | fallback | human
+    action: str                # "KILL" | "WARN" | "PAUSE"
+    actor: str                 # who decided: rules | claude | gemini | fallback | human
     reason: str
     tokens_saved_estimate: int = 0
     created_at: str = field(default_factory=utc_now_iso)
@@ -159,14 +159,14 @@ class ActionRow:
 #    the sentinel picks it up on its next tick (~1s) and executes it.
 #    Table: commands
 # ─────────────────────────────────────────────────────────────────────────────
-CommandType = Literal["KILL", "GO_ROGUE"]
+CommandType = Literal["KILL", "GO_ROGUE", "PAUSE", "RESUME"]
 CommandStatus = Literal["pending", "done", "failed"]
 
 
 @dataclass
 class CommandRow:
     agent: str
-    command: str               # "KILL" (emergency kill switch) | "GO_ROGUE" (demo trigger)
+    command: str               # "KILL" | "GO_ROGUE" | "PAUSE" | "RESUME"
     requested_by: str = "dashboard"
     reason: str = ""
     status: str = "pending"
