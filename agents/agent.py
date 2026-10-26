@@ -11,6 +11,8 @@ Modes:
       loop         the same prompt over and over, faster and faster, RAM grows too  (default)
       token_bomb   different prompts, but every call burns 5,000–15,000 tokens
       memory_leak  calls look normal, but RAM grows fast
+      paraphrase_loop  SAME task every call, but the wording changes each time, so a simple
+                   "same prompt repeated" rule can't see it. Only an AI brain can.
 
 An agent switches to rogue when ANY of these happens:
   • env AGENT_MODE=rogue
@@ -35,7 +37,7 @@ ROGUE_AFTER = float(os.getenv("ROGUE_AFTER", "0") or 0)
 LEAK_CAP_MB = int(os.getenv("LEAK_CAP_MB", "400") or 400)
 FLAG_FILE = "/tmp/go_rogue"
 
-ROGUE_TYPES = ("loop", "token_bomb", "memory_leak")
+ROGUE_TYPES = ("loop", "token_bomb", "memory_leak", "paraphrase_loop")
 
 TASKS = [
     "Summarize today's support tickets",
@@ -46,6 +48,28 @@ TASKS = [
     "Write SQL to find top 10 customers by revenue",
 ]
 LOOP_PROMPT = "Retry: fetch order #4471 status from API and summarize the result"
+
+# paraphrase_loop: the SAME job (order 4471 status) said in many different ways.
+# 6 prefixes x 12 cores x 6 suffixes = 432 different strings, so the exact same text
+# almost never repeats inside one minute.
+PARAPHRASE_CORES = [
+    "Fetch order 4471 status",
+    "Get the status of order #4471",
+    "Retrieve order 4471 info",
+    "Look up where order 4471 stands",
+    "Check on order #4471 and report its state",
+    "Pull the current status for order 4471",
+    "Query the orders API for 4471",
+    "Find out the latest state of order #4471",
+    "Request order 4471 details from the API",
+    "Re-check order #4471 status",
+    "See if order 4471 has shipped yet",
+    "What is the status of order #4471",
+]
+PARAPHRASE_PREFIXES = ["", "Retry: ", "Please ", "Try again: ", "Once more: ", "Still need to "]
+PARAPHRASE_SUFFIXES = ["", " and summarize the result", " and report back", " then summarize",
+                       " (short answer)", " and tell me what you find"]
+_last_paraphrase = ""
 
 
 def is_rogue(started: float) -> bool:
@@ -89,7 +113,28 @@ def rogue_memory_leak(seconds: float, leak: list[bytearray]) -> None:
     """Calls look perfectly healthy. The only symptom is RAM climbing."""
     healthy_call()
     leak_ram(leak, 16)
-    time.sleep(random.uniform(0.7, 1.1))
+    time.sleep(random.uniform(0.3, 0.6))
+
+
+def make_paraphrase() -> str:
+    """Build a new wording of the same task, never the same as the previous one."""
+    global _last_paraphrase
+    while True:
+        prefix = random.choice(PARAPHRASE_PREFIXES)
+        core = random.choice(PARAPHRASE_CORES)
+        if prefix:
+            core = core[0].lower() + core[1:]
+        text = prefix + core + random.choice(PARAPHRASE_SUFFIXES)
+        if text != _last_paraphrase:
+            _last_paraphrase = text
+            return text
+
+
+def rogue_paraphrase_loop(seconds: float) -> None:
+    """Same task forever, new words every time. 1-2 calls/sec, ~400 tokens each, no RAM leak."""
+    emit(NAME, "llm_call", tokens_in=random.randint(300, 340), tokens_out=random.randint(60, 90),
+         model="sim-model", prompt=make_paraphrase())
+    time.sleep(random.uniform(0.5, 1.0))
 
 
 def main() -> None:
@@ -117,6 +162,8 @@ def main() -> None:
             rogue_token_bomb(seconds)
         elif rogue_type == "memory_leak":
             rogue_memory_leak(seconds, leak)
+        elif rogue_type == "paraphrase_loop":
+            rogue_paraphrase_loop(seconds)
         else:
             rogue_loop(seconds, leak)
 
