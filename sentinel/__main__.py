@@ -3,6 +3,7 @@ Start the sentinel.
 
     python -m sentinel              # real mode: watch Docker containers
     python -m sentinel --fake       # no Docker needed: 3 simulated agents, "beta" goes rogue after 20s
+    python -m sentinel --fake --rogue-type token_bomb   # loop | token_bomb | memory_leak | paraphrase_loop
     python -m sentinel --dry-run    # never actually kill, only log "would kill"
 """
 from __future__ import annotations
@@ -14,7 +15,7 @@ from pathlib import Path
 
 from sentinel.brain import Brain
 from sentinel.engine import Sentinel
-from sentinel.sources import DockerSource, FakeSource
+from sentinel.sources import ROGUE_TYPES, DockerSource, FakeSource
 from shared.config import settings
 from shared.store import get_store
 
@@ -23,6 +24,8 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="python -m sentinel", description="CloudSentinel circuit breaker")
     p.add_argument("--fake", action="store_true", help="use simulated agents instead of Docker")
     p.add_argument("--rogue-after", type=float, default=20.0, help="[fake] seconds until 'beta' goes rogue")
+    p.add_argument("--rogue-type", choices=ROGUE_TYPES, default="loop",
+                   help="[fake] how the rogue agent misbehaves (same as ROGUE_TYPE in agents/agent.py)")
     p.add_argument("--no-auto-rogue", action="store_true", help="[fake] only go rogue via dashboard/script")
     p.add_argument("--dry-run", action="store_true", help="log kills instead of doing them")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -42,8 +45,8 @@ def main() -> None:
 
     if args.fake:
         source = FakeSource(settings, auto_rogue=None if args.no_auto_rogue else "beta",
-                            rogue_after=args.rogue_after)
-        log.info("Mode: FAKE agents (no Docker)")
+                            rogue_after=args.rogue_after, rogue_type=args.rogue_type)
+        log.info("Mode: FAKE agents (no Docker), rogue type: %s", args.rogue_type)
     else:
         try:
             source = DockerSource(settings)
