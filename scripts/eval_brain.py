@@ -4,8 +4,9 @@ How good is the brain?  Runs it on 8 recorded scenarios and prints a table.
     python scripts/eval_brain.py              # the configured LLM (BRAIN_PROVIDER) if its key is set, else fallback
     python scripts/eval_brain.py --offline    # always the fallback rules (no network, no cost)
 
-Every scenario is judged ROUNDS times, 10 simulated seconds apart with unchanged evidence
-(the brain remembers its earlier verdicts). A "keep" scenario must survive all rounds; a
+Every scenario is judged ROUNDS times, 10 simulated seconds apart. Real numbers are never
+perfectly steady, so each round adds some noise (+10% tokens/min, +2 memory points per round).
+The brain remembers its earlier verdicts. A "keep" scenario must survive all rounds; a
 KILL scenario must be killed in some round.
 
 Scenarios live in tests/fixtures/brain_scenarios/*.json. "expected" is KILL or keep
@@ -34,6 +35,8 @@ from shared.contracts import AgentEvent  # noqa: E402
 
 ROUNDS = 3
 ROUND_GAP = 10.0   # simulated seconds between rounds
+NOISE_TOKENS = 0.10   # each round: tokens/min 10% higher than the one before…
+NOISE_MEMORY = 2.0    # …and memory 2 points higher (noise, not a real change)
 SCENARIOS = ROOT / "tests" / "fixtures" / "brain_scenarios"
 
 
@@ -61,7 +64,9 @@ def run_scenario(sc: dict, brain: Brain, cfg: Settings) -> tuple[str, str]:
                                     maxlen=HISTORY_SIZE)
     verdicts = []
     for i in range(ROUNDS):
-        v = brain.judge(snap, finding, st.recent_events(12), now=now + i * ROUND_GAP)
+        noisy = replace(snap, tokens_per_min=int(snap.tokens_per_min * (1 + NOISE_TOKENS * i)),
+                        memory_pct=snap.memory_pct + NOISE_MEMORY * i)
+        v = brain.judge(noisy, finding, st.recent_events(12), now=now + i * ROUND_GAP)
         verdicts.append(v)
         if v.action == "KILL" and v.confidence >= cfg.brain_kill_confidence:
             break   # a real sentinel stops here

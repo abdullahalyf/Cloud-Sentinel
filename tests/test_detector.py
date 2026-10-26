@@ -80,3 +80,32 @@ def test_injection_phrases_come_from_settings():
     prompts = [e.prompt for e in st.calls]
     assert "prompt_injection" in evaluate(st.snapshot(NOW), custom, prompts).rules
     assert "prompt_injection" not in evaluate(st.snapshot(NOW), cfg, prompts).rules
+
+
+def test_fast_memory_growth_is_suspicious_even_when_far_from_the_limit():
+    from sentinel.collector import AgentState
+    from sentinel.brain import fallback_verdict
+    from sentinel.detector import Level, evaluate
+
+    st = AgentState("gamma", "c", 150_000)
+    for i in range(4):   # 35 MB/s for 3 seconds, still only 30% of the limit
+        st.set_memory(40 + 35 * i, 100 * (40 + 35 * i) / 512, now=100.0 + i)
+    snap = st.snapshot(103.0)
+    f = evaluate(snap, load_settings())
+    assert f.level == Level.SUSPICIOUS and f.rules == ["memory_growth"]
+    v = fallback_verdict(snap, f, load_settings())
+    assert v.action == "KILL" and v.pattern == "memory_leak"
+
+
+def test_start_up_noise_and_unread_memory_are_not_a_leak():
+    from sentinel.collector import AgentState
+
+    st = AgentState("alpha", "c", 150_000)
+    st.set_memory(0.0, 0.0, now=100.0)      # no reading yet is not "0 MB"
+    st.set_memory(180.0, 35.0, now=101.0)
+    st.set_memory(181.0, 35.2, now=102.0)
+    assert st.snapshot(102.0).memory_mb_per_s == 0.0
+    slow = AgentState("alpha", "c", 150_000)
+    for i in range(6):                       # +3 MB/s is a normal warm-up
+        slow.set_memory(100 + 3 * i, 20.0, now=100.0 + i)
+    assert slow.snapshot(105.0).memory_mb_per_s == 0.0 or slow.snapshot(105.0).memory_mb_per_s < 10

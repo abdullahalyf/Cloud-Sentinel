@@ -70,3 +70,21 @@ def test_example_env_has_no_secrets_and_safe_hard_limits():
     for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "SUPABASE_KEY", "WEBHOOK_URL"):
         assert env.get(key, "").strip() == "", key
     assert env["HARD_TOKENS_PER_MIN"].strip() == "60000" and env["HARD_CALLS_PER_SEC"].strip() == "8"
+
+
+def test_cost_alert_names_the_provider_and_model_that_answered(tmp_path):
+    from sentinel.engine import Sentinel
+    from sentinel.sources import FakeSource
+    from shared.store import LocalStore
+
+    store = LocalStore(str(tmp_path / "t.db"))
+    models = FakeModels('{"action": "WARN", "confidence": 0.5, "pattern": "other", "reason": "hmm"}')
+    source = FakeSource(cfg, auto_rogue=None)
+    s = Sentinel(source, store, gemini_brain(models), cfg)
+    source.agents["beta"].rogue_since = source.agents["beta"].next_call = __import__("time").time() - 15
+    s.tick()
+    next(iter(s.pending.values())).result(timeout=5)
+    s.tick()
+    costs = [a["message"] for a in store.recent_alerts() if a["rule"] == "brain_cost"]
+    assert any(f"gemini call 1,000 in + 50 out tokens" in m and cfg.gemini_model in m for m in costs), costs
+    assert not any("claude call" in m for m in costs)

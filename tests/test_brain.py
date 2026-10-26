@@ -7,7 +7,7 @@ from shared.config import load_settings
 cfg = load_settings()
 NOW = 1_000_000.0
 WARN = Verdict("WARN", 0.6, "infinite_loop", "odd but maybe fine", "claude",
-               evidence=(1, cfg.soft_tokens_per_min // 2, 15.0))   # spiky_snapshot() is worse than this
+               evidence=(1, cfg.soft_tokens_per_min // 2, 15.0))   # spiky_snapshot() is clearly worse (+25% tokens)
 
 
 def spiky_snapshot(agent="beta"):
@@ -44,10 +44,10 @@ def test_user_message_lists_previous_verdicts():
 
 def test_brain_keeps_last_3_verdicts_per_agent():
     brain = Brain(cfg.__class__(**{**cfg.__dict__, "anthropic_api_key": ""}))  # fallback mode
-    # tokens/min keep rising a little each time → every later verdict escalates
+    # memory keeps climbing 6 points each time (> the 5-point noise margin) → every later verdict escalates
     snaps = [spiky_snapshot() for _ in range(5)]
     for i, s in enumerate(snaps):
-        s.tokens_per_min += i * 5_000
+        s.memory_pct += i * 6
     actions = [brain.judge(s, spike_finding(), []).action for s in snaps]
     assert actions == ["WARN", "KILL", "KILL", "KILL", "KILL"]
     assert len(brain.history["beta"]) == 3
@@ -98,7 +98,8 @@ def test_each_kind_of_worse_evidence_escalates():
         return fallback_verdict(snap, spike_finding(), cfg, past=past, now=NOW).action
 
     assert verdict() == "WARN"
-    assert verdict(loops=3) == "KILL" and verdict(tpm=12_000) == "KILL" and verdict(mem=43.0) == "KILL"
+    assert verdict(loops=3) == "WARN" and verdict(tpm=12_000) == "WARN" and verdict(mem=43.0) == "WARN"   # noise
+    assert verdict(loops=4) == "KILL" and verdict(tpm=12_500) == "KILL" and verdict(mem=45.0) == "KILL"
 
 
 def test_legitimate_burst_is_never_escalated():

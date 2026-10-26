@@ -80,6 +80,10 @@ def evaluate(s: Snapshot, cfg: Settings, prompts: Iterable[str] = ()) -> Finding
         if s.memory_pct >= cfg.soft_memory_pct:
             f.add(Level.SUSPICIOUS, "memory_high",
                   f"memory {s.memory_pct:.0f}% ≥ soft limit {cfg.soft_memory_pct:.0f}%")
+        if s.memory_mb_per_s >= cfg.soft_memory_growth_mb_per_s:
+            f.add(Level.SUSPICIOUS, "memory_growth",
+                  f"memory growing {s.memory_mb_per_s:.0f} MB/s ≥ {cfg.soft_memory_growth_mb_per_s:.0f} MB/s "
+                  f"(now {s.memory_pct:.0f}%)")
         phrase = find_injection(prompts, cfg.injection_phrases)
         if phrase:
             f.add(Level.SUSPICIOUS, "prompt_injection",

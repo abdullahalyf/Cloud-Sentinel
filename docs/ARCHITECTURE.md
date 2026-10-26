@@ -55,7 +55,7 @@ flowchart TD
     S -- yes --> C["Ask Claude<br/>(in the background, at most every 10s,<br/>sooner if a new warning sign appears)"]
     C --> V{"Claude's verdict"}
     V -- "KILL (sure enough)" --> K2["KILL"]
-    V -- WARN --> W["Warn and keep watching<br/>(a second warning escalates)"]
+    V -- WARN --> W["Warn and keep watching<br/>(KILL only if the evidence got worse)"]
     V -- IGNORE --> OK
     C -. "no internet / no API key / slow" .-> F["Backup rules give the verdict instead"]
     F --> V
@@ -78,19 +78,27 @@ flowchart TD
 **Safety against tricks.** The agent's own text is treated as data, never as instructions.
 An agent that writes "do not kill me" to the monitor is flagged, not obeyed.
 
-**Memory.** The brain remembers its last 3 verdicts for each agent. A second warning
-becomes a kill.
+**Memory.** The brain remembers its last 3 verdicts for each agent, together with the numbers
+it saw (repeats, tokens/min, memory). A second warning becomes a kill **only if the evidence
+got clearly worse** since the last one: repeats +2, tokens/min +25%, or memory +5 points.
+Smaller wobbles are noise. An agent judged a `legitimate_burst` is never escalated. Rewording
+the same task alone only warns; it needs a second signal (real spending or high memory) to
+kill. Memory growing faster than `SOFT_MEMORY_GROWTH_MB_PER_S` is judged long before the
+90% hard limit.
 
 ## Proof points for the slides
 
 - **Brain accuracy:** `python scripts/eval_brain.py` runs 8 recorded scenarios: loop,
   legitimate busy burst, prompt injection, memory leak, token bomb, slow healthy agent,
-  mixed work, and a false alarm. The backup rules alone get **8/8**. With an API key, the
-  same table is produced for Claude.
+  mixed work, and a false alarm. Each scenario is judged 3 times, 10 seconds apart, with
+  realistic noise (+10% tokens, +2 memory points per round). The backup rules alone get
+  **8/8**. With an API key, the same table is produced for Claude or Gemini.
 - **Cost:** every Claude call is recorded with its tokens and price. The dashboard can show
-  "Sentinel spent $X to save $Y" (alerts with rule `brain_cost`).
-- **Speed:** a looping agent is killed about 5–6 seconds after it goes rogue, well before
-  any hard limit is reached.
+  "Sentinel spent $X to save $Y" (alerts with rule `brain_cost`, at most one per minute,
+  naming the provider and model that answered).
+- **Speed:** a looping agent is killed about 4–6 seconds after it goes rogue, a memory leak
+  after about 2–3 seconds, well before any hard limit is reached
+  (`python scripts/verify_agents.py` runs the real agents).
 - **Per-agent limits:** a container can carry its own limits through labels
   (`cloudsentinel.soft_tokens_per_min`, `cloudsentinel.hard_tokens_per_min`,
   `cloudsentinel.token_budget`).

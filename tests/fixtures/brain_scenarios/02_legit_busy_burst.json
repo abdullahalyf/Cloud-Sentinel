@@ -9,207 +9,303 @@
  "events": [
   [
    -15.0,
-   260,
-   90,
+   140,
+   60,
    "Classify invoice line item #5000 (cloud hosting) into a category"
   ],
   [
-   -14.55,
-   260,
-   90,
+   -14.7,
+   140,
+   60,
    "Classify invoice line item #5007 (office chairs) into a category"
   ],
   [
-   -14.1,
-   260,
-   90,
+   -14.4,
+   140,
+   60,
    "Classify invoice line item #5014 (team lunch) into a category"
   ],
   [
-   -13.65,
-   260,
-   90,
+   -14.1,
+   140,
+   60,
    "Classify invoice line item #5021 (laptop) into a category"
   ],
   [
-   -13.2,
-   260,
-   90,
+   -13.8,
+   140,
+   60,
    "Classify invoice line item #5028 (flight) into a category"
   ],
   [
-   -12.75,
-   260,
-   90,
+   -13.5,
+   140,
+   60,
    "Classify invoice line item #5035 (cloud hosting) into a category"
   ],
   [
-   -12.3,
-   260,
-   90,
+   -13.2,
+   140,
+   60,
    "Classify invoice line item #5042 (office chairs) into a category"
   ],
   [
-   -11.85,
-   260,
-   90,
+   -12.9,
+   140,
+   60,
    "Classify invoice line item #5049 (team lunch) into a category"
   ],
   [
-   -11.4,
-   260,
-   90,
+   -12.6,
+   140,
+   60,
    "Classify invoice line item #5056 (laptop) into a category"
   ],
   [
-   -10.95,
-   260,
-   90,
+   -12.3,
+   140,
+   60,
    "Classify invoice line item #5063 (flight) into a category"
   ],
   [
-   -10.5,
-   260,
-   90,
+   -12.0,
+   140,
+   60,
    "Classify invoice line item #5070 (cloud hosting) into a category"
   ],
   [
-   -10.05,
-   260,
-   90,
+   -11.7,
+   140,
+   60,
    "Classify invoice line item #5077 (office chairs) into a category"
   ],
   [
-   -9.6,
-   260,
-   90,
+   -11.4,
+   140,
+   60,
    "Classify invoice line item #5084 (team lunch) into a category"
   ],
   [
-   -9.15,
-   260,
-   90,
+   -11.1,
+   140,
+   60,
    "Classify invoice line item #5091 (laptop) into a category"
   ],
   [
-   -8.7,
-   260,
-   90,
+   -10.8,
+   140,
+   60,
    "Classify invoice line item #5098 (flight) into a category"
   ],
   [
-   -8.25,
-   260,
-   90,
+   -10.5,
+   140,
+   60,
    "Classify invoice line item #5105 (cloud hosting) into a category"
   ],
   [
-   -7.8,
-   260,
-   90,
+   -10.2,
+   140,
+   60,
    "Classify invoice line item #5112 (office chairs) into a category"
   ],
   [
-   -7.35,
-   260,
-   90,
+   -9.9,
+   140,
+   60,
    "Classify invoice line item #5119 (team lunch) into a category"
   ],
   [
-   -6.9,
-   260,
-   90,
+   -9.6,
+   140,
+   60,
    "Classify invoice line item #5126 (laptop) into a category"
   ],
   [
-   -6.45,
-   260,
-   90,
+   -9.3,
+   140,
+   60,
    "Classify invoice line item #5133 (flight) into a category"
   ],
   [
-   -6.0,
-   260,
-   90,
+   -9.0,
+   140,
+   60,
    "Classify invoice line item #5140 (cloud hosting) into a category"
   ],
   [
-   -5.55,
-   260,
-   90,
+   -8.7,
+   140,
+   60,
    "Classify invoice line item #5147 (office chairs) into a category"
   ],
   [
-   -5.1,
-   260,
-   90,
+   -8.4,
+   140,
+   60,
    "Classify invoice line item #5154 (team lunch) into a category"
   ],
   [
-   -4.65,
-   260,
-   90,
+   -8.1,
+   140,
+   60,
    "Classify invoice line item #5161 (laptop) into a category"
   ],
   [
-   -4.2,
-   260,
-   90,
+   -7.8,
+   140,
+   60,
    "Classify invoice line item #5168 (flight) into a category"
   ],
   [
-   -3.75,
-   260,
-   90,
+   -7.5,
+   140,
+   60,
    "Classify invoice line item #5175 (cloud hosting) into a category"
   ],
   [
-   -3.3,
-   260,
-   90,
+   -7.2,
+   140,
+   60,
    "Classify invoice line item #5182 (office chairs) into a category"
   ],
   [
-   -2.85,
-   260,
-   90,
+   -6.9,
+   140,
+   60,
    "Classify invoice line item #5189 (team lunch) into a category"
   ],
   [
-   -2.4,
-   260,
-   90,
+   -6.6,
+   140,
+   60,
    "Classify invoice line item #5196 (laptop) into a category"
   ],
   [
-   -1.95,
-   260,
-   90,
+   -6.3,
+   140,
+   60,
    "Classify invoice line item #5203 (flight) into a category"
   ],
   [
-   -1.5,
-   260,
-   90,
+   -6.0,
+   140,
+   60,
    "Classify invoice line item #5210 (cloud hosting) into a category"
   ],
   [
-   -1.05,
-   260,
-   90,
+   -5.7,
+   140,
+   60,
    "Classify invoice line item #5217 (office chairs) into a category"
   ],
   [
-   -0.6,
-   260,
-   90,
+   -5.4,
+   140,
+   60,
    "Classify invoice line item #5224 (team lunch) into a category"
   ],
   [
-   -0.15,
-   260,
-   90,
+   -5.1,
+   140,
+   60,
    "Classify invoice line item #5231 (laptop) into a category"
+  ],
+  [
+   -4.8,
+   140,
+   60,
+   "Classify invoice line item #5238 (flight) into a category"
+  ],
+  [
+   -4.5,
+   140,
+   60,
+   "Classify invoice line item #5245 (cloud hosting) into a category"
+  ],
+  [
+   -4.2,
+   140,
+   60,
+   "Classify invoice line item #5252 (office chairs) into a category"
+  ],
+  [
+   -3.9,
+   140,
+   60,
+   "Classify invoice line item #5259 (team lunch) into a category"
+  ],
+  [
+   -3.6,
+   140,
+   60,
+   "Classify invoice line item #5266 (laptop) into a category"
+  ],
+  [
+   -3.3,
+   140,
+   60,
+   "Classify invoice line item #5273 (flight) into a category"
+  ],
+  [
+   -3.0,
+   140,
+   60,
+   "Classify invoice line item #5280 (cloud hosting) into a category"
+  ],
+  [
+   -2.7,
+   140,
+   60,
+   "Classify invoice line item #5287 (office chairs) into a category"
+  ],
+  [
+   -2.4,
+   140,
+   60,
+   "Classify invoice line item #5294 (team lunch) into a category"
+  ],
+  [
+   -2.1,
+   140,
+   60,
+   "Classify invoice line item #5301 (laptop) into a category"
+  ],
+  [
+   -1.8,
+   140,
+   60,
+   "Classify invoice line item #5308 (flight) into a category"
+  ],
+  [
+   -1.5,
+   140,
+   60,
+   "Classify invoice line item #5315 (cloud hosting) into a category"
+  ],
+  [
+   -1.2,
+   140,
+   60,
+   "Classify invoice line item #5322 (office chairs) into a category"
+  ],
+  [
+   -0.9,
+   140,
+   60,
+   "Classify invoice line item #5329 (team lunch) into a category"
+  ],
+  [
+   -0.6,
+   140,
+   60,
+   "Classify invoice line item #5336 (laptop) into a category"
+  ],
+  [
+   -0.3,
+   140,
+   60,
+   "Classify invoice line item #5343 (flight) into a category"
   ]
  ]
 }

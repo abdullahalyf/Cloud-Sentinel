@@ -44,8 +44,9 @@ class SubprocessSource:
         self.events: dict[str, list[AgentEvent]] = {n: [] for n in specs}
         self.rogue_at: dict[str, float] = {}
         for name, env in specs.items():
+            script = env.get("SCRIPT", "agents/agent.py")   # which agent program to run
             proc = subprocess.Popen(
-                [sys.executable, str(ROOT / "agents" / "agent.py")], cwd=ROOT, stdout=subprocess.PIPE, text=True,
+                [sys.executable, str(ROOT / script)], cwd=ROOT, stdout=subprocess.PIPE, text=True,
                 env={**os.environ, "PYTHONPATH": str(ROOT), "AGENT_NAME": name, "LEAK_CAP_MB": str(LEAK_CAP_MB), **env})
             self.procs[name] = proc
             threading.Thread(target=self._reader, args=(name, proc), daemon=True).start()

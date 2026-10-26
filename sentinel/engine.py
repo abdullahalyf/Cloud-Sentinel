@@ -159,8 +159,9 @@ class Sentinel:
             f"{v.action} ({v.confidence:.0%}, {v.pattern}): {v.reason}"))
         if v.tokens_in or v.tokens_out:
             self.brain_spent_usd += v.cost_usd
-            self._report_cost(h.name, f"claude call {v.tokens_in:,} in + {v.tokens_out:,} out tokens "
-                                      f"= ${v.cost_usd:.6f} ({self.cfg.claude_model})")
+            model = self.cfg.gemini_model if v.source == "gemini" else self.cfg.claude_model
+            self._report_cost(h.name, f"{v.source} call {v.tokens_in:,} in + {v.tokens_out:,} out tokens "
+                                      f"= ${v.cost_usd:.6f} ({model})")
         if v.action == "KILL" and v.confidence >= self.cfg.brain_kill_confidence:
             return self.kill(h, actor=v.source, reason=v.reason, snap=snap)
         if v.action in ("WARN", "KILL") and not st.warned:

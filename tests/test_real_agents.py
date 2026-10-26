@@ -21,5 +21,8 @@ def test_all_four_rogue_types_are_killed_and_healthy_agents_survive():
     assert rows["paraphrase_loop"]["flagged_after"] <= 10          # was 23s
     assert rows["token_bomb"]["killed_by"] in ("rules", "fallback")   # the two race: what matters is the speed
     assert rows["token_bomb"]["killed_after"] <= 5
-    assert {"memory_high", "memory_hard"} & set(rows["memory_leak"]["rules"])   # caught by memory…
-    assert "call_spike" not in rows["memory_leak"]["rules"]        # …not by call rate
+    leak = rows["memory_leak"]
+    assert leak["killed_by"] == "fallback" and leak["killed_after"] <= 8   # brain acts before the 90% hard limit
+    assert "memory_growth" in leak["rules"] and "memory_hard" not in leak["rules"]
+    assert "call_spike" not in leak["rules"]                               # caught by memory, not by call rate
+    assert rows["paraphrase_loop"]["killed_after"] <= 10
