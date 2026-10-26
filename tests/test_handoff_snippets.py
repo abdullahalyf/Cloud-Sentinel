@@ -95,3 +95,21 @@ def test_offline_when_the_sentinel_stopped(tmp_path):
     ns["st"].columns.return_value = (MagicMock(), MagicMock(), MagicMock())
     exec(BLOCKS[1], ns)
     assert ns["st"].error.called and "OFFLINE" in ns["st"].error.call_args[0][0]
+
+
+def test_taseen_checklist_only_uses_commands_that_exist():
+    text = (DOC.parent / "taseen-laptop-checklist.md").read_text()
+    root = DOC.parent.parent.parent
+    for script in set(re.findall(r"python ((?:scripts|db)/\w+\.py)", text)):
+        assert (root / script).exists(), script
+    for flag, source in {"--docker": "scripts/demo.py", "--all": "scripts/demo.py", "--offline": "scripts/eval_brain.py",
+                         "--yes": "db/reset.py"}.items():
+        assert flag in (root / source).read_text(), (flag, source)
+    env_example = (root / ".env.example").read_text()
+    for key in ("BRAIN_PROVIDER", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GEMINI_MODEL", "SUPABASE_URL",
+                "SUPABASE_KEY", "WEBHOOK_URL"):
+        assert key in text and key in env_example, key
+    for service in ("agent-alpha", "agent-beta", "agent-gamma"):
+        assert service in (root / "docker-compose.yml").read_text()
+    order = [text.index(f"## {n}.") for n in range(1, 9)]
+    assert order == sorted(order)
