@@ -87,3 +87,40 @@ def test_commands_resume_after_outage(tmp_path):
     store.down = False
     s.tick()
     assert not source.agents["gamma"].alive
+
+
+class PoisonStore(LocalStore):
+    """Database is fine, but one alert (message 'poison') is always rejected."""
+
+    def insert_alert(self, row):
+        if row.message == "poison":
+            raise ValueError("value too long for column")
+        super().insert_alert(row)
+
+
+def test_poison_row_is_dropped_after_five_tries_and_kill_switch_keeps_working(tmp_path):
+    store = PoisonStore(str(tmp_path / "t.db"))
+    safe = SafeStore(store, replace(cfg, store_retry_seconds=0.0, store_max_row_failures=5))
+    safe.insert_alert(AlertRow("a", "info", "r", "poison"))   # fails → buffered (looks like an outage so far)
+    safe.insert_alert(AlertRow("a", "info", "r", "fine-1"))
+    assert safe.pending_commands() == []   # no command yet, but no error either
+    store.insert_command(CommandRow("beta", "KILL", "dashboard", "kill switch"))
+    for _ in range(6):
+        cmds = safe.pending_commands()      # the Kill switch must not get stuck behind the poison row
+    assert [c["command"] for c in cmds] == ["KILL"]
+    assert not safe.buffer and safe.poisoned == 1
+    assert [a["message"] for a in store.recent_alerts()] == ["fine-1"]
+
+
+def test_rows_survive_a_long_outage_they_are_not_poison(tmp_path):
+    store = FlakyStore(str(tmp_path / "t.db"))
+    safe = SafeStore(store, replace(cfg, store_retry_seconds=0.0, store_max_row_failures=5))
+    store.down = True
+    for i in range(4):
+        safe.insert_alert(AlertRow("a", "info", "r", f"m{i}"))
+    for _ in range(50):        # many failed retries while the whole database is down
+        safe.flush()
+    assert len(safe.buffer) == 4 and safe.poisoned == 0
+    store.down = False
+    assert safe.flush() and not safe.buffer
+    assert [a["message"] for a in store.recent_alerts()][::-1] == ["m0", "m1", "m2", "m3"]

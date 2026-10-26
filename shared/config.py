@@ -73,6 +73,7 @@ class Settings:
     local_db_path: str
     store_buffer_size: int         # rows kept in memory while the database is down
     store_retry_seconds: float     # after a database error, wait this long before trying again
+    store_max_row_failures: int    # a buffered row that fails this many times (DB up) is dropped
 
     # ── Notifications ── (empty URL = off)
     webhook_url: str               # Discord/Slack incoming webhook, told about every KILL/PAUSE
@@ -91,6 +92,7 @@ class Settings:
     soft_tokens_per_min: int
     soft_calls_per_sec: float
     soft_memory_pct: float
+    soft_memory_growth_mb_per_s: float   # memory climbing this fast (MB/s) = leak, even if still far from the limit
     loop_repeat_threshold: int     # same prompt N times in the window = possible loop
     paraphrase_repeat_threshold: int  # N reworded copies of one prompt within 15s = possible loop
     injection_phrases: tuple[str, ...]  # prompt text addressed to the monitor = possible injection
@@ -147,6 +149,7 @@ def load_settings() -> Settings:
         local_db_path=_str("LOCAL_DB_PATH", "data/cloudsentinel.db"),
         store_buffer_size=_int("STORE_BUFFER_SIZE", 5000),
         store_retry_seconds=_float("STORE_RETRY_SECONDS", 5.0),
+        store_max_row_failures=_int("STORE_MAX_ROW_FAILURES", 5),
         webhook_url=_str("WEBHOOK_URL"),
         webhook_timeout_seconds=_float("WEBHOOK_TIMEOUT_SECONDS", 5.0),
         tick_seconds=_float("TICK_SECONDS", 1.0),
@@ -157,6 +160,7 @@ def load_settings() -> Settings:
         soft_tokens_per_min=_int("SOFT_TOKENS_PER_MIN", 45_000),
         soft_calls_per_sec=_float("SOFT_CALLS_PER_SEC", 3.0),
         soft_memory_pct=_float("SOFT_MEMORY_PCT", 70.0),
+        soft_memory_growth_mb_per_s=_float("SOFT_MEMORY_GROWTH_MB_PER_S", 10.0),
         loop_repeat_threshold=_int("LOOP_REPEAT_THRESHOLD", 5),
         paraphrase_repeat_threshold=_int("PARAPHRASE_REPEAT_THRESHOLD", 8),
         injection_phrases=_list("INJECTION_PHRASES", DEFAULT_INJECTION_PHRASES),
