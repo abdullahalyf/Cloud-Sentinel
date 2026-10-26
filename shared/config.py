@@ -71,6 +71,8 @@ class Settings:
     supabase_url: str
     supabase_key: str
     local_db_path: str
+    store_buffer_size: int         # rows kept in memory while the database is down
+    store_retry_seconds: float     # after a database error, wait this long before trying again
 
     # ── Notifications ── (empty URL = off)
     webhook_url: str               # Discord/Slack incoming webhook, told about every KILL/PAUSE
@@ -141,6 +143,8 @@ def load_settings() -> Settings:
         supabase_url=_str("SUPABASE_URL"),
         supabase_key=_str("SUPABASE_KEY"),
         local_db_path=_str("LOCAL_DB_PATH", "data/cloudsentinel.db"),
+        store_buffer_size=_int("STORE_BUFFER_SIZE", 5000),
+        store_retry_seconds=_float("STORE_RETRY_SECONDS", 5.0),
         webhook_url=_str("WEBHOOK_URL"),
         webhook_timeout_seconds=_float("WEBHOOK_TIMEOUT_SECONDS", 5.0),
         tick_seconds=_float("TICK_SECONDS", 1.0),

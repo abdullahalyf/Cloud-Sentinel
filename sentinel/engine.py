@@ -6,7 +6,7 @@ Engine: the main loop. Once per tick:
        CRITICAL   → kill now (no AI, no waiting)
        SUSPICIOUS → ask Claude in a background thread (the loop keeps running)
   3. act on any Claude verdicts that came back
-  4. write everything to the database for the dashboard
+  4. write everything to the database for the dashboard (buffered if the database is down)
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from sentinel.brain import Brain, Verdict
 from sentinel.collector import AgentState, Snapshot
 from sentinel.detector import Finding, Level, evaluate
 from sentinel.notifier import Notifier
+from sentinel.safe_store import SafeStore
 from sentinel.sources import AgentHandle, AgentSource
 from shared.config import Settings
 from shared.contracts import ActionRow, AlertRow
@@ -30,7 +31,9 @@ log = logging.getLogger("sentinel.engine")
 class Sentinel:
     def __init__(self, source: AgentSource, store: Store, brain: Brain, cfg: Settings,
                  dry_run: bool = False, notifier: Notifier | None = None):
-        self.source, self.store, self.brain, self.cfg = source, store, brain, cfg
+        self.source, self.brain, self.cfg = source, brain, cfg
+        # a database outage must never stop detection or kills: writes are buffered + retried
+        self.store = store if isinstance(store, SafeStore) else SafeStore(store, cfg)
         self.notifier = notifier or Notifier(cfg)
         self.dry_run = dry_run
         self.states: dict[str, AgentState] = {}
