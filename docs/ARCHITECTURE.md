@@ -81,10 +81,21 @@ An agent that writes "do not kill me" to the monitor is flagged, not obeyed.
 **Memory.** The brain remembers its last 3 verdicts for each agent, together with the numbers
 it saw (repeats, tokens/min, memory). A second warning becomes a kill **only if the evidence
 got clearly worse** since the last one: repeats +2, tokens/min +25%, or memory +5 points.
-Smaller wobbles are noise. An agent judged a `legitimate_burst` is never escalated. Rewording
-the same task alone only warns; it needs a second signal (real spending or high memory) to
-kill. Memory growing faster than `SOFT_MEMORY_GROWTH_MB_PER_S` is judged long before the
-90% hard limit.
+Smaller wobbles are noise. An agent judged a `legitimate_burst` is never escalated.
+Single signals only warn: rewording the same task needs a second signal (real spending or
+high memory), spending past halfway to the hard limit needs a second signal (repeats, a high
+call rate or high memory), and memory growing faster than `SOFT_MEMORY_GROWTH_MB_PER_S` is
+checked again after `MEMORY_RECHECK_SECONDS`: it is a kill only if it is still growing then
+(a one-time model load stops by itself) or if memory is already above its soft limit.
+Different steps on one id ("fetch order 40001", "charge payment for order 40001") are not
+"the same task reworded": a prompt counts only when most of its words recur in the other
+prompts about that id.
+
+**Database trouble.** If the database is down or read-only, rows wait in a memory buffer.
+The sentinel retries at most once per `STORE_RETRY_SECONDS` (the wait doubles up to 4x while
+it keeps failing) and a retry makes only a few failing calls, so a tick stays fast and a
+rogue agent is still killed in about 5 seconds. Dashboard commands (the Kill switch) are
+read on their own, so they work even when writes fail.
 
 ## Proof points for the slides
 
@@ -97,7 +108,7 @@ kill. Memory growing faster than `SOFT_MEMORY_GROWTH_MB_PER_S` is judged long be
   "Sentinel spent $X to save $Y" (alerts with rule `brain_cost`, at most one per minute,
   naming the provider and model that answered).
 - **Speed:** a looping agent is killed about 4–6 seconds after it goes rogue, a memory leak
-  after about 2–3 seconds, well before any hard limit is reached
+  after about 4–6 seconds (one warning, one check), well before any hard limit is reached
   (`python scripts/verify_agents.py` runs the real agents).
 - **Per-agent limits:** a container can carry its own limits through labels
   (`cloudsentinel.soft_tokens_per_min`, `cloudsentinel.hard_tokens_per_min`,

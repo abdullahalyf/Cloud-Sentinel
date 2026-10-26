@@ -77,6 +77,7 @@ Claude/Supabase বন্ধ রাখে; শেষে নিজের sentinel
 | `LOOP_REPEAT_THRESHOLD` | `5` | একই prompt এতবার হলে brain বিচার করে |
 | `BRAIN_ESCALATE_WINDOW_SECONDS` | `60` | এই সময়ের মধ্যে আগের WARN/KILL থাকলে এবং evidence **খারাপ হলে** (repeats +2, tokens/min +25% বা memory +5 point) পরের verdict KILL হয়; `legitimate_burst` কখনো KILL হয় না; evidence একই থাকলে WARN-ই থাকে |
 | `SOFT_MEMORY_GROWTH_MB_PER_S` | `10` | memory প্রতি সেকেন্ডে এত MB-এর বেশি বাড়লে (~5s মাপা) leak ধরে brain আগেই বিচার করে |
+| `MEMORY_RECHECK_SECONDS` | `3` | দ্রুত বাড়তে থাকা memory এত সেকেন্ড পরে আবার দেখা হয়; তখনও বাড়লে (বা memory soft limit পার করলে) KILL, এককালীন লাফ (model load) হলে শুধু WARN |
 | `STORE_MAX_ROW_FAILURES` | `5` | database ঠিক থাকা সত্ত্বেও একটি buffered row এতবার fail করলে ফেলে দেওয়া হয় (Kill switch আটকায় না) |
 
 API key ছাড়া fallback rules ও Supabase settings খালি থাকলে SQLite চলে। `DRY_RUN=true`

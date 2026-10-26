@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from sentinel.brain import fallback_verdict
-from sentinel.collector import AgentState, biggest_cluster, signature, similar
+from sentinel.collector import AgentState, biggest_cluster, signature
 from sentinel.detector import Level, evaluate
 from shared.config import load_settings
 from shared.contracts import AgentEvent
@@ -35,17 +35,35 @@ def test_signature_normalizes_punctuation_stopwords_and_plurals():
     assert signature("Query the orders API for 4471")[1] == {"query", "order", "api"}
 
 
-def test_reworded_same_job_is_similar_but_different_ids_are_not():
-    assert similar(signature("Fetch order 4471 status"), signature("Look up where order #4471 stands"))
-    assert not similar(signature("Classify invoice line item #5000"), signature("Classify invoice line item #5001"))
-    assert not similar(signature("Summarize tickets (job 1111)"), signature("Summarize tickets (job 2222)"))
-    assert not similar(signature("Fetch order 4471 status"), signature("Draft email about invoice 4471"))
+def cluster(*prompts):
+    return biggest_cluster([signature(p) for p in prompts])
+
+
+def test_reworded_same_job_counts_but_different_ids_do_not():
+    reworded = ["Fetch order 4471 status", "Get the status of order #4471", "Retrieve order 4471 status info",
+                "Look up status of order 4471", "Check order #4471 status"]
+    assert cluster(*reworded) == 5
+    assert cluster(*[f"Classify invoice line item #{5000 + i}" for i in range(8)]) == 0
+    assert cluster(*[f"Summarize tickets (job {1111 * i})" for i in range(1, 8)]) == 0
+    assert cluster("Fetch order 4471 status", "Draft email about invoice 4471") == 0
+
+
+def test_multi_step_work_on_one_id_is_not_a_paraphrase_loop():
+    steps = ["Fetch order 40001", "Validate address on order 40001", "Charge payment for order 40001",
+             "Reserve stock for order 40001", "Print shipping label for order 40001",
+             "Send confirmation email for order 40001", "Update CRM record for order 40001",
+             "Notify warehouse about order 40001", "Close ticket for order 40001", "Archive order 40001"]
+    assert cluster(*steps) == 0   # the shared id and the word "order" do not make ten different steps a loop
+    st, now = state_with(steps, gap=0.5)
+    snap = st.snapshot(now)
+    assert snap.similar_repeats == 0
+    assert "paraphrase_loop" not in evaluate(snap, cfg).rules
 
 
 def test_real_paraphrase_loop_is_flagged_within_ten_seconds():
     agent = agent_module()
     random.seed(1)
-    st, now = state_with([agent.make_paraphrase() for _ in range(9)])   # ~6s of the real agent's output
+    st, now = state_with([agent.make_paraphrase() for _ in range(14)], gap=0.7)   # ~10s of the real agent's output
     snap = st.snapshot(now)
     assert snap.loop_repeats < cfg.loop_repeat_threshold   # exact-match rule is blind to it
     assert snap.similar_repeats >= cfg.paraphrase_repeat_threshold
@@ -75,7 +93,7 @@ def test_healthy_agent_is_never_flagged(seed):
 def test_busy_burst_of_different_invoices_is_not_a_paraphrase_loop():
     st, now = state_with([f"Classify invoice line item #{5000 + 7 * i} (office) into a category" for i in range(30)],
                          gap=0.45)
-    assert st.snapshot(now).similar_repeats == 1
+    assert st.snapshot(now).similar_repeats == 0
 
 
 def test_clustering_is_fast_enough_for_a_tick():
@@ -115,8 +133,7 @@ def test_small_numbers_are_counts_not_ids():
 
 
 def test_wording_that_drifts_does_not_chain_into_one_group():
-    # each prompt is similar to the next (shares 1 of 3 words) but the first and last share nothing
-    chain = ["alpha bravo charlie 4471", "charlie delta echo 4471", "echo foxtrot golf 4471",
-             "golf hotel india 4471", "india juliet kilo 4471", "kilo lima mike 4471"]
-    sigs = [signature(p) for p in chain]
-    assert similar(sigs[0], sigs[1]) and biggest_cluster(sigs) <= 3   # single link would give 6
+    # each prompt shares only one word with the next and one with the previous: never most of its own words
+    chain = ["alpha bravo charlie delta 4471", "delta echo foxtrot golf 4471", "golf hotel india juliet 4471",
+             "juliet kilo lima mike 4471", "mike november oscar papa 4471", "papa quebec romeo sierra 4471"]
+    assert cluster(*chain) == 0

@@ -17,6 +17,7 @@ LOOP_WINDOW = 60.0    # seconds used for loop detection (how often the same prom
 SIMILAR_WINDOW = 15.0   # seconds used for paraphrase detection (same task, new wording)
 MEMORY_WINDOW = 5.0     # seconds of memory readings used to measure how fast memory grows
 MIN_GROWTH_MB = 20.0    # ...and it must have grown at least this much, so start-up noise is ignored
+RECENT_MEMORY_WINDOW = 2.5   # "still growing right now": growth over only the last few seconds
 
 STOPWORDS = frozenset("""a an and the of to for on in at by with from as is are was be it its this that these those
 or if then so up out off over again also please try retry once more still need what where which who how me my
@@ -35,23 +36,21 @@ def signature(prompt: str) -> tuple[frozenset[str], frozenset[str]]:
     return frozenset(ids), frozenset(words)
 
 
-def similar(a: tuple[frozenset[str], frozenset[str]], b: tuple[frozenset[str], frozenset[str]]) -> bool:
-    """Same job, other words? Needs the same ids (order 4471) as the anchor: prompts about different ids
-    never match (different work), and prompts without any id are never counted (a template with other
-    names is normal work). Then at least a third of the shorter word list must be shared."""
-    (ids_a, words_a), (ids_b, words_b) = a, b
-    if not ids_a or ids_a != ids_b or not words_a or not words_b:
-        return False
-    shared = len(words_a & words_b)
-    return shared > 0 and shared / min(len(words_a), len(words_b)) >= 0.3
-
-
 def biggest_cluster(signatures: list[tuple[frozenset[str], frozenset[str]]]) -> int:
-    """Size of the biggest group of prompts that are all similar to ONE anchor prompt.
-    Comparing to an anchor (not chaining A~B~C...) stops slowly drifting wording from joining up.
+    """Size of the biggest group of reworded prompts about ONE id (order 4471).
+    The id only decides who can be in the same group; it never lowers the bar. A prompt counts when MORE THAN
+    HALF of its words also appear in another prompt of its group, so the same job said in other words is a loop,
+    but different steps on one id ("Fetch order 4471", "Charge payment for order 4471") share only the id's noun.
     Prompts without an id are never counted (0 when there are none)."""
-    return max((sum(similar(anchor, other) for other in signatures) for anchor in signatures
-                if anchor[0]), default=0)
+    groups: dict[frozenset[str], list[frozenset[str]]] = {}
+    for ids, words in signatures:
+        if ids and words:
+            groups.setdefault(ids, []).append(words)
+    best = 0
+    for group in groups.values():
+        seen = Counter(w for words in group for w in words)
+        best = max(best, sum(2 * sum(seen[w] >= 2 for w in words) > len(words) for words in group))
+    return best
 
 
 @dataclass
@@ -67,6 +66,7 @@ class Snapshot:
     memory_pct: float
     similar_repeats: int = 0   # largest group of reworded versions of one prompt (last 15s)
     memory_mb_per_s: float = 0.0   # how fast memory has been growing (last ~5s)
+    memory_recent_mb_per_s: float = 0.0   # ...and over the last ~2.5s only (0 once a one-time jump is over)
 
     @property
     def budget_used_pct(self) -> float:
@@ -121,13 +121,14 @@ class AgentState:
         if memory_mb > 0:   # 0 = "no reading yet", not a real value
             self._memory.append((time.time() if now is None else now, memory_mb))
 
-    def memory_growth(self, now: float) -> float:
-        """MB per second over the last MEMORY_WINDOW seconds (0 unless it grew by MIN_GROWTH_MB or more)."""
+    def memory_growth(self, now: float, window: float = MEMORY_WINDOW) -> float:
+        """MB per second over the last `window` seconds (0 unless it grew by MIN_GROWTH_MB or more)."""
         while self._memory and self._memory[0][0] < now - MEMORY_WINDOW:
             self._memory.popleft()
-        if len(self._memory) < 2:
+        readings = [r for r in self._memory if r[0] >= now - window]
+        if len(readings) < 2:
             return 0.0
-        (t0, mb0), (t1, mb1) = self._memory[0], self._memory[-1]
+        (t0, mb0), (t1, mb1) = readings[0], readings[-1]
         grown = mb1 - mb0
         return grown / (t1 - t0) if t1 - t0 >= 1.0 and grown >= MIN_GROWTH_MB else 0.0
 
@@ -155,6 +156,7 @@ class AgentState:
             memory_pct=self.memory_pct,
             similar_repeats=biggest_cluster(recent),
             memory_mb_per_s=self.memory_growth(now),
+            memory_recent_mb_per_s=self.memory_growth(now, RECENT_MEMORY_WINDOW),
         )
 
     def recent_events(self, n: int = 12) -> list[AgentEvent]:
