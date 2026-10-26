@@ -103,6 +103,7 @@ class Settings:
     hard_memory_pct: float
 
     # ── Brain behaviour ──
+    heartbeat_seconds: float       # the sentinel writes an alert with rule "sentinel_heartbeat" this often
     brain_cooldown_seconds: float  # don't ask Claude about the same agent more often than this
     brain_kill_confidence: float   # Claude must be at least this sure to kill
     memory_recheck_seconds: float  # a fast-growing memory is looked at again this soon (is it still growing?)
@@ -168,6 +169,7 @@ def load_settings() -> Settings:
         hard_tokens_per_min=_int("HARD_TOKENS_PER_MIN", 60_000),
         hard_calls_per_sec=_float("HARD_CALLS_PER_SEC", 8.0),
         hard_memory_pct=_float("HARD_MEMORY_PCT", 90.0),
+        heartbeat_seconds=_float("HEARTBEAT_SECONDS", 5.0),
         brain_cooldown_seconds=_float("BRAIN_COOLDOWN_SECONDS", 10.0),
         memory_recheck_seconds=_float("MEMORY_RECHECK_SECONDS", 3.0),
         brain_kill_confidence=_float("BRAIN_KILL_CONFIDENCE", 0.6),

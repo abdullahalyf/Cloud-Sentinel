@@ -69,7 +69,8 @@ def run_once(tmp_path, h, brain=None):
 def test_global_limits_leave_a_24k_agent_alone(tmp_path):
     h = AgentHandle("c1", "alpha", 150_000)
     s, store = run_once(tmp_path, h)
-    assert not s.pending and not store.recent_alerts()
+    assert not s.pending
+    assert [a for a in store.recent_alerts() if a["rule"] != "sentinel_heartbeat"] == []   # only the heartbeat
 
 
 def test_lower_soft_label_makes_it_suspicious_and_reaches_the_brain(tmp_path):

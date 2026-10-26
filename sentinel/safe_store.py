@@ -73,6 +73,11 @@ class SafeStore:
 
     # ── buffer ───────────────────────────────────────────────────────────────
     @property
+    def backing_off(self) -> bool:
+        """True while the database is being left alone after a failure."""
+        return self.clock() < self.down_until
+
+    @property
     def is_down(self) -> bool:
         return bool(self.buffer) or self.clock() < self.down_until
 

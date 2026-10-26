@@ -48,6 +48,7 @@ class Sentinel:
         self.saved_usd = 0.0         # estimated agent spend stopped by kills so far
         self.cost_detail: tuple[str, str] | None = None   # (agent, detail) not yet written as an alert
         self.last_cost_alert = 0.0
+        self.last_heartbeat = 0.0
 
     # ── main loop ────────────────────────────────────────────────────────────
     def run_forever(self) -> None:
@@ -84,6 +85,7 @@ class Sentinel:
 
     def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        self._heartbeat(now)
         self._process_commands()
         self._flush_cost(now=now)
         handles = self.source.list_agents()
@@ -204,6 +206,17 @@ class Sentinel:
         """Remember the running totals; _flush_cost writes them (at most once per interval)."""
         self.cost_detail = (agent, detail)
         self._flush_cost()
+
+    def _heartbeat(self, now: float) -> None:
+        """"I am alive": one info alert per HEARTBEAT_SECONDS. While the database is being left alone after a
+        failure no heartbeat is queued (an old one means nothing later), so the buffer is never flooded."""
+        if now - self.last_heartbeat < self.cfg.heartbeat_seconds or self.store.backing_off:
+            return
+        self.last_heartbeat = now
+        self.store.insert_alert(AlertRow(
+            "sentinel", "info", "sentinel_heartbeat",
+            f"alive · watching {len(self.states)} agent(s) · {self.kills} kill(s) · "
+            f"{'DRY RUN' if self.dry_run else 'live'}"))
 
     def _flush_cost(self, now: float | None = None, force: bool = False) -> None:
         """Dashboard totals: latest alert with rule 'brain_cost', one per BRAIN_COST_INTERVAL_SECONDS."""
