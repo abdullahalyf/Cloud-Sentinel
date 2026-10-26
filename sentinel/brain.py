@@ -71,14 +71,14 @@ def describe_past(past: Past, now: float) -> str:
 
 
 def evidence_of(snap: Snapshot) -> tuple[float, float, float]:
-    return (snap.loop_repeats, snap.tokens_per_min, snap.memory_pct)
+    return (max(snap.loop_repeats, snap.similar_repeats), snap.tokens_per_min, snap.memory_pct)
 
 
 def got_worse(snap: Snapshot, then: tuple[float, float, float] | None) -> bool:
     """Is the agent doing measurably worse than when it was last judged?"""
     if then is None:
         return False
-    return (snap.loop_repeats > then[0] or snap.tokens_per_min > then[1] * 1.1 + 1
+    return (max(snap.loop_repeats, snap.similar_repeats) > then[0] or snap.tokens_per_min > then[1] * 1.1 + 1
             or snap.memory_pct >= then[2] + 2)
 
 
@@ -92,7 +92,7 @@ runaway token spend with no progress, memory leak heading to a crash). Killing s
 - IGNORE: a legitimate burst of real work (varied prompts, progressing tasks).
 
 Weigh both costs: a wrong KILL interrupts real work; a missed KILL burns money and can crash \
-the server. Repeated identical prompts plus rising spend is the strongest sign of a loop, even \
+the server. Repeated identical prompts (or the same task reworded again and again: similar_repeats) plus rising spend is the strongest sign of a loop, even \
 when mixed in with other work. Varied prompts that each move a task forward are a legitimate \
 burst, even if spend is high. A few huge calls pushing tokens/min toward the hard limit are a \
 token bomb: KILL. Memory still high or climbing after an earlier warning is a leak: KILL. \
@@ -144,6 +144,7 @@ def build_user_message(snap: Snapshot, finding: Finding, recent: list[AgentEvent
         "soft_memory_pct": cfg.soft_memory_pct,
         "hard_memory_pct": cfg.hard_memory_pct,
         "loop_repeat_threshold": cfg.loop_repeat_threshold,
+        "paraphrase_repeat_threshold": cfg.paraphrase_repeat_threshold,
     }
     logs = "\n".join(
         json.dumps({"t": round(e.ts, 1), "tokens": e.tokens, "prompt": e.prompt[:200]}, ensure_ascii=False)
@@ -164,11 +165,16 @@ def fallback_verdict(snap: Snapshot, finding: Finding, cfg: Settings, note: str 
                      past: Past = (), now: float | None = None) -> Verdict:
     """Simple heuristic used when Claude is unavailable."""
     looping = snap.loop_repeats >= cfg.loop_repeat_threshold
-    spending = (
-        snap.tokens_per_min >= cfg.soft_tokens_per_min or snap.calls_per_sec >= cfg.soft_calls_per_sec
+    reworded = snap.similar_repeats >= cfg.paraphrase_repeat_threshold
+    spending = (  # "spending fast" = at least half of a soft limit
+        snap.tokens_per_min >= cfg.soft_tokens_per_min / 2 or snap.calls_per_sec >= cfg.soft_calls_per_sec / 2
     )
     prefix = f"[{note}] " if note else ""
     injection = " It also wrote text addressed to the monitor." if "prompt_injection" in finding.rules else ""
+    if reworded and not looping:
+        return Verdict("KILL", 0.8 if spending else 0.7, "infinite_loop",
+                       prefix + f"Same task reworded {snap.similar_repeats}× in 15s — stuck in a loop "
+                       "with new words." + injection, "fallback")
     if looping:
         conf = 0.85 if spending else 0.7
         return Verdict("KILL", conf, "infinite_loop",
@@ -183,6 +189,10 @@ def fallback_verdict(snap: Snapshot, finding: Finding, cfg: Settings, note: str 
         return Verdict("KILL", 0.75, "token_spike",
                        prefix + f"{snap.tokens_per_min:,} tokens/min — past halfway to the hard limit "
                        f"({cfg.hard_tokens_per_min:,}).", "fallback")
+    if snap.memory_pct >= (cfg.soft_memory_pct + cfg.hard_memory_pct) / 2:
+        return Verdict("KILL", 0.75, "memory_leak",
+                       prefix + f"Memory at {snap.memory_pct:.0f}% — past halfway to the hard limit "
+                       f"({cfg.hard_memory_pct:.0f}%), heading for a crash.", "fallback")
     now = time.time() if now is None else now
     if any(v.action in ("WARN", "KILL") and v.pattern != "legitimate_burst" and got_worse(snap, v.evidence)
            and now - ts <= cfg.brain_escalate_window_seconds for ts, v in past):

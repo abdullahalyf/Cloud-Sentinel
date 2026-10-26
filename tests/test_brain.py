@@ -7,7 +7,7 @@ from shared.config import load_settings
 cfg = load_settings()
 NOW = 1_000_000.0
 WARN = Verdict("WARN", 0.6, "infinite_loop", "odd but maybe fine", "claude",
-               evidence=(1, cfg.soft_tokens_per_min - 3_000, 15.0))   # spiky_snapshot() is worse than this
+               evidence=(1, cfg.soft_tokens_per_min // 2, 15.0))   # spiky_snapshot() is worse than this
 
 
 def spiky_snapshot(agent="beta"):

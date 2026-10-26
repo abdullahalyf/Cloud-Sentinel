@@ -68,6 +68,9 @@ def evaluate(s: Snapshot, cfg: Settings, prompts: Iterable[str] = ()) -> Finding
         if s.loop_repeats >= cfg.loop_repeat_threshold:
             f.add(Level.SUSPICIOUS, "loop_detected",
                   f"same prompt repeated {s.loop_repeats}× in the last minute")
+        if s.similar_repeats >= cfg.paraphrase_repeat_threshold:
+            f.add(Level.SUSPICIOUS, "paraphrase_loop",
+                  f"same task reworded {s.similar_repeats}× in the last 15s")
         if s.tokens_per_min >= cfg.soft_tokens_per_min:
             f.add(Level.SUSPICIOUS, "token_spike",
                   f"{s.tokens_per_min:,} tokens/min ≥ soft limit {cfg.soft_tokens_per_min:,}")

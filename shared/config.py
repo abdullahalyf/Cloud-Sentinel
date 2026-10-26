@@ -92,6 +92,7 @@ class Settings:
     soft_calls_per_sec: float
     soft_memory_pct: float
     loop_repeat_threshold: int     # same prompt N times in the window = possible loop
+    paraphrase_repeat_threshold: int  # N reworded copies of one prompt within 15s = possible loop
     injection_phrases: tuple[str, ...]  # prompt text addressed to the monitor = possible injection
 
     # ── Rules: HARD limits → kill immediately, no AI needed (circuit breaker) ──
@@ -152,10 +153,11 @@ def load_settings() -> Settings:
         log_file=_str("LOG_FILE", "logs/sentinel.log"),
         monitor_label=_str("MONITOR_LABEL", "cloudsentinel.monitor"),
         default_token_budget=_int("DEFAULT_TOKEN_BUDGET", 150_000),
-        soft_tokens_per_min=_int("SOFT_TOKENS_PER_MIN", 25_000),
-        soft_calls_per_sec=_float("SOFT_CALLS_PER_SEC", 2.0),
+        soft_tokens_per_min=_int("SOFT_TOKENS_PER_MIN", 45_000),
+        soft_calls_per_sec=_float("SOFT_CALLS_PER_SEC", 3.0),
         soft_memory_pct=_float("SOFT_MEMORY_PCT", 70.0),
         loop_repeat_threshold=_int("LOOP_REPEAT_THRESHOLD", 5),
+        paraphrase_repeat_threshold=_int("PARAPHRASE_REPEAT_THRESHOLD", 8),
         injection_phrases=_list("INJECTION_PHRASES", DEFAULT_INJECTION_PHRASES),
         hard_tokens_per_min=_int("HARD_TOKENS_PER_MIN", 60_000),
         hard_calls_per_sec=_float("HARD_CALLS_PER_SEC", 8.0),
