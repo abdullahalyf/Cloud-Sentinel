@@ -23,6 +23,12 @@ def _since_iso(minutes: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
 
 
+def _build_summary(kills: int, saved: int, tokens_by_agent: dict[str, int]) -> dict:
+    """Same shape from both stores. Agents are sorted: the biggest token user first."""
+    ordered = dict(sorted(tokens_by_agent.items(), key=lambda kv: kv[1], reverse=True))
+    return {"total_kills": int(kills), "tokens_saved": int(saved), "tokens_by_agent": ordered}
+
+
 class Store(Protocol):
     # writes (sentinel)
     def insert_metric(self, row: MetricRow) -> None: ...
@@ -36,6 +42,7 @@ class Store(Protocol):
     def recent_metrics(self, minutes: float = 5) -> list[dict]: ...
     def recent_alerts(self, limit: int = 50) -> list[dict]: ...
     def recent_actions(self, limit: int = 50) -> list[dict]: ...
+    def summary(self) -> dict: ...  # {"total_kills", "tokens_saved", "tokens_by_agent": {agent: tokens}}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +118,16 @@ class LocalStore:
     def recent_actions(self, limit: int = 50) -> list[dict]:
         return self._select("select * from actions order by id desc limit ?", (limit,))
 
+    def summary(self) -> dict:
+        kills = self._select(
+            "select count(*) as n, coalesce(sum(tokens_saved_estimate), 0) as saved "
+            "from actions where action = 'KILL'"
+        )[0]
+        rows = self._select(
+            "select agent, max(total_tokens) as tokens from agent_metrics group by agent"
+        )
+        return _build_summary(kills["n"], kills["saved"], {r["agent"]: r["tokens"] or 0 for r in rows})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 class SupabaseStore:
@@ -123,6 +140,17 @@ class SupabaseStore:
 
     def _insert(self, table: str, row: dict) -> None:
         self._db.table(table).insert(row).execute()
+
+    def _fetch_all(self, build) -> list[dict]:
+        """Supabase returns at most 1000 rows per request, so read page by page."""
+        rows: list[dict] = []
+        start = 0
+        while True:
+            page = build().range(start, start + 999).execute().data or []
+            rows.extend(page)
+            if len(page) < 1000:
+                return rows
+            start += 1000
 
     def insert_metric(self, row: MetricRow) -> None:
         self._insert("agent_metrics", row.to_row())
@@ -165,6 +193,35 @@ class SupabaseStore:
     def recent_actions(self, limit: int = 50) -> list[dict]:
         res = self._db.table("actions").select("*").order("id", desc=True).limit(limit).execute()
         return res.data or []
+
+    def summary(self) -> dict:
+        # kills + tokens saved: the actions table is small, read all of it
+        actions = self._fetch_all(
+            lambda: self._db.table("actions")
+            .select("agent,action,tokens_saved_estimate")
+            .order("id")
+        )
+        kills = [a for a in actions if a["action"] == "KILL"]
+        saved = sum(a["tokens_saved_estimate"] or 0 for a in kills)
+
+        # agents we know about: anyone who got an action + anyone in the newest metric rows
+        names = {a["agent"] for a in actions}
+        newest = self._db.table("agent_metrics").select("agent").order("id", desc=True).limit(1000)
+        names |= {r["agent"] for r in newest.execute().data or []}
+
+        # agent_metrics is huge, so ask for ONE row per agent: its highest total_tokens
+        tokens: dict[str, int] = {}
+        for name in sorted(names):
+            res = (
+                self._db.table("agent_metrics")
+                .select("total_tokens")
+                .eq("agent", name)
+                .order("total_tokens", desc=True)
+                .limit(1)
+                .execute()
+            )
+            tokens[name] = int(res.data[0]["total_tokens"] or 0) if res.data else 0
+        return _build_summary(len(kills), saved, tokens)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
