@@ -6,6 +6,9 @@ dashboard's database.
 .env (so the dashboard shows it too). Run `docker compose up -d --build` first.
 
 Both send GO_ROGUE to beta at 10 seconds and print persisted flag/kill times.
+--all: plays the 4 rogue types of agents/agent.py one after another in fake mode (a fresh temporary
+database each time) and prints: type | flagged after | killed after | killed by | healthy survived.
+Exit code 0 only if every rogue was killed and alpha/gamma survived every run.
 """
 from __future__ import annotations
 
@@ -27,7 +30,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 
-def timeline(store: Store, child: subprocess.Popen, timeout: float) -> str:
+HEALTHY = ("alpha", "gamma")
+ROGUE_TYPES = ("loop", "token_bomb", "memory_leak", "paraphrase_loop")   # = sentinel.sources.ROGUE_TYPES
+
+
+def timeline(store: Store, child: subprocess.Popen, timeout: float, rogue_delay: float = 10) -> dict:
+    """Wait for beta's metrics, send GO_ROGUE, then return when and how beta was flagged and killed."""
     from shared.contracts import CommandRow
 
     started = time.time()
@@ -38,9 +46,9 @@ def timeline(store: Store, child: subprocess.Popen, timeout: float) -> str:
         if child.poll() is not None:
             raise RuntimeError(f"sentinel exited early (code {child.returncode})")
         elapsed = time.monotonic() - clock
-        if rogue_at is None and elapsed >= 10:
+        if rogue_at is None and elapsed >= rogue_delay:
             if not any(m['agent'] == 'beta' for m in store.recent_metrics()):
-                raise RuntimeError("sentinel did not produce beta metrics before 10s")
+                raise RuntimeError(f"sentinel did not produce beta metrics before {rogue_delay:g}s")
             command = CommandRow('beta', 'GO_ROGUE', 'rehearsal', 'Scheduled rehearsal')
             store.insert_command(command)
             rogue_at = datetime.fromisoformat(command.created_at).timestamp() - started
@@ -59,10 +67,15 @@ def timeline(store: Store, child: subprocess.Popen, timeout: float) -> str:
                     continue
                 if flagged_at is None:
                     raise RuntimeError("beta was killed without a recorded flag")
-                return (f"rogue at {rogue_at:.1f}s → flagged at {flagged_at:.1f}s → "
-                        f"killed at {killed_at:.1f}s by {kill['actor']}")
+                return {"rogue_at": rogue_at, "flagged_at": flagged_at, "killed_at": killed_at,
+                        "actor": kill["actor"]}
         time.sleep(0.1)
     raise RuntimeError(f"rehearsal timed out after {timeout:g}s without a complete timeline")
+
+
+def describe(t: dict) -> str:
+    return (f"rogue at {t['rogue_at']:.1f}s → flagged at {t['flagged_at']:.1f}s → "
+            f"killed at {t['killed_at']:.1f}s by {t['actor']}")
 
 
 RESET_HINT = "Reset the agents for the next run:  docker compose up -d --force-recreate"
@@ -74,7 +87,7 @@ def rehearse(store: Store, command: list[str], timeout: float) -> int:
         child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                                  stdin=subprocess.DEVNULL)
         try:
-            result = timeline(store, child, timeout)
+            result = describe(timeline(store, child, timeout))
         except (RuntimeError, KeyboardInterrupt) as exc:
             print(f"Rehearsal stopped: {exc or 'interrupted'}", file=sys.stderr)
             log.seek(0)
@@ -92,14 +105,78 @@ def rehearse(store: Store, command: list[str], timeout: float) -> int:
     return 0
 
 
+def healthy_survived(store: Store) -> bool:
+    """alpha and gamma were never killed and are still reporting fresh metrics."""
+    if any(a["agent"] in HEALTHY and a["action"] == "KILL" for a in store.recent_actions()):
+        return False
+    latest: dict[str, float] = {}
+    for m in store.recent_metrics():
+        latest[m["agent"]] = max(latest.get(m["agent"], 0), datetime.fromisoformat(m["created_at"]).timestamp())
+    return all(time.time() - latest.get(name, 0) < 5 for name in HEALTHY)
+
+
+def run_one_type(rogue_type: str, timeout: float) -> dict:
+    """Fake sentinel + a fresh database; beta goes rogue the way `rogue_type` says."""
+    from shared.store import LocalStore
+
+    with tempfile.TemporaryDirectory(prefix='cloudsentinel-demo-') as directory:
+        env = {**os.environ, 'ANTHROPIC_API_KEY': '', 'GEMINI_API_KEY': '', 'SUPABASE_URL': '', 'SUPABASE_KEY': '',
+               'LOCAL_DB_PATH': str(Path(directory) / 'rehearsal.db'), 'DRY_RUN': 'false', 'LOG_FILE': '',
+               'WEBHOOK_URL': ''}
+        store = LocalStore(env['LOCAL_DB_PATH'])
+        with tempfile.TemporaryFile(mode='w+t') as log:
+            child = subprocess.Popen([sys.executable, '-m', 'sentinel', '--fake', '--no-auto-rogue',
+                                      '--rogue-type', rogue_type], cwd=ROOT, env=env, stdout=log,
+                                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            try:
+                result = timeline(store, child, timeout, rogue_delay=4)
+                time.sleep(2)                     # the healthy agents must keep going after the kill
+                result["healthy"] = healthy_survived(store)
+            finally:
+                if child.poll() is None:
+                    child.terminate()
+                try:
+                    child.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    child.wait()
+        return result
+
+
+def run_all(timeout: float) -> int:
+    rows, failed = [], False
+    for rogue_type in ROGUE_TYPES:
+        try:
+            t = run_one_type(rogue_type, timeout)
+            rows.append((rogue_type, f"{t['flagged_at'] - t['rogue_at']:.1f}s", f"{t['killed_at'] - t['rogue_at']:.1f}s",
+                         t["actor"], "yes" if t["healthy"] else "NO"))
+            failed |= not t["healthy"]
+        except RuntimeError as exc:
+            rows.append((rogue_type, "-", "-", f"FAILED: {exc}", "-"))
+            failed = True
+    header = ("ROGUE_TYPE", "flagged after", "killed after", "killed by", "healthy survived")
+    widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
+    for line in [header, ("-" * w for w in widths), *rows]:
+        print(" | ".join(str(c).ljust(w) for c, w in zip(line, widths)))
+    print("\nFAIL" if failed else "\nPASS")
+    return 1 if failed else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=float, default=60, help='total rehearsal deadline in seconds')
     parser.add_argument('--docker', action='store_true',
                         help='real sentinel + real agent containers + the .env database')
+    parser.add_argument('--all', action='store_true',
+                        help='play all 4 rogue types one after another in fake mode and print a table')
     args = parser.parse_args(argv)
+    if args.all and args.docker:
+        parser.error('--all runs in fake mode; it cannot be combined with --docker')
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error('--timeout must be a finite positive number')
+
+    if args.all:
+        return run_all(min(args.timeout, 40))
 
     if args.docker:
         from shared.store import get_store
