@@ -754,13 +754,13 @@ def live_panel() -> None:
     with tab_acts:
         if not actions_df.empty:
             display_acts = actions_df.copy()
-            st.dataframe(display_acts, hide_index=True, use_container_width=True)
+            st.dataframe(display_acts, hide_index=True, width="stretch")
         else:
             st.info("No circuit breaker actions recorded yet.")
 
     with tab_alerts:
         if not alerts_df.empty:
-            st.dataframe(alerts_df, hide_index=True, use_container_width=True)
+            st.dataframe(alerts_df, hide_index=True, width="stretch")
         else:
             st.info("No active security alerts.")
 
