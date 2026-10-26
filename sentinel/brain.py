@@ -170,6 +170,11 @@ def build_user_message(snap: Snapshot, finding: Finding, recent: list[AgentEvent
     )
 
 
+def spending_calls(snap: Snapshot, cfg: Settings) -> bool:
+    """Calls per second past halfway to the hard limit."""
+    return snap.calls_per_sec >= (cfg.soft_calls_per_sec + cfg.hard_calls_per_sec) / 2
+
+
 def fallback_verdict(snap: Snapshot, finding: Finding, cfg: Settings, note: str = "",
                      past: Past = (), now: float | None = None) -> Verdict:
     """Simple heuristic used when Claude is unavailable."""
@@ -209,10 +214,16 @@ def fallback_verdict(snap: Snapshot, finding: Finding, cfg: Settings, note: str 
                        prefix + "Spending fast while writing text aimed at the monitor — likely manipulation.",
                        "fallback")
     halfway = (cfg.soft_tokens_per_min + cfg.hard_tokens_per_min) / 2
-    if snap.tokens_per_min >= halfway:
+    # high spend alone is not a crime (a busy agent with varied prompts): past halfway to the hard limit it needs
+    # a second signal to be killed; at the hard limit it is killed anyway. Otherwise it warns, and the
+    # "got worse" rule below kills it if the spend keeps rising.
+    other_signal = (max(snap.loop_repeats, snap.similar_repeats) > cfg.loop_repeat_threshold // 2
+                    or spending_calls(snap, cfg) or snap.memory_pct >= cfg.soft_memory_pct)
+    if snap.tokens_per_min >= cfg.hard_tokens_per_min or (snap.tokens_per_min >= halfway and other_signal):
         return Verdict("KILL", 0.75, "token_spike",
-                       prefix + f"{snap.tokens_per_min:,} tokens/min — past halfway to the hard limit "
-                       f"({cfg.hard_tokens_per_min:,}).", "fallback")
+                       prefix + f"{snap.tokens_per_min:,} tokens/min near the hard limit "
+                       f"({cfg.hard_tokens_per_min:,})" + ("" if snap.tokens_per_min >= cfg.hard_tokens_per_min
+                                                           else " and another warning sign") + ".", "fallback")
     if snap.memory_pct >= (cfg.soft_memory_pct + cfg.hard_memory_pct) / 2:
         return Verdict("KILL", 0.75, "memory_leak",
                        prefix + f"Memory at {snap.memory_pct:.0f}% — past halfway to the hard limit "
