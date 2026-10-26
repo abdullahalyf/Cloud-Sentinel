@@ -34,7 +34,7 @@ HEALTHY = ("alpha", "gamma")
 ROGUE_TYPES = ("loop", "token_bomb", "memory_leak", "paraphrase_loop")   # = sentinel.sources.ROGUE_TYPES
 
 
-def timeline(store: Store, child: subprocess.Popen, timeout: float, rogue_delay: float = 10) -> dict:
+def measure(store: Store, child: subprocess.Popen, timeout: float, rogue_delay: float = 10) -> dict:
     """Wait for beta's metrics, send GO_ROGUE, then return when and how beta was flagged and killed."""
     from shared.contracts import CommandRow
 
@@ -73,7 +73,8 @@ def timeline(store: Store, child: subprocess.Popen, timeout: float, rogue_delay:
     raise RuntimeError(f"rehearsal timed out after {timeout:g}s without a complete timeline")
 
 
-def describe(t: dict) -> str:
+def timeline(store: Store, child: subprocess.Popen, timeout: float) -> str:
+    t = measure(store, child, timeout)
     return (f"rogue at {t['rogue_at']:.1f}s → flagged at {t['flagged_at']:.1f}s → "
             f"killed at {t['killed_at']:.1f}s by {t['actor']}")
 
@@ -87,7 +88,7 @@ def rehearse(store: Store, command: list[str], timeout: float) -> int:
         child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                                  stdin=subprocess.DEVNULL)
         try:
-            result = describe(timeline(store, child, timeout))
+            result = timeline(store, child, timeout)
         except (RuntimeError, KeyboardInterrupt) as exc:
             print(f"Rehearsal stopped: {exc or 'interrupted'}", file=sys.stderr)
             log.seek(0)
@@ -129,7 +130,7 @@ def run_one_type(rogue_type: str, timeout: float) -> dict:
                                       '--rogue-type', rogue_type], cwd=ROOT, env=env, stdout=log,
                                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
             try:
-                result = timeline(store, child, timeout, rogue_delay=4)
+                result = measure(store, child, timeout, rogue_delay=4)
                 time.sleep(2)                     # the healthy agents must keep going after the kill
                 result["healthy"] = healthy_survived(store)
             finally:
