@@ -11,6 +11,8 @@ Engine: the main loop. Once per tick:
 from __future__ import annotations
 
 import logging
+import signal
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
@@ -44,10 +46,14 @@ class Sentinel:
         self.kills = 0
         self.tokens_saved = 0
         self.saved_usd = 0.0         # estimated agent spend stopped by kills so far
+        self.cost_detail: tuple[str, str] | None = None   # (agent, detail) not yet written as an alert
+        self.last_cost_alert = 0.0
 
     # ── main loop ────────────────────────────────────────────────────────────
     def run_forever(self) -> None:
-        """Loop until Ctrl+C, then stop the worker threads and log a summary."""
+        """Loop until Ctrl+C or SIGTERM (docker stop, kill), then stop the worker threads and log a summary."""
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         log.info("Sentinel running (tick %.1fs, dry_run=%s)", self.cfg.tick_seconds, self.dry_run)
         try:
             while True:
@@ -58,8 +64,9 @@ class Sentinel:
                     log.exception("tick failed — continuing")  # the guard must never die
                 time.sleep(max(0.0, self.cfg.tick_seconds - (time.time() - started)))
         except KeyboardInterrupt:
-            log.info("Ctrl+C — stopping")
+            log.info("Ctrl+C / SIGTERM — stopping")
         finally:
+            self._flush_cost(force=True)
             self.shutdown()
             log.info(self.summary())
 
@@ -78,6 +85,7 @@ class Sentinel:
     def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
         self._process_commands()
+        self._flush_cost(now=now)
         handles = self.source.list_agents()
         for h in handles:
             try:
@@ -191,7 +199,17 @@ class Sentinel:
         return True
 
     def _report_cost(self, agent: str, detail: str) -> None:
-        """Running totals for the dashboard: latest alert with rule 'brain_cost'."""
+        """Remember the running totals; _flush_cost writes them (at most once per interval)."""
+        self.cost_detail = (agent, detail)
+        self._flush_cost()
+
+    def _flush_cost(self, now: float | None = None, force: bool = False) -> None:
+        """Dashboard totals: latest alert with rule 'brain_cost', one per BRAIN_COST_INTERVAL_SECONDS."""
+        now = time.time() if now is None else now
+        if self.cost_detail is None or (not force and now - self.last_cost_alert < self.cfg.brain_cost_interval_seconds):
+            return
+        agent, detail = self.cost_detail
+        self.cost_detail, self.last_cost_alert = None, now
         self.store.insert_alert(AlertRow(
             agent, "info", "brain_cost",
             f"Sentinel spent ${self.brain_spent_usd:.4f} to save ${self.saved_usd:.2f} — {detail} "

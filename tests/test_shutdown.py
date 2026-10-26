@@ -41,3 +41,16 @@ def test_sigint_on_the_real_process(tmp_path):
     assert "Summary: watched 3 agent(s)" in out and "Sentinel stopped." in out
     text = log_file.read_text()
     assert "Now watching alpha" in text and "Summary:" in text
+
+
+def test_sigterm_on_the_real_process_is_a_clean_stop(tmp_path):
+    env = {**os.environ, "ANTHROPIC_API_KEY": "", "SUPABASE_URL": "", "SUPABASE_KEY": "",
+           "WEBHOOK_URL": "", "LOCAL_DB_PATH": str(tmp_path / "t.db"), "LOG_FILE": str(tmp_path / "s.log")}
+    child = subprocess.Popen([sys.executable, "-m", "sentinel", "--fake", "--no-auto-rogue"],
+                             cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    time.sleep(3)
+    child.send_signal(signal.SIGTERM)
+    out, _ = child.communicate(timeout=15)
+    assert child.returncode == 0, out
+    assert "Traceback" not in out and "SIGTERM" in out
+    assert "Summary: watched 3 agent(s)" in out and "Sentinel stopped." in out

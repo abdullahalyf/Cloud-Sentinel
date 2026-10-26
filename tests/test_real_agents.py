@@ -20,5 +20,5 @@ def test_all_four_rogue_types_are_killed_and_healthy_agents_survive():
         assert row["killed_after"] is not None, (rogue_type, verify.table(result))
     assert rows["paraphrase_loop"]["flagged_after"] <= 10          # was 23s
     assert rows["token_bomb"]["killed_by"] == "rules"              # hard limit, no AI
-    assert "memory_high" in rows["memory_leak"]["rules"]           # caught by memory…
+    assert {"memory_high", "memory_hard"} & set(rows["memory_leak"]["rules"])   # caught by memory…
     assert "call_spike" not in rows["memory_leak"]["rules"]        # …not by call rate

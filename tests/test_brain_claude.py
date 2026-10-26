@@ -132,10 +132,30 @@ def test_engine_reports_spent_and_saved(tmp_path):
     assert not source.agents["beta"].alive
     expected = (1_000 * cfg.claude_price_in_per_mtok + 100 * cfg.claude_price_out_per_mtok) / 1e6
     assert abs(s.brain_spent_usd - expected) < 1e-12 and s.saved_usd > 0
-    costs = [a for a in store.recent_alerts() if a["rule"] == "brain_cost"]
-    assert len(costs) == 2                     # one for the Claude call, one for the kill
-    assert any(f"saved_usd={s.saved_usd:.4f}" in a["message"] for a in costs)
-    assert all(a["message"].startswith("Sentinel spent $") for a in costs)
+    costs = lambda: [a for a in store.recent_alerts() if a["rule"] == "brain_cost"]  # noqa: E731
+    assert len(costs()) == 1                   # the Claude call; the kill's totals wait (60s throttle)
+    s.tick(now=time.time() + cfg.brain_cost_interval_seconds + 1)   # next summary is due
+    assert len(costs()) == 2
+    assert any(f"saved_usd={s.saved_usd:.4f}" in a["message"] for a in costs())
+    assert all(a["message"].startswith("Sentinel spent $") for a in costs())
+    assert s.saved_usd > 0
+
+
+def test_brain_cost_alerts_are_throttled_and_flushed_on_shutdown(tmp_path):
+    store = LocalStore(str(tmp_path / "t.db"))
+    s = Sentinel(FakeSource(cfg, auto_rogue=None), store, Brain(offline), cfg)
+    n = lambda: sum(a["rule"] == "brain_cost" for a in store.recent_alerts(500))  # noqa: E731
+    t0 = 1_000_000.0
+    s._report_cost("beta", "first")
+    for i in range(50):                        # 50 more reports within the interval → still one alert
+        s._report_cost("beta", f"again {i}")
+        s._flush_cost(now=t0 + i)
+    assert n() == 1
+    s._flush_cost(now=time.time() + 61)
+    assert n() == 2
+    s._report_cost("beta", "last words")
+    s._flush_cost(force=True)                  # what shutdown does
+    assert n() == 3
 
 
 class RejectsForcedTool(MockMessages):
