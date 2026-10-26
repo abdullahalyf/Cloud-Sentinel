@@ -1,7 +1,7 @@
 """
 How good is the brain?  Runs it on 8 recorded scenarios and prints a table.
 
-    python scripts/eval_brain.py              # real Claude if ANTHROPIC_API_KEY is set, else fallback
+    python scripts/eval_brain.py              # the configured LLM (BRAIN_PROVIDER) if its key is set, else fallback
     python scripts/eval_brain.py --offline    # always the fallback rules (no network, no cost)
 
 Scenarios live in tests/fixtures/brain_scenarios/*.json. "expected" is KILL or keep
@@ -81,9 +81,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--offline", action="store_true", help="use the fallback rules even if a key is set")
     args = p.parse_args(argv)
     logging.basicConfig(level=logging.ERROR)  # keep the table clean
-    cfg = replace(settings, anthropic_api_key="") if args.offline else settings
+    cfg = replace(settings, anthropic_api_key="", gemini_api_key="") if args.offline else settings
     brain = Brain(cfg)
-    print(f"Brain: {'Claude ' + cfg.claude_model if cfg.use_claude else 'fallback rules (offline)'}\n")
+    print(f"Brain: {cfg.brain_name}\n")
     print(table(evaluate_all(brain, cfg)))
     return 0
 

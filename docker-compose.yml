@@ -3,6 +3,11 @@
 #   Reset after a demo (bring killed agents back):  docker compose up -d --force-recreate
 #   Stop:   docker compose down
 #
+# Pick HOW an agent goes rogue without editing this file (PowerShell example):
+#   $env:BETA_ROGUE_TYPE="paraphrase_loop"; docker compose up -d --force-recreate
+# Options: loop | token_bomb | memory_leak | paraphrase_loop
+# Defaults: alpha=loop, beta=token_bomb, gamma=memory_leak
+#
 # The sentinel itself runs on the laptop (python -m sentinel), not in a container.
 # Every agent MUST have the label cloudsentinel.monitor=true or the sentinel ignores it.
 
@@ -18,7 +23,9 @@ services:
   agent-alpha:
     <<: *agent
     container_name: agent-alpha
-    environment: { AGENT_NAME: alpha }
+    environment:
+      AGENT_NAME: alpha
+      ROGUE_TYPE: ${ALPHA_ROGUE_TYPE:-loop}
     labels:
       cloudsentinel.monitor: "true"
       cloudsentinel.agent_name: alpha
@@ -27,7 +34,9 @@ services:
   agent-beta:
     <<: *agent
     container_name: agent-beta
-    environment: { AGENT_NAME: beta }
+    environment:
+      AGENT_NAME: beta
+      ROGUE_TYPE: ${BETA_ROGUE_TYPE:-token_bomb}
     labels:
       cloudsentinel.monitor: "true"
       cloudsentinel.agent_name: beta
@@ -36,7 +45,10 @@ services:
   agent-gamma:
     <<: *agent
     container_name: agent-gamma
-    environment: { AGENT_NAME: gamma }
+    environment:
+      AGENT_NAME: gamma
+      ROGUE_TYPE: ${GAMMA_ROGUE_TYPE:-memory_leak}
+      LEAK_CAP_MB: "440"   # keep below mem_limit (512m) so the leak is caught, not OOM-killed
     labels:
       cloudsentinel.monitor: "true"
       cloudsentinel.agent_name: gamma

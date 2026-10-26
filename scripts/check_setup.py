@@ -123,8 +123,22 @@ def main() -> int:
         report(FAIL, f"database error: {exc}",
                "Check SUPABASE_URL / SUPABASE_KEY in .env, and that db/schema.sql was run in Supabase")
 
-    # Claude
-    if not settings.use_claude:
+    # The brain (Claude by default, Gemini with BRAIN_PROVIDER=gemini)
+    if settings.brain_provider == "gemini":
+        if not settings.use_gemini:
+            report(WARN, "BRAIN_PROVIDER=gemini but no GEMINI_API_KEY — the brain will use the fallback rules",
+                   "Set GEMINI_API_KEY in .env (never in .env.example), or BRAIN_PROVIDER=claude")
+        else:
+            try:
+                from google import genai
+
+                genai.Client(api_key=settings.gemini_api_key).models.generate_content(
+                    model=settings.gemini_model, contents="ping")
+                report(OK, f"Gemini API works ({settings.gemini_model})")
+            except Exception as exc:
+                report(FAIL, f"Gemini API error: {exc}",
+                       "pip install -r requirements.txt; check GEMINI_API_KEY and GEMINI_MODEL in .env")
+    elif not settings.use_claude:
         report(WARN, "no ANTHROPIC_API_KEY — the brain will use the fallback rules",
                "Only Alif/Taseen need this. Others can ignore it.")
     else:

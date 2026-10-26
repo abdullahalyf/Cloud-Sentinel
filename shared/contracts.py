@@ -104,7 +104,7 @@ def emit(agent: str, type: str, **fields: Any) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 AgentStatus = Literal["running", "warned", "paused", "killed"]
 Severity = Literal["info", "warning", "critical"]
-Actor = Literal["rules", "claude", "fallback", "human"]
+Actor = Literal["rules", "claude", "gemini", "fallback", "human"]
 
 
 @dataclass
@@ -144,7 +144,7 @@ class ActionRow:
     """Something was DONE to an agent (kill / warn / pause). Table: actions"""
     agent: str
     action: str                # "KILL" | "WARN" | "PAUSE"
-    actor: str                 # who decided: rules | claude | fallback | human
+    actor: str                 # who decided: rules | claude | gemini | fallback | human
     reason: str
     tokens_saved_estimate: int = 0
     created_at: str = field(default_factory=utc_now_iso)

@@ -49,13 +49,23 @@ DEFAULT_INJECTION_PHRASES = ("monitoring system,do not terminate,do not kill,don
 
 @dataclass(frozen=True)
 class Settings:
-    # ── Claude (the brain) ──
+    # ── The brain: which LLM judges suspicious agents ──
+    brain_provider: str               # "claude" (default) | "gemini"; no key → fallback rules
+
+    # ── Claude ──
     anthropic_api_key: str
     claude_model: str
     claude_timeout_seconds: float     # one Claude call may take at most this long (then fallback)
     claude_price_in_per_mtok: float   # USD per 1M input tokens of CLAUDE_MODEL (brain cost tracking)
     claude_price_out_per_mtok: float  # USD per 1M output tokens of CLAUDE_MODEL
     agent_price_per_mtok: float       # USD per 1M tokens the watched agents spend ("money saved")
+
+    # ── Gemini (only used when brain_provider == "gemini") ──
+    gemini_api_key: str
+    gemini_model: str
+    gemini_timeout_seconds: float
+    gemini_price_in_per_mtok: float
+    gemini_price_out_per_mtok: float
 
     # ── Database ── (if Supabase values are empty, a local SQLite file is used)
     supabase_url: str
@@ -98,17 +108,36 @@ class Settings:
 
     @property
     def use_claude(self) -> bool:
-        return bool(self.anthropic_api_key)
+        return self.brain_provider != "gemini" and bool(self.anthropic_api_key)
+
+    @property
+    def use_gemini(self) -> bool:
+        return self.brain_provider == "gemini" and bool(self.gemini_api_key)
+
+    @property
+    def brain_name(self) -> str:
+        """Human-readable name of the active brain, e.g. 'Claude claude-haiku-5-5'."""
+        if self.use_gemini:
+            return "Gemini " + self.gemini_model
+        if self.use_claude:
+            return "Claude " + self.claude_model
+        return "fallback rules (offline)"
 
 
 def load_settings() -> Settings:
     return Settings(
+        brain_provider=_str("BRAIN_PROVIDER", "claude").lower(),
         anthropic_api_key=_str("ANTHROPIC_API_KEY"),
         claude_model=_str("CLAUDE_MODEL", "claude-haiku-5-5"),
         claude_timeout_seconds=_float("CLAUDE_TIMEOUT_SECONDS", 10.0),
         claude_price_in_per_mtok=_float("CLAUDE_PRICE_IN_PER_MTOK", 0.10),
         claude_price_out_per_mtok=_float("CLAUDE_PRICE_OUT_PER_MTOK", 0.50),
         agent_price_per_mtok=_float("AGENT_PRICE_PER_MTOK", 4.0),
+        gemini_api_key=_str("GEMINI_API_KEY"),
+        gemini_model=_str("GEMINI_MODEL", "gemini-2.5-flash"),
+        gemini_timeout_seconds=_float("GEMINI_TIMEOUT_SECONDS", 10.0),
+        gemini_price_in_per_mtok=_float("GEMINI_PRICE_IN_PER_MTOK", 0.30),
+        gemini_price_out_per_mtok=_float("GEMINI_PRICE_OUT_PER_MTOK", 2.50),
         supabase_url=_str("SUPABASE_URL"),
         supabase_key=_str("SUPABASE_KEY"),
         local_db_path=_str("LOCAL_DB_PATH", "data/cloudsentinel.db"),
