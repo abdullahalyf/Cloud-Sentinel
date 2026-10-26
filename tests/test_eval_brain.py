@@ -32,3 +32,13 @@ def test_table_has_the_slide_columns(capsys):
     header = next(line for line in out.splitlines() if line.startswith("scenario"))
     assert [c.strip() for c in header.split("|")] == ["scenario", "expected", "verdict", "correct"]
     assert "score: " in out
+
+
+def test_every_scenario_is_judged_three_times_and_keepers_are_never_killed():
+    assert eval_brain.ROUNDS == 3
+    brain = Brain(offline)
+    for sc in eval_brain.load_scenarios():
+        outcome, text = eval_brain.run_scenario(sc, brain, offline)
+        if sc["expected"] == "keep":
+            assert outcome == "keep" and "KILL" not in text, (sc["name"], text)
+            assert text.count("→") == 2, text   # three rounds, none of them a kill

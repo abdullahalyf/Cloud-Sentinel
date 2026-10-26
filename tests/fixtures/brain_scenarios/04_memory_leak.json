@@ -11,7 +11,12 @@
    "WARN",
    0.5,
    "memory_leak",
-   "memory 78% and climbing"
+   "memory 78% and climbing",
+   [
+    1,
+    0,
+    78
+   ]
   ]
  ],
  "events": [
