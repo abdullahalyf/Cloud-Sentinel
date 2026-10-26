@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
@@ -26,6 +27,8 @@ class AgentHandle:
     id: str          # container id (or fake id)
     name: str        # short human name: alpha / beta / gamma
     token_budget: int
+    soft_tokens_per_min: int | None = None   # per-agent override of the global limit (label)
+    hard_tokens_per_min: int | None = None
 
 
 class AgentSource(Protocol):
@@ -34,6 +37,9 @@ class AgentSource(Protocol):
     def read_memory(self, h: AgentHandle) -> tuple[float, float]: ...  # (MB, % of limit)
     def kill(self, h: AgentHandle) -> str: ...
     def go_rogue(self, h: AgentHandle) -> str: ...
+    def pause(self, h: AgentHandle) -> str: ...
+    def resume(self, h: AgentHandle) -> str: ...
+    def is_paused(self, h: AgentHandle) -> bool: ...
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -46,37 +52,69 @@ def parse_docker_ts(ts: str) -> tuple[int, int]:
     return int(dt.timestamp()), nanos
 
 
+def _int_label(labels: dict, key: str, agent: str) -> int | None:
+    """Optional positive int label; missing or invalid → None (use the global setting)."""
+    raw = labels.get(key)
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value <= 0:
+        log.warning("ignoring label %s=%r on %s (not a positive number)", key, raw, agent)
+        return None
+    return value
+
+
 class DockerSource:
     NAME_LABEL = "cloudsentinel.agent_name"
     BUDGET_LABEL = "cloudsentinel.token_budget"
+    SOFT_TPM_LABEL = "cloudsentinel.soft_tokens_per_min"
+    HARD_TPM_LABEL = "cloudsentinel.hard_tokens_per_min"
 
-    def __init__(self, cfg: Settings):
-        import docker  # only needed in docker mode
+    def __init__(self, cfg: Settings, client=None):
+        if client is None:
+            import docker  # only needed in docker mode
 
-        self.client = docker.from_env()
-        self.client.ping()  # fails fast with a clear error if Docker Desktop isn't running
+            client = docker.from_env()
+            client.ping()  # fails fast with a clear error if Docker Desktop isn't running
+        self.client = client
         self.cfg = cfg
         self._containers: dict = {}
         self._last_log: dict[str, tuple[int, int]] = {}
+        # container.stats() takes ~1-2s each, so memory is read in the background and the
+        # tick uses the latest value it has (one read in flight per container at most).
+        self._memory: dict[str, tuple[float, float]] = {}
+        self._memory_reads: dict[str, Future] = {}
+        self._stats_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="docker-stats")
 
     def list_agents(self) -> list[AgentHandle]:
-        containers = self.client.containers.list(filters={"label": f"{self.cfg.monitor_label}=true"})
+        containers = self.client.containers.list(
+            all=True, filters={"label": f"{self.cfg.monitor_label}=true", "status": ["running", "paused"]})
         self._containers = {c.id: c for c in containers}
+        for gone in (set(self._last_log) | set(self._memory_reads)) - set(self._containers):  # removed / recreated
+            self._last_log.pop(gone, None)
+            self._memory.pop(gone, None)
+            self._memory_reads.pop(gone, None)
         handles = []
         for c in containers:
             labels = c.labels or {}
-            try:
-                budget = int(labels.get(self.BUDGET_LABEL, self.cfg.default_token_budget))
-            except ValueError:
-                budget = self.cfg.default_token_budget
-            handles.append(AgentHandle(c.id, labels.get(self.NAME_LABEL, c.name), budget))
+            name = labels.get(self.NAME_LABEL, c.name)
+            budget = _int_label(labels, self.BUDGET_LABEL, name)
+            handles.append(AgentHandle(
+                c.id, name, self.cfg.default_token_budget if budget is None else budget,
+                _int_label(labels, self.SOFT_TPM_LABEL, name), _int_label(labels, self.HARD_TPM_LABEL, name)))
         return handles
 
     def read_events(self, h: AgentHandle) -> list[AgentEvent]:
-        c = self._containers[h.id]
         last = self._last_log.get(h.id)
         since = last[0] if last else int(time.time()) - 10
-        raw = c.logs(stdout=True, stderr=False, timestamps=True, since=since)
+        try:
+            raw = self._containers[h.id].logs(stdout=True, stderr=False, timestamps=True, since=since)
+        except Exception as exc:  # container vanished / restarting / log driver error
+            log.warning("cannot read logs of %s: %s", h.name, exc)
+            return []
         events, newest = [], last
         for line in raw.decode("utf-8", errors="replace").splitlines():
             ts_str, _, message = line.partition(" ")
@@ -95,6 +133,19 @@ class DockerSource:
         return events
 
     def read_memory(self, h: AgentHandle) -> tuple[float, float]:
+        """Latest known memory (never blocks); starts a background refresh if none is running."""
+        fut = self._memory_reads.get(h.id)
+        if fut is None or fut.done():
+            self._memory_reads[h.id] = self._stats_pool.submit(self._refresh_memory, h)
+        return self._memory.get(h.id, (0.0, 0.0))
+
+    def _refresh_memory(self, h: AgentHandle) -> None:
+        try:
+            self._memory[h.id] = self._read_stats(h)
+        except Exception as exc:  # container gone / restarting: keep the last value
+            log.warning("cannot read memory of %s: %s", h.name, exc)
+
+    def _read_stats(self, h: AgentHandle) -> tuple[float, float]:
         c = self._containers[h.id]
         try:
             stats = c.stats(stream=False, one_shot=True)
@@ -107,9 +158,30 @@ class DockerSource:
         limit = mem.get("limit") or 0
         return used / 1_048_576, (100.0 * used / limit if limit else 0.0)
 
+    def shutdown(self) -> None:
+        self._stats_pool.shutdown(wait=False, cancel_futures=True)
+
     def kill(self, h: AgentHandle) -> str:
+        if self.is_paused(h):
+            self.resume(h)
         self._containers[h.id].kill()
         return f"container {h.name} killed"
+
+    def is_paused(self, h: AgentHandle) -> bool:
+        c = self._containers.get(h.id)
+        return c is not None and c.status == "paused"
+
+    def pause(self, h: AgentHandle) -> str:
+        if not self.is_paused(h):
+            self._containers[h.id].pause()
+            self._containers[h.id].reload()
+        return f"container {h.name} paused"
+
+    def resume(self, h: AgentHandle) -> str:
+        if self.is_paused(h):
+            self._containers[h.id].unpause()
+            self._containers[h.id].reload()
+        return f"container {h.name} resumed"
 
     def go_rogue(self, h: AgentHandle) -> str:
         self._containers[h.id].exec_run(["sh", "-c", "touch /tmp/go_rogue"])
@@ -138,10 +210,15 @@ class _FakeAgent:
         self.budget = budget
         self.rng = random.Random(seed)
         self.alive = True
+        self.paused_since: float | None = None
         self.rogue_since: float | None = None
         self.next_call = time.time() + self.rng.uniform(0.5, 2)
         self.base_mem = self.rng.uniform(60, 95)
         self.calls = 0
+
+    def go_rogue(self) -> None:
+        self.rogue_since = time.time()
+        self.next_call = min(self.next_call, self.rogue_since)  # start looping now, not after the idle sleep
 
 
 class FakeSource:
@@ -158,7 +235,7 @@ class FakeSource:
         if self.auto_rogue and time.time() - self.started >= self.rogue_after:
             a = self.agents.get(self.auto_rogue)
             if a and a.alive and a.rogue_since is None:
-                a.rogue_since = time.time()
+                a.go_rogue()
                 log.info("[fake] %s went rogue", a.name)
             self.auto_rogue = None
         return [AgentHandle(a.id, a.name, a.budget) for a in self.agents.values() if a.alive]
@@ -168,7 +245,7 @@ class FakeSource:
 
     def read_events(self, h: AgentHandle) -> list[AgentEvent]:
         a, now, events = self._agent(h), time.time(), []
-        while a.alive and a.next_call <= now:
+        while a.alive and a.paused_since is None and a.next_call <= now:
             t = a.next_call
             a.calls += 1
             if a.rogue_since is not None and t >= a.rogue_since:
@@ -183,15 +260,37 @@ class FakeSource:
                                          tokens_out=a.rng.randint(50, 250), model="sim",
                                          prompt=f"{task} (job {a.rng.randint(1000, 9999)})"))
                 a.next_call = t + a.rng.uniform(2.0, 5.0)
+                if a.rogue_since is not None:  # an overdue healthy call must not delay the loop
+                    a.next_call = min(a.next_call, max(a.rogue_since, t))
         return events
 
     def read_memory(self, h: AgentHandle) -> tuple[float, float]:
         a = self._agent(h)
         mb = a.base_mem + a.rng.uniform(-3, 3)
         if a.rogue_since is not None:
-            mb += 8.0 * (time.time() - a.rogue_since)       # leaks 8 MB/sec
+            now = a.paused_since if a.paused_since is not None else time.time()
+            mb += 8.0 * max(0.0, now - a.rogue_since)       # leaks 8 MB/sec
         mb = min(mb, self.MEMORY_LIMIT_MB)
         return mb, 100.0 * mb / self.MEMORY_LIMIT_MB
+
+    def is_paused(self, h: AgentHandle) -> bool:
+        return self._agent(h).paused_since is not None
+
+    def pause(self, h: AgentHandle) -> str:
+        a = self._agent(h)
+        if a.paused_since is None:
+            a.paused_since = time.time()
+        return f"fake agent {h.name} paused"
+
+    def resume(self, h: AgentHandle) -> str:
+        a = self._agent(h)
+        if a.paused_since is not None:
+            now = time.time()
+            a.next_call = max(a.next_call + now - a.paused_since, now)
+            if a.rogue_since is not None:
+                a.rogue_since += now - max(a.paused_since, a.rogue_since)
+            a.paused_since = None
+        return f"fake agent {h.name} resumed"
 
     def kill(self, h: AgentHandle) -> str:
         self._agent(h).alive = False
@@ -200,5 +299,5 @@ class FakeSource:
     def go_rogue(self, h: AgentHandle) -> str:
         a = self._agent(h)
         if a.rogue_since is None:
-            a.rogue_since = time.time()
+            a.go_rogue()
         return f"fake agent {h.name} switched to rogue mode"
