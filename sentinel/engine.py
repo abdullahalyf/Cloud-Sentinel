@@ -135,8 +135,9 @@ class Sentinel:
     def _ask_brain(self, h: AgentHandle, st: AgentState, snap: Snapshot, finding: Finding, now: float,
                    policy: Settings | None = None) -> None:
         new_evidence = not set(finding.rules) <= st.last_brain_rules  # a new rule skips the cooldown
-        if h.id in self.pending or (now - st.last_brain_check < self.cfg.brain_cooldown_seconds
-                                    and not new_evidence):
+        cooldown = (self.cfg.memory_recheck_seconds if "memory_growth" in finding.rules
+                    else self.cfg.brain_cooldown_seconds)
+        if h.id in self.pending or (now - st.last_brain_check < cooldown and not new_evidence):
             return
         st.last_brain_check, st.last_brain_rules = now, frozenset(finding.rules)
         log.warning("%s looks suspicious: %s → asking the brain", h.name, "; ".join(finding.reasons))

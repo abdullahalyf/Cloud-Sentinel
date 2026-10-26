@@ -94,7 +94,7 @@ def test_fast_memory_growth_is_suspicious_even_when_far_from_the_limit():
     f = evaluate(snap, load_settings())
     assert f.level == Level.SUSPICIOUS and f.rules == ["memory_growth"]
     v = fallback_verdict(snap, f, load_settings())
-    assert v.action == "KILL" and v.pattern == "memory_leak"
+    assert v.action == "WARN" and v.pattern == "memory_leak"   # growth alone only warns; see test_memory_growth
 
 
 def test_start_up_noise_and_unread_memory_are_not_a_leak():

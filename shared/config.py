@@ -105,6 +105,7 @@ class Settings:
     # ── Brain behaviour ──
     brain_cooldown_seconds: float  # don't ask Claude about the same agent more often than this
     brain_kill_confidence: float   # Claude must be at least this sure to kill
+    memory_recheck_seconds: float  # a fast-growing memory is looked at again this soon (is it still growing?)
     brain_cost_interval_seconds: float    # at most one "brain_cost" summary alert per this many seconds
     brain_escalate_window_seconds: float  # fallback: a WARN after a WARN/KILL within this window → KILL
 
@@ -168,6 +169,7 @@ def load_settings() -> Settings:
         hard_calls_per_sec=_float("HARD_CALLS_PER_SEC", 8.0),
         hard_memory_pct=_float("HARD_MEMORY_PCT", 90.0),
         brain_cooldown_seconds=_float("BRAIN_COOLDOWN_SECONDS", 10.0),
+        memory_recheck_seconds=_float("MEMORY_RECHECK_SECONDS", 3.0),
         brain_kill_confidence=_float("BRAIN_KILL_CONFIDENCE", 0.6),
         brain_cost_interval_seconds=_float("BRAIN_COST_INTERVAL_SECONDS", 60.0),
         brain_escalate_window_seconds=_float("BRAIN_ESCALATE_WINDOW_SECONDS", 60.0),

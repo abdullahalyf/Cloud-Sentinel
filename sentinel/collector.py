@@ -17,6 +17,7 @@ LOOP_WINDOW = 60.0    # seconds used for loop detection (how often the same prom
 SIMILAR_WINDOW = 15.0   # seconds used for paraphrase detection (same task, new wording)
 MEMORY_WINDOW = 5.0     # seconds of memory readings used to measure how fast memory grows
 MIN_GROWTH_MB = 20.0    # ...and it must have grown at least this much, so start-up noise is ignored
+RECENT_MEMORY_WINDOW = 2.5   # "still growing right now": growth over only the last few seconds
 
 STOPWORDS = frozenset("""a an and the of to for on in at by with from as is are was be it its this that these those
 or if then so up out off over again also please try retry once more still need what where which who how me my
@@ -65,6 +66,7 @@ class Snapshot:
     memory_pct: float
     similar_repeats: int = 0   # largest group of reworded versions of one prompt (last 15s)
     memory_mb_per_s: float = 0.0   # how fast memory has been growing (last ~5s)
+    memory_recent_mb_per_s: float = 0.0   # ...and over the last ~2.5s only (0 once a one-time jump is over)
 
     @property
     def budget_used_pct(self) -> float:
@@ -119,13 +121,14 @@ class AgentState:
         if memory_mb > 0:   # 0 = "no reading yet", not a real value
             self._memory.append((time.time() if now is None else now, memory_mb))
 
-    def memory_growth(self, now: float) -> float:
-        """MB per second over the last MEMORY_WINDOW seconds (0 unless it grew by MIN_GROWTH_MB or more)."""
+    def memory_growth(self, now: float, window: float = MEMORY_WINDOW) -> float:
+        """MB per second over the last `window` seconds (0 unless it grew by MIN_GROWTH_MB or more)."""
         while self._memory and self._memory[0][0] < now - MEMORY_WINDOW:
             self._memory.popleft()
-        if len(self._memory) < 2:
+        readings = [r for r in self._memory if r[0] >= now - window]
+        if len(readings) < 2:
             return 0.0
-        (t0, mb0), (t1, mb1) = self._memory[0], self._memory[-1]
+        (t0, mb0), (t1, mb1) = readings[0], readings[-1]
         grown = mb1 - mb0
         return grown / (t1 - t0) if t1 - t0 >= 1.0 and grown >= MIN_GROWTH_MB else 0.0
 
@@ -153,6 +156,7 @@ class AgentState:
             memory_pct=self.memory_pct,
             similar_repeats=biggest_cluster(recent),
             memory_mb_per_s=self.memory_growth(now),
+            memory_recent_mb_per_s=self.memory_growth(now, RECENT_MEMORY_WINDOW),
         )
 
     def recent_events(self, n: int = 12) -> list[AgentEvent]:
