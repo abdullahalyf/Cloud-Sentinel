@@ -129,6 +129,9 @@ def load_background_b64() -> str:
                 pass
     return ""
 
+CURSOR_DEFAULT = "data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 2L18 11L11 13L8 19L3 2Z' fill='%230B0F19' stroke='%2338BDF8' stroke-width='1.8' stroke-linejoin='round'/%3E%3Ccircle cx='4.5' cy='3.5' r='1.5' fill='%23A855F7'/%3E%3C/svg%3E"
+CURSOR_POINTER = "data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='14' cy='14' r='9' stroke='%23A855F7' stroke-width='1.8' stroke-dasharray='3 3'/%3E%3Ccircle cx='14' cy='14' r='3.5' fill='%2338BDF8'/%3E%3Cline x1='14' y1='2' x2='14' y2='6' stroke='%2338BDF8' stroke-width='1.5'/%3E%3Cline x1='14' y1='22' x2='14' y2='26' stroke='%2338BDF8' stroke-width='1.5'/%3E%3Cline x1='2' y1='14' x2='6' y2='14' stroke='%2338BDF8' stroke-width='1.5'/%3E%3Cline x1='22' y1='14' x2='26' y2='14' stroke='%2338BDF8' stroke-width='1.5'/%3E%3C/svg%3E"
+
 bg_b64 = load_background_b64()
 bg_css_rule = (
     f"""
@@ -152,7 +155,70 @@ CUSTOM_CSS = f"""
 html, body, [class*="css"], .stApp {{
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     color: #F1F5F9;
+    cursor: url('{CURSOR_DEFAULT}') 3 2, auto !important;
     {bg_css_rule}
+    animation: bgFloatPan 38s ease-in-out infinite alternate !important;
+}}
+
+button, a, select, input, [role="button"], [data-baseweb="tab"], .stButton > button, .sentinel-card, .stSelectbox, .stToggle {{
+    cursor: url('{CURSOR_POINTER}') 14 14, pointer !important;
+}}
+
+/* Background Cinematic Panning Animation */
+@keyframes bgFloatPan {{
+    0% {{
+        background-position: 50% 50%;
+        background-size: 104% 104%;
+    }}
+    33% {{
+        background-position: 53% 47%;
+        background-size: 109% 109%;
+    }}
+    66% {{
+        background-position: 47% 53%;
+        background-size: 107% 107%;
+    }}
+    100% {{
+        background-position: 50% 50%;
+        background-size: 104% 104%;
+    }}
+}}
+
+/* Moving Aurora Lighting Effect Behind Glassmorphic Cards */
+.stApp::before {{
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 15% 25%, rgba(99, 102, 241, 0.16) 0%, transparent 45%),
+                radial-gradient(circle at 85% 75%, rgba(20, 184, 166, 0.14) 0%, transparent 45%),
+                radial-gradient(circle at 50% 45%, rgba(168, 85, 247, 0.12) 0%, transparent 55%);
+    pointer-events: none;
+    z-index: 0;
+    animation: auroraShift 16s ease-in-out infinite alternate;
+}}
+
+@keyframes auroraShift {{
+    0% {{ transform: scale(1) translate(0px, 0px); opacity: 0.75; }}
+    50% {{ transform: scale(1.08) translate(18px, -12px); opacity: 1; }}
+    100% {{ transform: scale(1) translate(-12px, 18px); opacity: 0.75; }}
+}}
+
+/* Floating cybernetic micro-grid */
+.stApp::after {{
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(rgba(139, 92, 246, 0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(139, 92, 246, 0.025) 1px, transparent 1px);
+    background-size: 42px 42px;
+    pointer-events: none;
+    z-index: 0;
+    animation: gridDrift 50s linear infinite;
+}}
+
+@keyframes gridDrift {{
+    0% {{ background-position: 0 0; }}
+    100% {{ background-position: 42px 42px; }}
 }}
 
 code, pre, .mono-font {{
@@ -272,6 +338,62 @@ code, pre, .mono-font {{
 </style>
 """
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# INTERACTIVE CUSTOM CURSOR TRACKER (FLUID PARTICLE AURA)
+# -----------------------------------------------------------------------------
+st.components.v1.html(
+    """
+    <script>
+    (function() {
+        try {
+            const parentDoc = window.parent.document;
+            if (!parentDoc) return;
+            
+            let dot = parentDoc.getElementById('sentinel-cursor-dot');
+            let aura = parentDoc.getElementById('sentinel-cursor-aura');
+            
+            if (!dot) {
+                dot = parentDoc.createElement('div');
+                dot.id = 'sentinel-cursor-dot';
+                dot.style.cssText = 'position:fixed;top:0;left:0;width:7px;height:7px;background:#38BDF8;border-radius:50%;pointer-events:none;z-index:99999999;box-shadow:0 0 10px #38BDF8,0 0 20px #38BDF8;transform:translate(-50%,-50%);transition:transform 0.04s ease-out;';
+                parentDoc.body.appendChild(dot);
+            }
+            
+            if (!aura) {
+                aura = parentDoc.createElement('div');
+                aura.id = 'sentinel-cursor-aura';
+                aura.style.cssText = 'position:fixed;top:0;left:0;width:34px;height:34px;border:1.5px solid rgba(168,85,247,0.7);border-radius:50%;pointer-events:none;z-index:99999998;transform:translate(-50%,-50%);transition:left 0.1s ease-out,top 0.1s ease-out,width 0.2s,height 0.2s,border-color 0.2s,background 0.2s;box-shadow:0 0 15px rgba(168,85,247,0.25);';
+                parentDoc.body.appendChild(aura);
+            }
+            
+            parentDoc.addEventListener('mousemove', function(e) {
+                dot.style.left = e.clientX + 'px';
+                dot.style.top = e.clientY + 'px';
+                aura.style.left = e.clientX + 'px';
+                aura.style.top = e.clientY + 'px';
+            });
+            
+            parentDoc.addEventListener('mousedown', function() {
+                aura.style.width = '24px';
+                aura.style.height = '24px';
+                aura.style.borderColor = '#EF4444';
+                aura.style.background = 'rgba(239,68,68,0.2)';
+            });
+            
+            parentDoc.addEventListener('mouseup', function() {
+                aura.style.width = '34px';
+                aura.style.height = '34px';
+                aura.style.borderColor = 'rgba(168,85,247,0.7)';
+                aura.style.background = 'transparent';
+            });
+        } catch(err) {}
+    })();
+    </script>
+    """,
+    height=0,
+    width=0,
+)
 
 # -----------------------------------------------------------------------------
 # DATABASE INITIALIZATION
