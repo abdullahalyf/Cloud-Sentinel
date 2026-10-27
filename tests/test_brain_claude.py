@@ -18,6 +18,7 @@ from shared.config import load_settings
 from shared.store import LocalStore
 
 cfg = load_settings()
+cfg = cfg.__class__(**{**cfg.__dict__, "brain_provider": "claude"})
 offline = cfg.__class__(**{**cfg.__dict__, "anthropic_api_key": ""})
 LOOP = Snapshot("beta", "c1", 30_000, 1.0, 5_000, 150_000, 8, 100, 20)
 
