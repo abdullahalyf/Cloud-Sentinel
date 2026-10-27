@@ -8,6 +8,7 @@ Rules (see AGENTS.md):
 """
 from __future__ import annotations
 
+import base64
 import sys
 from datetime import datetime, timezone
 from html import escape as esc
@@ -34,242 +35,88 @@ AGENT_MODELS = {
     "gamma": ("Gemini 1.5 Pro", "Google"),
 }
 
-B64_DEF = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij4KPGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iOCIgc3Ryb2tlPSIjNDc1NTY5IiBzdHJva2Utd2lkdGg9IjEuMiIgc3Ryb2tlLWRhc2hhcnJheT0iMyAyIiBmaWxsPSJub25lIi8+CjxjaXJjbGUgY3g9IjEyIiBjeT0iMTIiIHI9IjIuNSIgZmlsbD0iIzNCODJGNiIvPgo8bGluZSB4MT0iMTIiIHkxPSIxIiB4Mj0iMTIiIHkyPSI1IiBzdHJva2U9IiM5NEEzQjgiIHN0cm9rZS13aWR0aD0iMS4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPGxpbmUgeDE9IjEyIiB5MT0iMTkiIHgyPSIxMiIgeTI9IjIzIiBzdHJva2U9IiM5NEEzQjgiIHN0cm9rZS13aWR0aD0iMS4yIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPGxpbmUgeDE9IjEiIHkxPSIxMiIgeDI9IjUiIHkyPSIxMiIgc3Ryb2tlPSIjOTRBM0I4IiBzdHJva2Utd2lkdGg9IjEuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSIxOSIgeTE9IjEyIiB4Mj0iMjMiIHkyPSIxMiIgc3Ryb2tlPSIjOTRBM0I4IiBzdHJva2Utd2lkdGg9IjEuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+Cjwvc3ZnPg=="
-B64_PTR = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4Ij4KPHBhdGggZD0iTTcgM0gzVjciIHN0cm9rZT0iIzNCODJGNiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIGZpbGw9Im5vbmUiLz4KPHBhdGggZD0iTTIxIDNIMjVWNyIgc3Ryb2tlPSIjM0I4MkY2IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPgo8cGF0aCBkPSJNNyAyNUgzVjIxIiBzdHJva2U9IiMzQjgyRjYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBmaWxsPSJub25lIi8+CjxwYXRoIGQ9Ik0yMSAyNUgyNVYyMSIgc3Ryb2tlPSIjM0I4MkY2IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPgo8Y2lyY2xlIGN4PSIxNCIgY3k9IjE0IiByPSIyLjUiIGZpbGw9IiM2MEE1RkEiLz4KPC9zdmc+"
+@st.cache_data
+def load_background_b64() -> str:
+    possible_paths = [
+        Path(__file__).resolve().parent / "background.jpg",
+        Path(__file__).resolve().parent.parent / "background.jpg",
+        Path(__file__).resolve().parent / "dashboard" / "background.jpg",
+    ]
+    for p in possible_paths:
+        if p.exists():
+            try:
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("utf-8")
+            except Exception:
+                pass
+    return ""
+
+BG_B64 = load_background_b64()
+
+# Custom Electric Blue AI Cursors (Base64 SVG - vibrant & 100% visible on dark theme)
+B64_DEF = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIj4KPHBhdGggZD0iTTMgMkwxOCAxMUwxMSAxM0w4IDE5TDMgMloiIGZpbGw9IiMwNjA4MTMiIHN0cm9rZT0iIzAwRjBGRiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CjxjaXJjbGUgY3g9IjUiIGN5PSI0IiByPSIyIiBmaWxsPSIjMDBGMEZGIi8+Cjwvc3ZnPg=="
+B64_PTR = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4IiBmaWxsPSJub25lIj4KPGNpcmNsZSBjeD0iMTQiIGN5PSIxNCIgcj0iOSIgc3Ryb2tlPSIjMDBGMEZGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1kYXNoYXJyYXk9IjMgMyIvPgo8Y2lyY2xlIGN4PSIxNCIgY3k9IjE0IiByPSIzLjUiIGZpbGw9IiMwMEYwRkYiLz4KPGxpbmUgeDE9IjE0IiB5MT0iMiIgeDI9IjE0IiB5Mj0iNiIgc3Ryb2tlPSIjMDBGMEZGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMTQiIHkxPSIyMiIgeDI9IjE0IiB5Mj0iMjYiIHN0cm9rZT0iIzAwRjBGRiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPGxpbmUgeDE9IjIiIHkxPSIxNCIgeDI9IjYiIHkyPSIxNCIgc3Ryb2tlPSIjMDBGMEZGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSIxNCIgeDI9IjI2IiB5Mj0iMTQiIHN0cm9rZT0iIzAwRjBGRiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+"
 
 st.set_page_config(page_title="CloudSentinel", layout="wide", initial_sidebar_state="collapsed")
 
-# -----------------------------------------------------------------------------
-# LIVE ANIMATED BACKGROUND & ELECTRIC BLUE AI CURSOR OVERLAY
-# -----------------------------------------------------------------------------
-LIVE_VISUALS_MARKUP = """
-<div id="cs-live-ambient-aurora">
-    <div class="aurora-orb-cyan"></div>
-    <div class="aurora-orb-violet"></div>
-    <div class="aurora-orb-blue"></div>
-    <div class="cyber-grid-stream"></div>
-    <div class="cyber-scanner-laser"></div>
-</div>
-
+CURSOR_TRACKER_HTML = """
 <script>
 (function() {
-    function initVisuals() {
-        const targetDocuments = [];
-        try { targetDocuments.push(document); } catch(e) {}
+    function setupAura() {
         try {
-            if (window.parent && window.parent.document && window.parent.document !== document) {
-                targetDocuments.push(window.parent.document);
+            const parentDoc = window.parent ? window.parent.document : document;
+            if (!parentDoc) return;
+            
+            let dot = parentDoc.getElementById('cs-cursor-dot');
+            let aura = parentDoc.getElementById('cs-cursor-aura');
+            
+            if (!dot) {
+                dot = parentDoc.createElement('div');
+                dot.id = 'cs-cursor-dot';
+                dot.style.cssText = 'position:fixed;top:0;left:0;width:7px;height:7px;background:#00F0FF;border-radius:50%;pointer-events:none;z-index:99999999;box-shadow:0 0 10px #00F0FF, 0 0 20px #00F0FF;transform:translate(-50%,-50%);transition:transform 0.04s ease-out;';
+                parentDoc.body.appendChild(dot);
             }
-        } catch(e) {}
-
-        targetDocuments.forEach(doc => {
-            // 1. Permanently remove normal OS mouse cursor
-            if (!doc.getElementById('cs-cursor-kill-style')) {
-                const s = doc.createElement('style');
-                s.id = 'cs-cursor-kill-style';
-                s.innerHTML = `
-                    *, *::before, *::after, html, body, div, button, a, input, select, textarea, [role="button"], iframe {
-                        cursor: none !important;
-                    }
-                `;
-                doc.head.appendChild(s);
+            
+            if (!aura) {
+                aura = parentDoc.createElement('div');
+                aura.id = 'cs-cursor-aura';
+                aura.style.cssText = 'position:fixed;top:0;left:0;width:34px;height:34px;border:1.6px dashed #00F0FF;border-radius:50%;pointer-events:none;z-index:99999998;transform:translate(-50%,-50%);transition:left 0.08s ease-out,top 0.08s ease-out,width 0.18s,height 0.18s,border-color 0.18s,background 0.18s;box-shadow:0 0 16px rgba(0,240,255,0.4);';
+                parentDoc.body.appendChild(aura);
             }
-
-            // 2. Setup Live Neural Canvas
-            if (!doc.getElementById('cs-neural-canvas')) {
-                const canvas = doc.createElement('canvas');
-                canvas.id = 'cs-neural-canvas';
-                canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1;opacity:0.8;';
-                doc.body.insertBefore(canvas, doc.body.firstChild);
-
-                const ctx = canvas.getContext('2d');
-                let w = canvas.width = window.innerWidth;
-                let h = canvas.height = window.innerHeight;
-
-                window.addEventListener('resize', () => {
-                    w = canvas.width = window.innerWidth;
-                    h = canvas.height = window.innerHeight;
-                });
-
-                const particles = [];
-                const count = 55;
-                for (let i = 0; i < count; i++) {
-                    particles.push({
-                        x: Math.random() * w,
-                        y: Math.random() * h,
-                        vx: (Math.random() - 0.5) * 0.95,
-                        vy: (Math.random() - 0.5) * 0.95,
-                        radius: Math.random() * 2.2 + 1.2,
-                        color: Math.random() > 0.45 ? '#00F0FF' : '#818CF8'
-                    });
-                }
-
-                let mouseX = -1000, mouseY = -1000;
-                doc.addEventListener('mousemove', e => {
-                    mouseX = e.clientX;
-                    mouseY = e.clientY;
-                });
-
-                let pulseRadius = 0;
-                function draw() {
-                    ctx.clearRect(0, 0, w, h);
-
-                    // Expanding radar pulse from center
-                    pulseRadius += 0.8;
-                    if (pulseRadius > Math.max(w, h)) pulseRadius = 0;
-                    ctx.beginPath();
-                    ctx.arc(w / 2, h / 2, pulseRadius, 0, Math.PI * 2);
-                    ctx.strokeStyle = 'rgba(0, 240, 255, ' + Math.max(0, 0.15 * (1 - pulseRadius / Math.max(w, h))) + ')';
-                    ctx.lineWidth = 1.2;
-                    ctx.stroke();
-
-                    // Particles & Connections
-                    for (let i = 0; i < particles.length; i++) {
-                        const p = particles[i];
-                        p.x += p.vx;
-                        p.y += p.vy;
-                        if (p.x < 0 || p.x > w) p.vx *= -1;
-                        if (p.y < 0 || p.y > h) p.vy *= -1;
-
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                        ctx.fillStyle = p.color;
-                        ctx.shadowBlur = 9;
-                        ctx.shadowColor = p.color;
-                        ctx.fill();
-                        ctx.shadowBlur = 0;
-
-                        // Inter-particle constellation lines
-                        for (let j = i + 1; j < particles.length; j++) {
-                            const p2 = particles[j];
-                            const dx = p.x - p2.x;
-                            const dy = p.y - p2.y;
-                            const dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist < 125) {
-                                ctx.beginPath();
-                                ctx.moveTo(p.x, p.y);
-                                ctx.lineTo(p2.x, p2.y);
-                                const alpha = (1 - dist / 125) * 0.35;
-                                ctx.strokeStyle = p.color === '#00F0FF'
-                                    ? 'rgba(0, 240, 255, ' + alpha + ')'
-                                    : 'rgba(129, 140, 248, ' + alpha + ')';
-                                ctx.lineWidth = 1;
-                                ctx.stroke();
-                            }
-                        }
-
-                        // Live Mouse Tethering (Electric Blue Beams)
-                        const mdx = p.x - mouseX;
-                        const mdy = p.y - mouseY;
-                        const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
-                        if (mdist < 155) {
-                            ctx.beginPath();
-                            ctx.moveTo(p.x, p.y);
-                            ctx.lineTo(mouseX, mouseY);
-                            ctx.strokeStyle = 'rgba(0, 240, 255, ' + ((1 - mdist / 155) * 0.6) + ')';
-                            ctx.lineWidth = 1.4;
-                            ctx.stroke();
-                        }
-                    }
-                    requestAnimationFrame(draw);
-                }
-                draw();
-            }
-
-            // 3. Setup Custom Electric Blue AI Mouse Cursor
-            if (!doc.getElementById('cs-ai-mouse-cursor')) {
-                const cur = doc.createElement('div');
-                cur.id = 'cs-ai-mouse-cursor';
-                cur.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;z-index:999999999;transition:opacity 0.2s ease;';
-                cur.innerHTML = `
-                    <div id="cs-ai-dot" style="position:fixed;width:7px;height:7px;background:#00F0FF;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 10px #00F0FF, 0 0 20px #00F0FF;pointer-events:none;transition:background 0.15s ease;"></div>
-                    <div id="cs-ai-hud" style="position:fixed;width:34px;height:34px;border:1.6px dashed rgba(0, 240, 255, 0.8);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 16px rgba(0, 240, 255, 0.4);transition:width 0.18s ease-out, height 0.18s ease-out, border 0.18s, background 0.18s, box-shadow 0.18s;">
-                        <div style="position:absolute;top:-4px;left:50%;width:2px;height:6px;background:#00F0FF;transform:translateX(-50%);"></div>
-                        <div style="position:absolute;bottom:-4px;left:50%;width:2px;height:6px;background:#00F0FF;transform:translateX(-50%);"></div>
-                        <div style="position:absolute;left:-4px;top:50%;width:6px;height:2px;background:#00F0FF;transform:translateY(-50%);"></div>
-                        <div style="position:absolute;right:-4px;top:50%;width:6px;height:2px;background:#00F0FF;transform:translateY(-50%);"></div>
-                        <div id="cs-ai-tag" style="position:absolute;top:40px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:8px;font-weight:700;color:#00F0FF;letter-spacing:1px;white-space:nowrap;text-shadow:0 0 6px #00F0FF;opacity:0.85;">AI // TARGET</div>
-                    </div>
-                `;
-                doc.body.appendChild(cur);
-
-                const dot = cur.querySelector('#cs-ai-dot');
-                const hud = cur.querySelector('#cs-ai-hud');
-                const tag = cur.querySelector('#cs-ai-tag');
-
-                let targetX = -200, targetY = -200;
-                let currentX = -200, currentY = -200;
-
-                doc.addEventListener('mousemove', e => {
-                    cur.style.opacity = '1';
-                    targetX = e.clientX;
-                    targetY = e.clientY;
-                    dot.style.left = targetX + 'px';
-                    dot.style.top = targetY + 'px';
-
-                    // Check hover on interactive target
-                    const el = doc.elementFromPoint(e.clientX, e.clientY);
-                    const isInteractive = el && (
-                        el.closest('button') || el.closest('a') || el.closest('.cs-bar') ||
-                        el.closest('[role="button"]') || el.closest('select') || el.closest('input') ||
-                        el.closest('[data-baseweb="tab"]')
-                    );
-
-                    if (isInteractive) {
-                        hud.style.width = '48px';
-                        hud.style.height = '48px';
-                        hud.style.border = '2px solid #00F0FF';
-                        hud.style.background = 'rgba(0, 240, 255, 0.12)';
-                        hud.style.boxShadow = '0 0 25px rgba(0, 240, 255, 0.65)';
-                        if (tag) {
-                            tag.innerText = 'AI // LOCKED';
-                            tag.style.color = '#38BDF8';
-                        }
-                    } else {
-                        hud.style.width = '34px';
-                        hud.style.height = '34px';
-                        hud.style.border = '1.6px dashed rgba(0, 240, 255, 0.8)';
-                        hud.style.background = 'transparent';
-                        hud.style.boxShadow = '0 0 16px rgba(0, 240, 255, 0.4)';
-                        if (tag) {
-                            tag.innerText = 'AI // ACTIVE';
-                            tag.style.color = '#00F0FF';
-                        }
-                    }
-                });
-
-                doc.addEventListener('mousedown', () => {
-                    hud.style.transform = 'translate(-50%,-50%) scale(0.7)';
-                    hud.style.boxShadow = '0 0 35px #00F0FF';
-                });
-
-                doc.addEventListener('mouseup', () => {
-                    hud.style.transform = 'translate(-50%,-50%) scale(1)';
-                });
-
-                function loop() {
-                    currentX += (targetX - currentX) * 0.24;
-                    currentY += (targetY - currentY) * 0.24;
-                    hud.style.left = currentX + 'px';
-                    hud.style.top = currentY + 'px';
-                    requestAnimationFrame(loop);
-                }
-                loop();
-            }
-        });
+            
+            parentDoc.addEventListener('mousemove', function(e) {
+                dot.style.left = e.clientX + 'px';
+                dot.style.top = e.clientY + 'px';
+                aura.style.left = e.clientX + 'px';
+                aura.style.top = e.clientY + 'px';
+            });
+            
+            parentDoc.addEventListener('mousedown', function() {
+                aura.style.width = '24px';
+                aura.style.height = '24px';
+                aura.style.border = '2px solid #EF4444';
+                aura.style.background = 'rgba(239,68,68,0.2)';
+                aura.style.boxShadow = '0 0 25px #EF4444';
+            });
+            
+            parentDoc.addEventListener('mouseup', function() {
+                aura.style.width = '34px';
+                aura.style.height = '34px';
+                aura.style.border = '1.6px dashed #00F0FF';
+                aura.style.background = 'transparent';
+                aura.style.boxShadow = '0 0 16px rgba(0,240,255,0.4)';
+            });
+        } catch(err) {}
     }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initVisuals);
-    } else {
-        initVisuals();
-    }
+    setupAura();
+    setTimeout(setupAura, 300);
+    setTimeout(setupAura, 1000);
 })();
 </script>
 """
 
-st.html(LIVE_VISUALS_MARKUP)
-st.components.v1.html(LIVE_VISUALS_MARKUP, height=0, width=0)
+st.components.v1.html(CURSOR_TRACKER_HTML, height=0, width=0)
+st.markdown('<div class="cyber-scanner-laser"></div>', unsafe_allow_html=True)
 
 RAW_CSS = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -277,11 +124,11 @@ RAW_CSS = """
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 
 <style>
-/* 1. Base64 SVG Custom Mouse Cursor Fallback */
-html, body, [class*="css"], .stApp, div, span, p {
-    cursor: url('__B64_DEF__') 12 12, crosshair !important;
+/* 1. Custom Electric Blue AI Cursor (100% visible, cannot disappear) */
+html, body, .stApp, [class*="css"], * {
+    cursor: url('__B64_DEF__') 3 2, auto !important;
 }
-button, a, select, input, textarea, [role="button"], .stButton > button, summary {
+button, a, select, input, textarea, [role="button"], .stButton > button, summary, [data-baseweb="tab"], .cs-row, .stDataFrame {
     cursor: url('__B64_PTR__') 14 14, pointer !important;
 }
 
@@ -293,91 +140,95 @@ html, body, [class*="css"] {
     color: #E6EAF0;
 }
 header[data-testid="stHeader"], #MainMenu, footer { display: none; }
-[data-testid="stAppViewContainer"], section.main, .block-container {
+
+/* 3. Live Animated Cybernetic Moving Background */
+html, body {
+    background-color: #06070D !important;
+}
+.stApp {
+    __BG_STYLE_RULE__
+    background-size: 110% 110% !important;
+    background-attachment: fixed !important;
+    background-position: center !important;
+    animation: bgFloatPan 36s ease-in-out infinite alternate !important;
+}
+
+[data-testid="stAppViewContainer"], section.main, .block-container, [data-testid="stHeader"] {
     background: transparent !important;
 }
 .block-container {
     padding: 1.25rem 2rem 3rem;
     max-width: 1650px;
+    position: relative;
+    z-index: 2;
 }
 .k, .s, table.log td.t, table.log td.e, table.log th, .cs-head, code {
     font-family: 'JetBrains Mono', monospace !important;
 }
 
-/* 3. Live Animated Cybernetic Aurora Background */
-#cs-live-ambient-aurora {
+/* Background Cinematic Panning Animation */
+@keyframes bgFloatPan {
+    0% { background-position: 50% 50%; background-size: 108% 108%; }
+    33% { background-position: 53% 47%; background-size: 114% 114%; }
+    66% { background-position: 47% 53%; background-size: 111% 111%; }
+    100% { background-position: 50% 50%; background-size: 108% 108%; }
+}
+
+/* Moving Aurora Lighting Effect Behind Content */
+.stApp::before {
+    content: "";
     position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 18% 28%, rgba(0, 240, 255, 0.22) 0%, transparent 45%),
+                radial-gradient(circle at 82% 72%, rgba(129, 140, 248, 0.20) 0%, transparent 45%),
+                radial-gradient(circle at 50% 48%, rgba(37, 99, 235, 0.18) 0%, transparent 55%);
     pointer-events: none;
     z-index: 0;
-    overflow: hidden;
-    background: radial-gradient(circle at 50% 0%, #111126 0%, #06070D 85%);
+    animation: auroraShift 16s ease-in-out infinite alternate !important;
 }
-.aurora-orb-cyan {
-    position: absolute;
-    width: 650px; height: 650px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(0, 240, 255, 0.22) 0%, rgba(0, 240, 255, 0.04) 50%, transparent 70%);
-    filter: blur(55px);
-    animation: orbFloat1 20s ease-in-out infinite alternate;
+
+@keyframes auroraShift {
+    0% { transform: scale(1) translate(0px, 0px); opacity: 0.8; }
+    50% { transform: scale(1.12) translate(30px, -20px); opacity: 1; }
+    100% { transform: scale(1) translate(-20px, 30px); opacity: 0.8; }
 }
-.aurora-orb-violet {
-    position: absolute;
-    width: 750px; height: 750px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(139, 92, 246, 0.20) 0%, rgba(99, 102, 241, 0.05) 50%, transparent 70%);
-    filter: blur(65px);
-    animation: orbFloat2 26s ease-in-out infinite alternate;
-}
-.aurora-orb-blue {
-    position: absolute;
-    width: 580px; height: 580px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(37, 99, 235, 0.18) 0%, rgba(16, 185, 129, 0.05) 50%, transparent 70%);
-    filter: blur(50px);
-    animation: orbFloat3 18s ease-in-out infinite alternate;
-}
-@keyframes orbFloat1 {
-    0% { transform: translate(-10%, -10%) scale(1); }
-    50% { transform: translate(45vw, 25vh) scale(1.15); }
-    100% { transform: translate(15vw, 65vh) scale(0.95); }
-}
-@keyframes orbFloat2 {
-    0% { transform: translate(65vw, 55vh) scale(0.9); }
-    50% { transform: translate(25vw, 15vh) scale(1.2); }
-    100% { transform: translate(75vw, -5vh) scale(1); }
-}
-@keyframes orbFloat3 {
-    0% { transform: translate(30vw, 80vh) scale(1.1); }
-    50% { transform: translate(60vw, 30vh) scale(0.85); }
-    100% { transform: translate(-5vw, 35vh) scale(1.05); }
-}
-.cyber-grid-stream {
-    position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background-image: 
-        linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+
+/* Drifting Cybernetic Micro-Grid */
+.stApp::after {
+    content: "";
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(rgba(0, 240, 255, 0.045) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.045) 1px, transparent 1px);
     background-size: 44px 44px;
-    animation: cyberGridTravel 35s linear infinite;
+    pointer-events: none;
+    z-index: 0;
+    animation: gridDrift 50s linear infinite !important;
 }
-@keyframes cyberGridTravel {
+
+@keyframes gridDrift {
     0% { background-position: 0 0; }
     100% { background-position: 44px 44px; }
 }
+
+/* Moving Scanner Laser */
 .cyber-scanner-laser {
-    position: absolute;
-    top: -20px; left: 0; width: 100%; height: 2px;
-    background: linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.2) 25%, #00F0FF 50%, rgba(0, 240, 255, 0.2) 75%, transparent 100%);
+    position: fixed;
+    left: 0;
+    width: 100vw;
+    height: 3px;
+    background: linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.2) 20%, #00F0FF 50%, rgba(0, 240, 255, 0.2) 80%, transparent 100%);
     box-shadow: 0 0 16px #00F0FF, 0 0 32px rgba(0, 240, 255, 0.6);
-    animation: scannerDownSweep 9s ease-in-out infinite;
-    opacity: 0.75;
+    pointer-events: none;
+    z-index: 1;
+    animation: laserScan 9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
-@keyframes scannerDownSweep {
-    0% { top: -20px; opacity: 0; }
-    10% { opacity: 0.8; }
-    90% { opacity: 0.8; }
-    100% { top: 105vh; opacity: 0; }
+
+@keyframes laserScan {
+    0% { top: -2%; opacity: 0; }
+    10% { opacity: 0.85; }
+    90% { opacity: 0.85; }
+    100% { top: 102%; opacity: 0; }
 }
 
 /* 4. Top Status Bar */
@@ -514,7 +365,17 @@ div[data-testid="stHorizontalBlock"] { align-items: center; }
 </style>
 """
 
-FINAL_CSS = RAW_CSS.replace("__B64_DEF__", B64_DEF).replace("__B64_PTR__", B64_PTR)
+bg_style = (
+    f"background-image: linear-gradient(180deg, rgba(8, 9, 18, 0.86) 0%, rgba(10, 11, 24, 0.92) 100%), url('data:image/jpeg;base64,{BG_B64}') !important;"
+    if BG_B64
+    else "background: radial-gradient(circle at 50% 0%, #151528 0%, #07070E 80%) !important;"
+)
+
+FINAL_CSS = (
+    RAW_CSS.replace("__B64_DEF__", B64_DEF)
+    .replace("__B64_PTR__", B64_PTR)
+    .replace("__BG_STYLE_RULE__", bg_style)
+)
 st.markdown(FINAL_CSS, unsafe_allow_html=True)
 
 store = get_store()
