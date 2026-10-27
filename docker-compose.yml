@@ -6,7 +6,7 @@
 # Pick HOW an agent goes rogue without editing this file (PowerShell example):
 #   $env:BETA_ROGUE_TYPE="paraphrase_loop"; docker compose up -d --force-recreate
 # Options: loop | token_bomb | memory_leak | paraphrase_loop
-# Defaults: alpha=loop, beta=token_bomb, gamma=memory_leak
+# Defaults: alpha=loop, beta=loop, gamma=memory_leak
 #
 # The sentinel itself runs on the laptop (python -m sentinel), not in a container.
 # Every agent MUST have the label cloudsentinel.monitor=true or the sentinel ignores it.
@@ -36,7 +36,7 @@ services:
     container_name: agent-beta
     environment:
       AGENT_NAME: beta
-      ROGUE_TYPE: ${BETA_ROGUE_TYPE:-token_bomb}
+      ROGUE_TYPE: ${BETA_ROGUE_TYPE:-loop}
     labels:
       cloudsentinel.monitor: "true"
       cloudsentinel.agent_name: beta

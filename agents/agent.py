@@ -10,7 +10,7 @@ Modes:
 
       loop         the same prompt over and over, faster and faster, RAM grows too  (default)
       token_bomb   different prompts, but every call burns 5,000–15,000 tokens
-      memory_leak  calls look normal, but RAM grows fast
+      memory_leak  calls look normal and slow (max 1 call/sec), but RAM grows fast
       paraphrase_loop  SAME task every call, but the wording changes each time, so a simple
                    "same prompt repeated" rule can't see it. Only an AI brain can.
 
@@ -71,6 +71,10 @@ PARAPHRASE_SUFFIXES = ["", " and summarize the result", " and report back", " th
                        " (short answer)", " and tell me what you find"]
 _last_paraphrase = ""
 
+# memory_leak: slow calls (at most 1 per second), so the call-rate rules stay quiet and only the RAM looks wrong
+MEMORY_LEAK_CHUNK_MB = 64   # RAM grabbed per call (7 calls = 448 MB, just past LEAK_CAP_MB=440)
+MEMORY_LEAK_PAUSE = 1.0     # seconds between calls
+
 
 def is_rogue(started: float) -> bool:
     return (
@@ -110,10 +114,10 @@ def rogue_token_bomb(seconds: float) -> None:
 
 
 def rogue_memory_leak(seconds: float, leak: list[bytearray]) -> None:
-    """Calls look perfectly healthy. The only symptom is RAM climbing."""
+    """Calls look perfectly healthy and slow (max 1 per second). The only symptom is RAM climbing."""
     healthy_call()
-    leak_ram(leak, 16)
-    time.sleep(random.uniform(0.3, 0.6))
+    leak_ram(leak, MEMORY_LEAK_CHUNK_MB)
+    time.sleep(MEMORY_LEAK_PAUSE)
 
 
 def make_paraphrase() -> str:

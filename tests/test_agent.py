@@ -167,3 +167,12 @@ def test_a_healthy_agent_never_runs_a_rogue_behaviour(monkeypatch, tmp_path):
     with pytest.raises(Stop):
         agent.main()
     assert len(healthy) == 3 and rogue_calls == []
+
+
+def test_memory_leak_makes_at_most_one_call_per_second(monkeypatch):
+    pauses = []
+    monkeypatch.setattr(time, "sleep", pauses.append)
+    monkeypatch.setattr(agent, "MEMORY_LEAK_CHUNK_MB", 1)
+    monkeypatch.setattr(agent, "LEAK_CAP_MB", 1)
+    agent.rogue_memory_leak(1.0, [])
+    assert pauses and all(p >= 1.0 for p in pauses)   # so only the RAM looks wrong to the sentinel
