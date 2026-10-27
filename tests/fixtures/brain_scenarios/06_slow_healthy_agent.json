@@ -1,0 +1,59 @@
+{
+ "name": "slow_healthy_agent",
+ "expected": "keep",
+ "description": "Slow, varied work; only flagged because 88% of a small budget is used.",
+ "token_budget": 10000,
+ "memory_mb": 90,
+ "memory_pct": 18,
+ "past": [],
+ "events": [
+  [
+   -60,
+   900,
+   200,
+   "Draft a reply to customer about delayed shipment"
+  ],
+  [
+   -52,
+   900,
+   200,
+   "Extract action items from the meeting notes"
+  ],
+  [
+   -44,
+   900,
+   200,
+   "Translate product description to Bangla"
+  ],
+  [
+   -36,
+   900,
+   200,
+   "Check inventory levels and flag low stock"
+  ],
+  [
+   -28,
+   900,
+   200,
+   "Write SQL to find top 10 customers by revenue"
+  ],
+  [
+   -20,
+   900,
+   200,
+   "Review pull request for security issues"
+  ],
+  [
+   -12,
+   900,
+   200,
+   "Summarize today's support tickets"
+  ],
+  [
+   -4,
+   900,
+   200,
+   "Classify invoice line items into categories"
+  ]
+ ]
+}

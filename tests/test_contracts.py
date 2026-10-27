@@ -19,3 +19,14 @@ def test_same_prompt_same_hash():
     a = AgentEvent("a", "llm_call", prompt="Retry fetch order ")
     b = AgentEvent("a", "llm_call", prompt="retry fetch order")
     assert a.prompt_hash == b.prompt_hash
+
+
+def test_pause_resume_contracts():
+    from typing import get_args
+    from shared.contracts import ActionRow, AgentStatus, CommandRow, CommandType
+
+    for command in ('PAUSE', 'RESUME'):
+        assert command in get_args(CommandType)
+        assert CommandRow('beta', command).to_row()['command'] == command
+    assert 'paused' in get_args(AgentStatus)
+    assert ActionRow('beta', 'PAUSE', 'human', 'Quarantine').to_row()['action'] == 'PAUSE'

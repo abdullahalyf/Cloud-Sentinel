@@ -1,0 +1,191 @@
+{
+ "name": "mixed",
+ "expected": "KILL",
+ "description": "Real chat work interleaved with a payment retry stuck in a loop (10×).",
+ "token_budget": 150000,
+ "memory_mb": 160,
+ "memory_pct": 31,
+ "past": [],
+ "events": [
+  [
+   -60,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -58,
+   380,
+   110,
+   "Answer customer chat #901: where is my order?"
+  ],
+  [
+   -56,
+   380,
+   110,
+   "Answer customer chat #902: where is my order?"
+  ],
+  [
+   -54,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -52,
+   380,
+   110,
+   "Answer customer chat #904: where is my order?"
+  ],
+  [
+   -50,
+   380,
+   110,
+   "Answer customer chat #905: where is my order?"
+  ],
+  [
+   -48,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -46,
+   380,
+   110,
+   "Answer customer chat #907: where is my order?"
+  ],
+  [
+   -44,
+   380,
+   110,
+   "Answer customer chat #908: where is my order?"
+  ],
+  [
+   -42,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -40,
+   380,
+   110,
+   "Answer customer chat #910: where is my order?"
+  ],
+  [
+   -38,
+   380,
+   110,
+   "Answer customer chat #911: where is my order?"
+  ],
+  [
+   -36,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -34,
+   380,
+   110,
+   "Answer customer chat #913: where is my order?"
+  ],
+  [
+   -32,
+   380,
+   110,
+   "Answer customer chat #914: where is my order?"
+  ],
+  [
+   -30,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -28,
+   380,
+   110,
+   "Answer customer chat #916: where is my order?"
+  ],
+  [
+   -26,
+   380,
+   110,
+   "Answer customer chat #917: where is my order?"
+  ],
+  [
+   -24,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -22,
+   380,
+   110,
+   "Answer customer chat #919: where is my order?"
+  ],
+  [
+   -20,
+   380,
+   110,
+   "Answer customer chat #920: where is my order?"
+  ],
+  [
+   -18,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -16,
+   380,
+   110,
+   "Answer customer chat #922: where is my order?"
+  ],
+  [
+   -14,
+   380,
+   110,
+   "Answer customer chat #923: where is my order?"
+  ],
+  [
+   -12,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -10,
+   380,
+   110,
+   "Answer customer chat #925: where is my order?"
+  ],
+  [
+   -8,
+   380,
+   110,
+   "Answer customer chat #926: where is my order?"
+  ],
+  [
+   -6,
+   420,
+   120,
+   "Retry: call payment API for invoice 88 and confirm the charge"
+  ],
+  [
+   -4,
+   380,
+   110,
+   "Answer customer chat #928: where is my order?"
+  ],
+  [
+   -2,
+   380,
+   110,
+   "Answer customer chat #929: where is my order?"
+  ]
+ ]
+}
