@@ -26,7 +26,12 @@ from shared.store import get_store
 REFRESH = "2s"
 OFFLINE_AFTER_SECONDS = 15          # no heartbeat for this long = Sentinel OFFLINE
 STATUS = {"running": "#3FB97C", "warned": "#E0A93B", "paused": "#E0A93B", "killed": "#E5534B"}
-LINES = ["#00F0FF", "#D95926", "#818CF8"]   # validated categorical order (dark)
+AGENT_PALETTE = {
+    "alpha": "#00F0FF",   # Electric Cyan (Claude 3.5 Sonnet)
+    "beta": "#FF5722",    # Deep Orange / Flame Coral (GPT-4o Omni)
+    "gamma": "#A78BFA",   # Electric Lavender / Purple (Gemini 1.5 Pro)
+}
+LINES = ["#00F0FF", "#FF5722", "#A78BFA"]   # validated categorical order (dark)
 MUTED, GRID = "#8B95A5", "#2A313B"
 
 AGENT_MODELS = {
@@ -495,7 +500,8 @@ def agents_table(metrics: pd.DataFrame, latest: pd.DataFrame) -> None:
                       f'<span style="color:{MUTED};font-size:.88rem">{pct:.0f}% of {int(row["token_budget"]):,}</span>', unsafe_allow_html=True)
         a1, a2 = c[5].columns(2)
         if status == "killed":
-            a1.caption("stopped")
+            a1.button("Revive", key=f"revive_{agent}", on_click=send, args=(agent, "RESUME", "Revived from dashboard"))
+            a2.button("Rogue", key=f"rogue_row_{agent}", on_click=send, args=(agent, "GO_ROGUE", "Demo: trigger rogue"))
             continue
         if status == "paused":
             a1.button("Resume", key=f"resume_{agent}", on_click=send, args=(agent, "RESUME", "Resumed from dashboard"))
@@ -506,26 +512,105 @@ def agents_table(metrics: pd.DataFrame, latest: pd.DataFrame) -> None:
 
 
 def token_chart(metrics: pd.DataFrame, actions: list[dict]) -> None:
-    st.markdown("### Tokens per minute, last 5 minutes")
+    st.markdown("### Telemetry: Tokens per minute")
     if metrics.empty:
         st.caption("Waiting for the first metrics.")
         return
+
+    all_agents = sorted(metrics["agent"].unique())
+    if "chart_agents" not in st.session_state:
+        st.session_state["chart_agents"] = set(all_agents)
+
+    # Filter buttons to toggle / remove Alpha, Beta, Gamma
+    cols = st.columns([1.2, 1.3, 1.3, 1.3, 2.5])
+    if cols[0].button("👁️ Show All", key="filter_all", help="Display all agents"):
+        st.session_state["chart_agents"] = set(all_agents)
+        st.rerun()
+
+    agent_icons = {"alpha": "🔵 Alpha", "beta": "🟠 Beta", "gamma": "🟣 Gamma"}
+    for idx, name in enumerate(["alpha", "beta", "gamma"]):
+        if name in all_agents:
+            is_active = name in st.session_state["chart_agents"]
+            icon = agent_icons.get(name, name)
+            label = f"{icon} ✓" if is_active else f"⚪ + {name}"
+            help_msg = f"Click to remove {name} from chart" if is_active else f"Click to display {name} on chart"
+            if cols[idx + 1].button(label, key=f"toggle_{name}", help=help_msg):
+                if is_active and len(st.session_state["chart_agents"]) > 1:
+                    st.session_state["chart_agents"].remove(name)
+                else:
+                    st.session_state["chart_agents"].add(name)
+                st.rerun()
+
+    active_agents = st.session_state.get("chart_agents", set(all_agents))
+    if not active_agents:
+        active_agents = set(all_agents)
+
     df = metrics[["agent", "created_at", "tokens_per_min"]].copy()
-    names = sorted(df["agent"].unique())
-    color = alt.Color("agent:N", scale=alt.Scale(domain=names, range=LINES[:len(names)]),
-                      legend=alt.Legend(orient="top", offset=0, title=None, labelColor="#E6EAF0", symbolType="stroke", labelFontSize=12))
-    base = alt.Chart(df).encode(x=alt.X("created_at:T", title=None, axis=alt.Axis(format="%H:%M:%S", grid=False, labelFontSize=12)))
-    lines = base.mark_line(strokeWidth=2.2, interpolate="linear").encode(
-        y=alt.Y("tokens_per_min:Q", title=None, axis=alt.Axis(gridColor=GRID, tickCount=4, labelFontSize=12)), color=color)
-    kills = pd.DataFrame([{"at": a["created_at"], "agent": a["agent"]} for a in actions if a["action"] == "KILL"])
-    layers = lines
-    if not kills.empty:
-        kills["at"] = pd.to_datetime(kills["at"], utc=True)
-        rule = alt.Chart(kills).mark_rule(color=STATUS["killed"], strokeDash=[4, 3], strokeWidth=1.8).encode(x="at:T")
-        label = alt.Chart(kills).mark_text(color=STATUS["killed"], align="left", dx=5, dy=-4, baseline="bottom", fontSize=13, fontWeight=600) \
-            .encode(x="at:T", y=alt.value(10), text=alt.Text("agent:N"))
-        layers = lines + rule + label
-    st.altair_chart(layers.properties(height=320).configure_view(stroke=None).configure_axis(
+    df = df[df["agent"].isin(active_agents)]
+    if df.empty:
+        st.caption("No metrics for currently selected agents.")
+        return
+
+    # Add drop-to-zero point for killed agents so the spike visibly drops to zero
+    now_utc = pd.Timestamp.now(tz="UTC")
+    extra_rows = []
+    for a in actions:
+        if a["action"] == "KILL" and a["agent"] in active_agents:
+            try:
+                kill_ts = pd.to_datetime(a["created_at"], utc=True)
+                extra_rows.append({"agent": a["agent"], "created_at": kill_ts + pd.Timedelta(seconds=1), "tokens_per_min": 0})
+                extra_rows.append({"agent": a["agent"], "created_at": now_utc, "tokens_per_min": 0})
+            except Exception:
+                pass
+    if extra_rows:
+        df = pd.concat([df, pd.DataFrame(extra_rows)], ignore_index=True).sort_values("created_at")
+
+    domain = [a for a in ["alpha", "beta", "gamma"] if a in active_agents] or sorted(df["agent"].unique())
+    colors = [AGENT_PALETTE.get(a, "#818CF8") for a in domain]
+    color_enc = alt.Color(
+        "agent:N",
+        scale=alt.Scale(domain=domain, range=colors),
+        legend=alt.Legend(orient="top", offset=0, title=None, labelColor="#E6EAF0", symbolType="stroke", labelFontSize=12)
+    )
+
+    base = alt.Chart(df).encode(
+        x=alt.X("created_at:T", title=None, axis=alt.Axis(format="%H:%M:%S", grid=False, labelFontSize=12))
+    )
+    lines = base.mark_line(strokeWidth=2.6, interpolate="monotone").encode(
+        y=alt.Y("tokens_per_min:Q", title=None, axis=alt.Axis(gridColor=GRID, tickCount=4, labelFontSize=12)),
+        color=color_enc,
+        tooltip=[
+            alt.Tooltip("created_at:T", title="Time", format="%H:%M:%S"),
+            alt.Tooltip("agent:N", title="Agent"),
+            alt.Tooltip("tokens_per_min:Q", title="Tokens / min", format=",.0f"),
+        ]
+    )
+
+    # Soft Limit Reference Line (45k TPM) - clearly shows when threshold is breached
+    limit_df = pd.DataFrame([{"limit": 45000, "label": "Soft Limit: 45k (AI Brain Trigger)"}])
+    limit_line = alt.Chart(limit_df).mark_rule(
+        color="rgba(245, 158, 11, 0.45)", strokeDash=[5, 4], strokeWidth=1.5
+    ).encode(y="limit:Q")
+
+    kills = [a for a in actions if a["action"] == "KILL" and a["agent"] in active_agents]
+    layers = lines + limit_line
+    if kills:
+        k_df = pd.DataFrame([{
+            "at": pd.to_datetime(a["created_at"], utc=True),
+            "agent": a["agent"],
+            "actor": a.get("actor", "rules"),
+            "label": f"☠ {a['agent']} KILLED ({a.get('actor', 'brain')})"
+        } for a in kills])
+        min_t = df["created_at"].min()
+        k_df = k_df[k_df["at"] >= min_t]
+        if not k_df.empty:
+            rule = alt.Chart(k_df).mark_rule(color=STATUS["killed"], strokeDash=[4, 3], strokeWidth=2.0).encode(x="at:T")
+            label = alt.Chart(k_df).mark_text(
+                color=STATUS["killed"], align="left", dx=5, dy=-4, baseline="bottom", fontSize=12, fontWeight=700
+            ).encode(x="at:T", y=alt.value(12), text=alt.Text("label:N"))
+            layers = layers + rule + label
+
+    st.altair_chart(layers.properties(height=330).configure_view(stroke=None).configure_axis(
         labelColor=MUTED, domainColor=GRID, tickColor=GRID, labelFontSize=12), width="stretch")
 
 

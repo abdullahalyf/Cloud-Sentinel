@@ -237,6 +237,16 @@ class Sentinel:
         by_name = {h.name: h for h in self.source.list_agents()}
         for cmd in commands:
             h = by_name.get(cmd["agent"])
+            if h is None and hasattr(self.source, "agents") and cmd["agent"] in self.source.agents:
+                fa = self.source.agents[cmd["agent"]]
+                if cmd["command"] in ("GO_ROGUE", "RESUME"):
+                    fa.alive = True
+                    fa.paused_since = None
+                    fa.rogue_since = None
+                    fa.next_call = time.time() + 0.2
+                    h = AgentHandle(fa.id, fa.name, fa.budget)
+                    by_name[cmd["agent"]] = h
+                    log.info("Revived fake agent %s on %s command", fa.name, cmd["command"])
             if h is None:
                 self.store.finish_command(cmd["id"], "failed", "agent not found or already dead")
                 continue

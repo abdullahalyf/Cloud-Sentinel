@@ -22,4 +22,4 @@ if len(sys.argv) != 3 or sys.argv[1] not in COMMANDS:
 
 action, agent = sys.argv[1], sys.argv[2]
 get_store().insert_command(CommandRow(agent, COMMANDS[action], "terminal", f"{action} from terminal"))
-print(f"Sent {COMMANDS[action]} → {agent}. The sentinel will run it within ~1 second.")
+print(f"Sent {COMMANDS[action]} -> {agent}. The sentinel will run it within ~1 second.")
