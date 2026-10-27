@@ -129,55 +129,49 @@ def load_background_b64() -> str:
                 pass
     return ""
 
-# Electric Blue AI Core Reticle Cursor (Default)
-CURSOR_AI_BLUE = (
-    "data:image/svg+xml,%3Csvg width='32' height='32' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
-    "%3Ccircle cx='16' cy='16' r='12' stroke='%2300F0FF' stroke-width='1.5' stroke-dasharray='6 3' stroke-opacity='0.9'/%3E"
-    "%3Ccircle cx='16' cy='16' r='5' stroke='%23818CF8' stroke-width='1' stroke-opacity='0.7'/%3E"
-    "%3Ccircle cx='16' cy='16' r='2.5' fill='%2300F0FF'/%3E"
-    "%3Cline x1='16' y1='1' x2='16' y2='6' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Cline x1='16' y1='26' x2='16' y2='31' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Cline x1='1' y1='16' x2='6' y1='16' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Cline x1='26' y1='16' x2='31' y1='16' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
+# Precision Cobalt & Titanium Crosshair Cursor (Default)
+CURSOR_PRECISION_DEFAULT = (
+    "data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
+    "%3Ccircle cx='12' cy='12' r='8' stroke='%23475569' stroke-width='1.2' stroke-dasharray='3 2'/%3E"
+    "%3Ccircle cx='12' cy='12' r='2.2' fill='%233B82F6'/%3E"
+    "%3Cline x1='12' y1='1' x2='12' y2='5' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
+    "%3Cline x1='12' y1='19' x2='12' y2='23' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
+    "%3Cline x1='1' y1='12' x2='5' y2='12' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
+    "%3Cline x1='19' y1='12' x2='23' y2='12' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
     "%3C/svg%3E"
 )
 
-# Electric Blue AI Lock-On Targeting Reticle Cursor (Interactive Hover)
-CURSOR_AI_LOCK = (
-    "data:image/svg+xml,%3Csvg width='36' height='36' viewBox='0 0 36 36' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
-    "%3Cpath d='M8 4H4V8' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
-    "%3Cpath d='M28 4H32V8' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
-    "%3Cpath d='M8 32H4V28' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
-    "%3Cpath d='M28 32H32V28' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
-    "%3Ccircle cx='18' cy='18' r='9' stroke='%2300F0FF' stroke-width='1.5' stroke-dasharray='4 3'/%3E"
-    "%3Ccircle cx='18' cy='18' r='3' fill='%2300F0FF'/%3E"
-    "%3Cline x1='18' y1='9' x2='18' y2='12' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
-    "%3Cline x1='18' y1='24' x2='18' y2='27' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
-    "%3Cline x1='9' y1='18' x2='12' y2='18' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
-    "%3Cline x1='24' y1='18' x2='27' y2='18' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
+# Precision Targeting Bracket Cursor (Hover over interactive elements)
+CURSOR_PRECISION_POINTER = (
+    "data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
+    "%3Cpath d='M7 3H3V7' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Cpath d='M21 3H25V7' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Cpath d='M7 25H3V21' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Cpath d='M21 25H25V21' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Ccircle cx='14' cy='14' r='2.5' fill='%2360A5FA'/%3E"
     "%3C/svg%3E"
 )
 
 CUSTOM_CSS_RAW = """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 /* 1. COMPLETELY HIDE NORMAL OS MOUSE CURSOR EVERYWHERE */
 *, *::before, *::after, html, body, #root, .stApp, button, a, select, input, textarea, [role="button"], [data-baseweb="tab"], iframe {
     cursor: none !important;
 }
 
-/* Fallback: if browser pointer is rendered, force electric blue AI reticle instead of normal arrow */
+/* Fallback: if browser pointer is rendered, force precision cobalt crosshair */
 html, body, .stApp {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    color: #F1F5F9;
-    background: #07070E !important;
+    font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    color: #F8FAFC !important;
+    background: #090A0F !important;
     overflow-x: hidden;
-    cursor: url('__CURSOR_AI_BLUE__') 16 16, crosshair !important;
+    cursor: url('__CURSOR_DEFAULT__') 12 12, crosshair !important;
 }
 
 button, a, [role="button"], select, input, textarea, [data-baseweb="tab"], .sentinel-card, .stButton > button, .hero-saved-card {
-    cursor: url('__CURSOR_AI_LOCK__') 18 18, pointer !important;
+    cursor: url('__CURSOR_POINTER__') 14 14, pointer !important;
 }
 
 /* Base transparent containers so animated background shines through */
@@ -185,164 +179,133 @@ button, a, [role="button"], select, input, textarea, [data-baseweb="tab"], .sent
     background: transparent !important;
 }
 
-/* LIVE ANIMATED BACKGROUND: Cybernetic Aurora & Scanning Laser */
-#cs-live-ambient-aurora {
+/* AMBIENT ARCHITECTURAL DEPTH (Sleek Linear/Stripe engineering palette) */
+#cs-linear-ambient-depth {
     position: fixed;
     top: 0; left: 0; width: 100vw; height: 100vh;
     pointer-events: none;
     z-index: 0;
     overflow: hidden;
-    background: radial-gradient(circle at 50% 0%, #111126 0%, #06070D 85%);
+    background: radial-gradient(circle at 50% 0%, #11131C 0%, #08090D 85%);
 }
 
-.aurora-orb-cyan {
+.depth-glow-cobalt {
     position: absolute;
-    width: 650px; height: 650px;
+    width: 700px; height: 700px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(0, 240, 255, 0.22) 0%, rgba(0, 240, 255, 0.04) 50%, transparent 70%);
-    filter: blur(55px);
-    animation: orbFloat1 20s ease-in-out infinite alternate;
+    background: radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0.01) 50%, transparent 70%);
+    filter: blur(80px);
+    animation: depthFloat1 24s ease-in-out infinite alternate;
 }
 
-.aurora-orb-violet {
+.depth-glow-slate {
     position: absolute;
-    width: 750px; height: 750px;
+    width: 800px; height: 800px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(139, 92, 246, 0.20) 0%, rgba(99, 102, 241, 0.05) 50%, transparent 70%);
-    filter: blur(65px);
-    animation: orbFloat2 26s ease-in-out infinite alternate;
+    background: radial-gradient(circle, rgba(100, 116, 139, 0.06) 0%, rgba(71, 85, 105, 0.01) 50%, transparent 70%);
+    filter: blur(90px);
+    animation: depthFloat2 30s ease-in-out infinite alternate;
 }
 
-.aurora-orb-blue {
-    position: absolute;
-    width: 580px; height: 580px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(37, 99, 235, 0.18) 0%, rgba(16, 185, 129, 0.05) 50%, transparent 70%);
-    filter: blur(50px);
-    animation: orbFloat3 18s ease-in-out infinite alternate;
+@keyframes depthFloat1 {
+    0% { transform: translate(-10%, -10%); }
+    50% { transform: translate(40vw, 25vh); }
+    100% { transform: translate(10vw, 60vh); }
 }
 
-@keyframes orbFloat1 {
-    0% { transform: translate(-10%, -10%) scale(1); }
-    50% { transform: translate(45vw, 25vh) scale(1.15); }
-    100% { transform: translate(15vw, 65vh) scale(0.95); }
+@keyframes depthFloat2 {
+    0% { transform: translate(60vw, 50vh); }
+    50% { transform: translate(20vw, 10vh); }
+    100% { transform: translate(70vw, -10vh); }
 }
 
-@keyframes orbFloat2 {
-    0% { transform: translate(65vw, 55vh) scale(0.9); }
-    50% { transform: translate(25vw, 15vh) scale(1.2); }
-    100% { transform: translate(75vw, -5vh) scale(1); }
-}
-
-@keyframes orbFloat3 {
-    0% { transform: translate(30vw, 80vh) scale(1.1); }
-    50% { transform: translate(60vw, 30vh) scale(0.85); }
-    100% { transform: translate(-5vw, 35vh) scale(1.05); }
-}
-
-/* Moving Cyber Horizon Grid */
-.cyber-grid-stream {
+/* Subtle Architectural Grid */
+.architectural-grid {
     position: absolute;
     top: 0; left: 0; width: 100%; height: 100%;
     background-image: 
-        linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
-    background-size: 44px 44px;
-    animation: cyberGridTravel 35s linear infinite;
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+    background-size: 48px 48px;
+    animation: gridDrift 45s linear infinite;
 }
 
-@keyframes cyberGridTravel {
+@keyframes gridDrift {
     0% { background-position: 0 0; }
-    100% { background-position: 44px 44px; }
-}
-
-/* Live Scanning Cyan Laser Sweep */
-.cyber-scanner-laser {
-    position: absolute;
-    top: -20px; left: 0; width: 100%; height: 2px;
-    background: linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.2) 25%, #00F0FF 50%, rgba(0, 240, 255, 0.2) 75%, transparent 100%);
-    box-shadow: 0 0 16px #00F0FF, 0 0 32px rgba(0, 240, 255, 0.6);
-    animation: scannerDownSweep 9s ease-in-out infinite;
-    opacity: 0.75;
-}
-
-@keyframes scannerDownSweep {
-    0% { top: -20px; opacity: 0; }
-    10% { opacity: 0.8; }
-    90% { opacity: 0.8; }
-    100% { top: 105vh; opacity: 0; }
+    100% { background-position: 48px 48px; }
 }
 
 code, pre, .mono-font {
-    font-family: 'JetBrains Mono', monospace !important;
+    font-family: 'JetBrains Mono', 'Geist Mono', monospace !important;
+    font-variant-numeric: tabular-nums;
 }
 
-/* Red flash animation when an agent is terminated */
-@keyframes redFlash {
-    0% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.4); }
-    50% { box-shadow: 0 0 35px rgba(239, 68, 68, 0.75); border-color: rgba(239, 68, 68, 1); }
-    100% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.4); }
+/* Status Flashes for Circuit Breaker */
+@keyframes redTrip {
+    0% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.3); }
+    50% { box-shadow: 0 0 24px rgba(239, 68, 68, 0.5); border-color: rgba(239, 68, 68, 0.9); }
+    100% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.3); }
 }
 
-@keyframes yellowWarning {
-    0% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.4); }
-    50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.65); border-color: rgba(245, 158, 11, 1); }
-    100% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.4); }
+@keyframes amberSpike {
+    0% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.3); }
+    50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.45); border-color: rgba(245, 158, 11, 0.85); }
+    100% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.3); }
 }
 
 .flash-killed {
-    animation: redFlash 2.5s ease-in-out infinite;
+    animation: redTrip 2.2s ease-in-out infinite;
 }
 
 .flash-spiking {
-    animation: yellowWarning 1.2s ease-in-out infinite;
+    animation: amberSpike 1.2s ease-in-out infinite;
 }
 
-/* Glassmorphic Cards (Transparent to let live animation shine through) */
+/* Linear-style Bento Cards: Refined zinc with 1px titanium border */
 .sentinel-card {
-    background: rgba(14, 16, 32, 0.72) !important;
+    background: rgba(15, 17, 24, 0.78) !important;
     backdrop-filter: blur(14px) !important;
     -webkit-backdrop-filter: blur(14px) !important;
-    border: 1px solid rgba(139, 92, 246, 0.25) !important;
-    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px;
     padding: 20px 22px;
     margin-bottom: 16px;
-    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .sentinel-card:hover {
-    border-color: rgba(0, 240, 255, 0.5) !important;
+    border-color: rgba(59, 130, 246, 0.35) !important;
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 18px rgba(0, 240, 255, 0.2) !important;
+    box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(59, 130, 246, 0.08) !important;
 }
 
 /* Top Hero KPI Counter */
 .hero-saved-card {
-    background: linear-gradient(135deg, rgba(18, 20, 44, 0.82) 0%, rgba(26, 20, 52, 0.82) 100%) !important;
+    background: linear-gradient(180deg, rgba(17, 20, 29, 0.88) 0%, rgba(13, 15, 22, 0.88) 100%) !important;
     backdrop-filter: blur(14px) !important;
     -webkit-backdrop-filter: blur(14px) !important;
-    border: 1px solid rgba(168, 85, 247, 0.4) !important;
-    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 14px;
     padding: 22px 28px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .saved-amount {
     font-size: 2.75rem;
-    font-weight: 800;
+    font-weight: 700;
     line-height: 1.1;
-    background: linear-gradient(135deg, #10B981 0%, #34D399 50%, #60A5FA 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #F8FAFC !important;
     letter-spacing: -0.03em;
     font-family: 'JetBrains Mono', monospace;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Claude Highlight Box */
 .claude-box {
-    background: linear-gradient(135deg, rgba(88, 28, 135, 0.3) 0%, rgba(30, 27, 75, 0.5) 100%);
-    border: 1px solid rgba(168, 85, 247, 0.5);
-    border-left: 4px solid #A855F7;
-    border-radius: 12px;
+    background: rgba(17, 20, 30, 0.65) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-left: 3px solid #3B82F6 !important;
+    border-radius: 10px;
     padding: 16px 20px;
     margin: 12px 0 20px 0;
 }
@@ -352,58 +315,64 @@ code, pre, .mono-font {
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
-    border-radius: 9999px;
-    font-size: 0.75rem;
-    font-weight: 700;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
 }
 .badge-running {
-    background: rgba(16, 185, 129, 0.15);
-    color: #10B981;
-    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.12);
+    color: #34D399;
+    border: 1px solid rgba(16, 185, 129, 0.25);
 }
 .badge-warned {
-    background: rgba(245, 158, 11, 0.15);
-    color: #F59E0B;
-    border: 1px solid rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.12);
+    color: #FBBF24;
+    border: 1px solid rgba(245, 158, 11, 0.25);
 }
 .badge-killed {
-    background: rgba(239, 68, 68, 0.18);
-    color: #EF4444;
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.14);
+    color: #F87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
-/* Streamlit component polish */
+/* Streamlit button polish */
 .stButton > button {
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    transition: all 0.2s ease !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: #141722 !important;
+    color: #F8FAFC !important;
+    transition: all 0.15s ease !important;
+}
+.stButton > button:hover {
+    border-color: rgba(59, 130, 246, 0.4) !important;
+    background: #1C2030 !important;
 }
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%) !important;
-    border: 1px solid #F87171 !important;
-    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35) !important;
+    background: #DC2626 !important;
+    border: 1px solid #EF4444 !important;
+    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3) !important;
 }
 .stButton > button[kind="primary"]:hover {
-    transform: scale(1.02) !important;
-    box-shadow: 0 6px 18px rgba(239, 68, 68, 0.55) !important;
+    background: #B91C1C !important;
+    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.45) !important;
 }
 </style>
 """
-CUSTOM_CSS = CUSTOM_CSS_RAW.replace("__CURSOR_AI_BLUE__", CURSOR_AI_BLUE).replace("__CURSOR_AI_LOCK__", CURSOR_AI_LOCK)
+CUSTOM_CSS = CUSTOM_CSS_RAW.replace("__CURSOR_DEFAULT__", CURSOR_PRECISION_DEFAULT).replace("__CURSOR_POINTER__", CURSOR_PRECISION_POINTER)
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# LIVE ANIMATED BACKGROUND & ELECTRIC BLUE AI CURSOR OVERLAY
+# LIVE ANIMATED BACKGROUND & PRECISION COBALT CURSOR OVERLAY
 # -----------------------------------------------------------------------------
 LIVE_VISUALS_MARKUP = """
-<div id="cs-live-ambient-aurora">
-    <div class="aurora-orb-cyan"></div>
-    <div class="aurora-orb-violet"></div>
-    <div class="aurora-orb-blue"></div>
-    <div class="cyber-grid-stream"></div>
-    <div class="cyber-scanner-laser"></div>
+<div id="cs-linear-ambient-depth">
+    <div class="depth-glow-cobalt"></div>
+    <div class="depth-glow-slate"></div>
+    <div class="architectural-grid"></div>
 </div>
 
 <script>
@@ -430,11 +399,11 @@ LIVE_VISUALS_MARKUP = """
                 doc.head.appendChild(s);
             }
 
-            // 2. Setup Live Neural Canvas
-            if (!doc.getElementById('cs-neural-canvas')) {
+            // 2. Setup Live Telemetry Network Canvas
+            if (!doc.getElementById('cs-telemetry-canvas')) {
                 const canvas = doc.createElement('canvas');
-                canvas.id = 'cs-neural-canvas';
-                canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1;opacity:0.8;';
+                canvas.id = 'cs-telemetry-canvas';
+                canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1;opacity:0.75;';
                 doc.body.insertBefore(canvas, doc.body.firstChild);
 
                 const ctx = canvas.getContext('2d');
@@ -447,15 +416,15 @@ LIVE_VISUALS_MARKUP = """
                 });
 
                 const particles = [];
-                const count = 60;
+                const count = 52;
                 for (let i = 0; i < count; i++) {
                     particles.push({
                         x: Math.random() * w,
                         y: Math.random() * h,
-                        vx: (Math.random() - 0.5) * 0.95,
-                        vy: (Math.random() - 0.5) * 0.95,
-                        radius: Math.random() * 2.2 + 1.2,
-                        color: Math.random() > 0.45 ? '#00F0FF' : '#818CF8'
+                        vx: (Math.random() - 0.5) * 0.7,
+                        vy: (Math.random() - 0.5) * 0.7,
+                        radius: Math.random() * 1.5 + 1.0,
+                        color: Math.random() > 0.4 ? '#3B82F6' : '#64748B'
                     });
                 }
 
@@ -469,13 +438,13 @@ LIVE_VISUALS_MARKUP = """
                 function draw() {
                     ctx.clearRect(0, 0, w, h);
 
-                    // Expanding radar pulse from center
-                    pulseRadius += 0.8;
+                    // Expanding telemetry wave
+                    pulseRadius += 0.6;
                     if (pulseRadius > Math.max(w, h)) pulseRadius = 0;
                     ctx.beginPath();
                     ctx.arc(w / 2, h / 2, pulseRadius, 0, Math.PI * 2);
-                    ctx.strokeStyle = 'rgba(0, 240, 255, ' + Math.max(0, 0.15 * (1 - pulseRadius / Math.max(w, h))) + ')';
-                    ctx.lineWidth = 1.2;
+                    ctx.strokeStyle = 'rgba(59, 130, 246, ' + Math.max(0, 0.08 * (1 - pulseRadius / Math.max(w, h))) + ')';
+                    ctx.lineWidth = 1;
                     ctx.stroke();
 
                     // Particles & Connections
@@ -489,40 +458,35 @@ LIVE_VISUALS_MARKUP = """
                         ctx.beginPath();
                         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
                         ctx.fillStyle = p.color;
-                        ctx.shadowBlur = 9;
-                        ctx.shadowColor = p.color;
                         ctx.fill();
-                        ctx.shadowBlur = 0;
 
-                        // Inter-particle constellation lines
+                        // Constellation links
                         for (let j = i + 1; j < particles.length; j++) {
                             const p2 = particles[j];
                             const dx = p.x - p2.x;
                             const dy = p.y - p2.y;
                             const dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist < 125) {
+                            if (dist < 115) {
                                 ctx.beginPath();
                                 ctx.moveTo(p.x, p.y);
                                 ctx.lineTo(p2.x, p2.y);
-                                const alpha = (1 - dist / 125) * 0.35;
-                                ctx.strokeStyle = p.color === '#00F0FF'
-                                    ? 'rgba(0, 240, 255, ' + alpha + ')'
-                                    : 'rgba(129, 140, 248, ' + alpha + ')';
-                                ctx.lineWidth = 1;
+                                const alpha = (1 - dist / 115) * 0.2;
+                                ctx.strokeStyle = 'rgba(100, 116, 139, ' + alpha + ')';
+                                ctx.lineWidth = 0.8;
                                 ctx.stroke();
                             }
                         }
 
-                        // Live Mouse Tethering (Electric Blue Beams)
+                        // Cursor proximity tether
                         const mdx = p.x - mouseX;
                         const mdy = p.y - mouseY;
                         const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
-                        if (mdist < 155) {
+                        if (mdist < 140) {
                             ctx.beginPath();
                             ctx.moveTo(p.x, p.y);
                             ctx.lineTo(mouseX, mouseY);
-                            ctx.strokeStyle = 'rgba(0, 240, 255, ' + ((1 - mdist / 155) * 0.6) + ')';
-                            ctx.lineWidth = 1.4;
+                            ctx.strokeStyle = 'rgba(59, 130, 246, ' + ((1 - mdist / 140) * 0.35) + ')';
+                            ctx.lineWidth = 1;
                             ctx.stroke();
                         }
                     }
@@ -531,26 +495,26 @@ LIVE_VISUALS_MARKUP = """
                 draw();
             }
 
-            // 3. Setup Custom Electric Blue AI Mouse Cursor
-            if (!doc.getElementById('cs-ai-mouse-cursor')) {
+            // 3. Setup Precision Developer Mouse Cursor
+            if (!doc.getElementById('cs-precision-cursor')) {
                 const cur = doc.createElement('div');
-                cur.id = 'cs-ai-mouse-cursor';
+                cur.id = 'cs-precision-cursor';
                 cur.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;z-index:999999999;transition:opacity 0.2s ease;';
                 cur.innerHTML = `
-                    <div id="cs-ai-dot" style="position:fixed;width:7px;height:7px;background:#00F0FF;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 10px #00F0FF, 0 0 20px #00F0FF;pointer-events:none;transition:background 0.15s ease;"></div>
-                    <div id="cs-ai-hud" style="position:fixed;width:34px;height:34px;border:1.6px dashed rgba(0, 240, 255, 0.8);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 16px rgba(0, 240, 255, 0.4);transition:width 0.18s ease-out, height 0.18s ease-out, border 0.18s, background 0.18s, box-shadow 0.18s;">
-                        <div style="position:absolute;top:-4px;left:50%;width:2px;height:6px;background:#00F0FF;transform:translateX(-50%);"></div>
-                        <div style="position:absolute;bottom:-4px;left:50%;width:2px;height:6px;background:#00F0FF;transform:translateX(-50%);"></div>
-                        <div style="position:absolute;left:-4px;top:50%;width:6px;height:2px;background:#00F0FF;transform:translateY(-50%);"></div>
-                        <div style="position:absolute;right:-4px;top:50%;width:6px;height:2px;background:#00F0FF;transform:translateY(-50%);"></div>
-                        <div id="cs-ai-tag" style="position:absolute;top:40px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:8px;font-weight:700;color:#00F0FF;letter-spacing:1px;white-space:nowrap;text-shadow:0 0 6px #00F0FF;opacity:0.85;">AI // TARGET</div>
+                    <div id="cs-cur-dot" style="position:fixed;width:5px;height:5px;background:#3B82F6;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(59, 130, 246, 0.7);pointer-events:none;"></div>
+                    <div id="cs-cur-reticle" style="position:fixed;width:26px;height:26px;border:1px solid rgba(148, 163, 184, 0.35);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;transition:width 0.16s ease-out, height 0.16s ease-out, border 0.16s, background 0.16s;">
+                        <div style="position:absolute;top:-3px;left:50%;width:1px;height:4px;background:#94A3B8;transform:translateX(-50%);"></div>
+                        <div style="position:absolute;bottom:-3px;left:50%;width:1px;height:4px;background:#94A3B8;transform:translateX(-50%);"></div>
+                        <div style="position:absolute;left:-3px;top:50%;width:4px;height:1px;background:#94A3B8;transform:translateY(-50%);"></div>
+                        <div style="position:absolute;right:-3px;top:50%;width:4px;height:1px;background:#94A3B8;transform:translateY(-50%);"></div>
+                        <div id="cs-cur-tag" style="position:absolute;top:32px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:8px;font-weight:600;color:#94A3B8;letter-spacing:1px;white-space:nowrap;opacity:0.75;">SYS // READY</div>
                     </div>
                 `;
                 doc.body.appendChild(cur);
 
-                const dot = cur.querySelector('#cs-ai-dot');
-                const hud = cur.querySelector('#cs-ai-hud');
-                const tag = cur.querySelector('#cs-ai-tag');
+                const dot = cur.querySelector('#cs-cur-dot');
+                const reticle = cur.querySelector('#cs-cur-reticle');
+                const tag = cur.querySelector('#cs-cur-tag');
 
                 let targetX = -200, targetY = -200;
                 let currentX = -200, currentY = -200;
@@ -571,24 +535,22 @@ LIVE_VISUALS_MARKUP = """
                     );
 
                     if (isInteractive) {
-                        hud.style.width = '48px';
-                        hud.style.height = '48px';
-                        hud.style.border = '2px solid #00F0FF';
-                        hud.style.background = 'rgba(0, 240, 255, 0.12)';
-                        hud.style.boxShadow = '0 0 25px rgba(0, 240, 255, 0.65)';
+                        reticle.style.width = '36px';
+                        reticle.style.height = '36px';
+                        reticle.style.border = '1.5px solid #3B82F6';
+                        reticle.style.background = 'rgba(59, 130, 246, 0.08)';
                         if (tag) {
-                            tag.innerText = 'AI // LOCKED';
-                            tag.style.color = '#38BDF8';
+                            tag.innerText = 'SYS // LOCKED';
+                            tag.style.color = '#60A5FA';
                         }
                     } else {
-                        hud.style.width = '34px';
-                        hud.style.height = '34px';
-                        hud.style.border = '1.6px dashed rgba(0, 240, 255, 0.8)';
-                        hud.style.background = 'transparent';
-                        hud.style.boxShadow = '0 0 16px rgba(0, 240, 255, 0.4)';
+                        reticle.style.width = '26px';
+                        reticle.style.height = '26px';
+                        reticle.style.border = '1px solid rgba(148, 163, 184, 0.35)';
+                        reticle.style.background = 'transparent';
                         if (tag) {
-                            tag.innerText = 'AI // ACTIVE';
-                            tag.style.color = '#00F0FF';
+                            tag.innerText = 'SYS // READY';
+                            tag.style.color = '#94A3B8';
                         }
                     }
                 });
@@ -598,19 +560,18 @@ LIVE_VISUALS_MARKUP = """
                 });
 
                 doc.addEventListener('mousedown', () => {
-                    hud.style.transform = 'translate(-50%,-50%) scale(0.7)';
-                    hud.style.boxShadow = '0 0 35px #00F0FF';
+                    reticle.style.transform = 'translate(-50%,-50%) scale(0.75)';
                 });
 
                 doc.addEventListener('mouseup', () => {
-                    hud.style.transform = 'translate(-50%,-50%) scale(1)';
+                    reticle.style.transform = 'translate(-50%,-50%) scale(1)';
                 });
 
                 function loop() {
-                    currentX += (targetX - currentX) * 0.24;
-                    currentY += (targetY - currentY) * 0.24;
-                    hud.style.left = currentX + 'px';
-                    hud.style.top = currentY + 'px';
+                    currentX += (targetX - currentX) * 0.26;
+                    currentY += (targetY - currentY) * 0.26;
+                    reticle.style.left = currentX + 'px';
+                    reticle.style.top = currentY + 'px';
                     requestAnimationFrame(loop);
                 }
                 loop();
