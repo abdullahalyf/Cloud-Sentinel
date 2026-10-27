@@ -234,6 +234,7 @@ class _FakeAgent:
         self.alive = True
         self.paused_since: float | None = None
         self.rogue_since: float | None = None
+        self.killed_at: float | None = None
         self.rogue_type = "loop"
         self.last_prompt = ""
         self.next_call = time.time() + self.rng.uniform(0.5, 2)
@@ -243,6 +244,14 @@ class _FakeAgent:
     def go_rogue(self) -> None:
         self.rogue_since = time.time()
         self.next_call = min(self.next_call, self.rogue_since)  # start looping now, not after the idle sleep
+
+    def revive(self) -> None:
+        self.alive = True
+        self.paused_since = None
+        self.rogue_since = None
+        self.killed_at = None
+        self.calls = 0
+        self.next_call = time.time() + self.rng.uniform(0.5, 2.0)
 
 
 class FakeSource:
@@ -258,14 +267,24 @@ class FakeSource:
             a.rogue_type = rogue_type
         self.started = time.time()
         self.auto_rogue, self.rogue_after = auto_rogue, rogue_after
+        self.rng = random.Random(42)
+        self._next_rogue_time = self.started + self.rogue_after if auto_rogue else None
 
     def list_agents(self) -> list[AgentHandle]:
-        if self.auto_rogue and time.time() - self.started >= self.rogue_after:
-            a = self.agents.get(self.auto_rogue)
-            if a and a.alive and a.rogue_since is None:
-                a.go_rogue()
-                log.info("[fake] %s went rogue", a.name)
-            self.auto_rogue = None
+        now = time.time()
+        if self.auto_rogue is not None:
+            for a in self.agents.values():
+                if not a.alive and a.killed_at is not None and now - a.killed_at >= 15.0:
+                    a.revive()
+                    log.info("[fake] %s auto-respawned healthy — all 3 agents running", a.name)
+            if self._next_rogue_time is not None and now >= self._next_rogue_time:
+                alive_healthy = [a for a in self.agents.values() if a.alive and a.rogue_since is None]
+                if alive_healthy:
+                    target = next((a for a in alive_healthy if a.name == self.auto_rogue), self.rng.choice(alive_healthy))
+                    target.go_rogue()
+                    log.info("[fake] %s went rogue (spiking now)", target.name)
+                self._next_rogue_time = now + self.rng.uniform(30.0, 50.0)
+
         return [AgentHandle(a.id, a.name, a.budget) for a in self.agents.values() if a.alive]
 
     def _agent(self, h: AgentHandle) -> _FakeAgent:
@@ -342,11 +361,15 @@ class FakeSource:
         return f"fake agent {h.name} resumed"
 
     def kill(self, h: AgentHandle) -> str:
-        self._agent(h).alive = False
+        a = self._agent(h)
+        a.alive = False
+        a.killed_at = time.time()
         return f"fake agent {h.name} killed"
 
     def go_rogue(self, h: AgentHandle) -> str:
         a = self._agent(h)
+        if not a.alive:
+            a.revive()
         if a.rogue_since is None:
             a.go_rogue()
         return f"fake agent {h.name} switched to rogue mode"
