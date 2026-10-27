@@ -7,6 +7,7 @@ Works with both stores (Supabase or local SQLite): whichever get_store() gives y
   python db/reset.py          # shows the row counts, then asks you to type "yes"
   python db/reset.py --yes    # no question (for scripts)
 
+Needs the secret / service_role key (SUPABASE_KEY in .env). The dashboard key is not allowed to delete.
 Stop the sentinel first (Ctrl+C), otherwise it writes new rows right after the wipe.
 Bring killed agents back with:  docker compose up -d --force-recreate
 """
@@ -14,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -22,29 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))   # so "from shared..." works when run as: python db/reset.py
 os.chdir(ROOT)                  # so .env and the local SQLite path resolve from the repo root
 
-from shared.store import LocalStore, SupabaseStore, get_store  # noqa: E402
-
-TABLES = ("agent_metrics", "alerts", "actions", "commands")
-
-
-def count_rows(store, table: str) -> int:
-    if isinstance(store, LocalStore):
-        return store._select(f"select count(*) as n from {table}")[0]["n"]
-    res = store._db.table(table).select("id", count="exact").limit(1).execute()
-    return res.count or 0
-
-
-def wipe(store, table: str) -> None:
-    if isinstance(store, LocalStore):
-        with store._lock:
-            store._conn.execute(f"delete from {table}")
-            try:  # start ids from 1 again
-                store._conn.execute("delete from sqlite_sequence where name = ?", (table,))
-            except sqlite3.OperationalError:
-                pass
-            store._conn.commit()
-    else:
-        store._db.table(table).delete().gte("id", 0).execute()  # Supabase needs a filter
+from shared.store import SupabaseStore, get_store  # noqa: E402
 
 
 def main() -> int:
@@ -56,7 +34,7 @@ def main() -> int:
     shared = isinstance(store, SupabaseStore)
     print("Database:", "Supabase (SHARED by the whole team!)" if shared else "local SQLite file")
 
-    counts = {t: count_rows(store, t) for t in TABLES}
+    counts = store.table_counts()
     for table, n in counts.items():
         print(f"  {table:<14} {n:>8} rows")
     if sum(counts.values()) == 0:
@@ -67,10 +45,13 @@ def main() -> int:
         print("Cancelled. Nothing was deleted.")
         return 1
 
-    for table in TABLES:
-        wipe(store, table)
-        print(f"  cleared {table}")
-    print("Done. Start the sentinel for a clean demo.")
+    try:
+        store.reset()
+    except Exception as exc:  # noqa: BLE001
+        print(f"Could not delete: {exc}")
+        print("Reset needs the secret / service_role key in .env, not the dashboard key.")
+        return 1
+    print("Done. All 4 tables are empty. Start the sentinel for a clean demo.")
     return 0
 
 
