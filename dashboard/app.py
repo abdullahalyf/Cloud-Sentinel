@@ -8,9 +8,9 @@ Rules (see AGENTS.md):
 """
 from __future__ import annotations
 
-import html
 import sys
 from datetime import datetime, timezone
+from html import escape as esc
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -24,7 +24,6 @@ from shared.store import get_store
 
 REFRESH = "2s"
 OFFLINE_AFTER_SECONDS = 15          # no heartbeat for this long = Sentinel OFFLINE
-ROGUE_TYPES = ("loop", "token_bomb", "memory_leak", "paraphrase_loop")
 STATUS = {"running": "#3FB97C", "warned": "#E0A93B", "paused": "#E0A93B", "killed": "#E5534B"}
 LINES = ["#3987E5", "#D95926", "#199E70"]   # validated categorical order (dark)
 MUTED, GRID = "#8B95A5", "#2A313B"
@@ -159,7 +158,7 @@ def agents_table(metrics: pd.DataFrame, latest: pd.DataFrame) -> None:
         bar = STATUS["killed"] if pct >= 90 else STATUS["warned"] if pct >= 70 else MUTED
         c = st.columns(COLS)
         c[0].markdown(f'<div class="cs-cell"><span class="dot" style="background:{STATUS.get(status, MUTED)}"></span>'
-                      f'{html.escape(agent)} <span style="color:{MUTED};font-size:.9rem">{status}</span></div>', unsafe_allow_html=True)
+                      f'{esc(agent)} <span style="color:{MUTED};font-size:.9rem">{esc(status)}</span></div>', unsafe_allow_html=True)
         c[1].markdown(f'<div class="cs-cell">{sparkline(series, MUTED)} &nbsp;{int(row["tokens_per_min"]):,}</div>', unsafe_allow_html=True)
         c[2].markdown(f'<div class="cs-cell">{row["calls_per_sec"]:.1f}</div>', unsafe_allow_html=True)
         c[3].markdown(f'<div class="cs-cell">{row["memory_pct"]:.0f}%</div>', unsafe_allow_html=True)
@@ -201,18 +200,32 @@ def token_chart(metrics: pd.DataFrame, actions: list[dict]) -> None:
         labelColor=MUTED, domainColor=GRID, tickColor=GRID, labelFontSize=12), width="stretch")
 
 
-def decision_panel(alerts: list[dict]) -> None:
-    st.markdown("### Latest decision")
+def latest_decision(alerts: list[dict], actions: list[dict]) -> dict | None:
+    """Newest decision of any kind: a brain verdict, or a KILL/PAUSE/WARN action (human, rules, brain).
+    A brain action is shown through its verdict (it carries confidence and pattern)."""
     v = latest_verdict(alerts)
-    if not v:
-        st.caption("No brain verdict yet. Verdicts appear when a suspicious agent is judged.")
+    act = max(actions, key=lambda a: a["created_at"], default=None)
+    if act is None or (v and v["at"] > act["created_at"]):
+        return v
+    if v and v["agent"] == act["agent"] and act["actor"] == v["source"] and abs(age_seconds(v["at"]) - age_seconds(act["created_at"])) <= 10:
+        return v
+    return {"agent": act["agent"], "source": act["actor"], "action": act["action"], "confidence": "", "pattern": "",
+            "reason": act["reason"], "at": act["created_at"]}
+
+
+def decision_panel(alerts: list[dict], actions: list[dict]) -> None:
+    st.markdown("### Latest decision")
+    d = latest_decision(alerts, actions)
+    if not d:
+        st.caption("No decision yet. Verdicts and kill/pause actions appear here.")
         return
-    st.markdown(f'<div style="font-size:1.6rem;font-weight:600;line-height:1.4">{v["action"]} '
-                f'<span style="color:{MUTED};font-size:1rem;font-weight:400">{v["agent"]}</span></div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="cs-cell" style="color:{MUTED}">Confidence <b style="color:#E6EAF0">{v["confidence"]}</b> &nbsp;·&nbsp; '
-                f'Pattern <b style="color:#E6EAF0">{v["pattern"] or "none"}</b> &nbsp;·&nbsp; '
-                f'Decided by <b style="color:#E6EAF0">{v["source"]}</b></div>', unsafe_allow_html=True)
-    st.write(v["reason"])
+    st.markdown(f'<div style="font-size:1.6rem;font-weight:600;line-height:1.4">{esc(d["action"])} '
+                f'<span style="color:{MUTED};font-size:1rem;font-weight:400">{esc(d["agent"])}</span></div>', unsafe_allow_html=True)
+    extra = "".join(f'{k} <b style="color:#E6EAF0">{esc(v)}</b> &nbsp;·&nbsp; ' for k, v in
+                    (("Confidence", d["confidence"]), ("Pattern", d["pattern"])) if v)
+    st.markdown(f'<div class="cs-cell" style="color:{MUTED}">{extra}Decided by <b style="color:#E6EAF0">{esc(d["source"])}</b>'
+                f' &nbsp;·&nbsp; {esc(d["at"][11:19])}</div>', unsafe_allow_html=True)
+    st.write(d["reason"])
 
 
 def event_log(alerts: list[dict], actions: list[dict]) -> None:
@@ -226,8 +239,8 @@ def event_log(alerts: list[dict], actions: list[dict]) -> None:
     body = ""
     for at, agent, event, detail, by in sorted(rows, reverse=True)[:12]:
         cls = ("kill" + (" fresh" if age_seconds(at) < 6 else "")) if event == "kill" else ""
-        body += (f'<tr class="{cls}"><td class="t">{at[11:19]}</td><td>{html.escape(agent)}</td><td class="e">{event}</td>'
-                 f'<td>{html.escape(detail)}</td><td style="color:{MUTED}">{by}</td></tr>')
+        body += (f'<tr class="{cls}"><td class="t">{esc(at[11:19])}</td><td>{esc(agent)}</td><td class="e">{esc(event)}</td>'
+                 f'<td>{esc(detail)}</td><td style="color:{MUTED}">{esc(by)}</td></tr>')
     st.markdown('<table class="log"><tr><th>Time</th><th>Agent</th><th>Event</th><th>Detail</th><th>By</th></tr>'
                 f'{body}</table>', unsafe_allow_html=True)
 
@@ -236,13 +249,8 @@ def demo_controls(agents: list[str]) -> None:
     with st.expander("Demo controls"):
         if not agents:
             st.caption("No agents yet.")
-            return
-        c = st.columns([2, 2, 1, 5])
-        agent = c[0].selectbox("Agent", agents, key="demo_agent")
-        rtype = c[1].selectbox("Rogue type", ROGUE_TYPES, key="demo_type")
-        c[2].markdown("<div style='height:1.7rem'></div>", unsafe_allow_html=True)
-        c[2].button("Go rogue", key="go_rogue", on_click=send, args=(agent, "GO_ROGUE", f"rogue_type={rtype}"))
-        c[3].caption("The sentinel (or the container's ROGUE_TYPE) decides how the agent misbehaves; the selection is logged with the command.")
+        for col, agent in zip(st.columns(max(len(agents), 1)), agents):
+            col.button(f"Simulate rogue: {agent}", key=f"rogue_{agent}", on_click=send, args=(agent, "GO_ROGUE", "Demo: simulate rogue"))
 
 
 @st.fragment(run_every=REFRESH)
@@ -262,7 +270,7 @@ def live() -> None:
     with left:
         token_chart(metrics, actions)
     with right:
-        decision_panel(alerts)
+        decision_panel(alerts, actions)
     event_log(alerts, actions)
     demo_controls(list(latest.index))
 
