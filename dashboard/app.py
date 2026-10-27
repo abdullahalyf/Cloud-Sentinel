@@ -129,150 +129,204 @@ def load_background_b64() -> str:
                 pass
     return ""
 
-CURSOR_DEFAULT = "data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M3 2L18 11L11 13L8 19L3 2Z' fill='%230B0F19' stroke='%2338BDF8' stroke-width='1.8' stroke-linejoin='round'/%3E%3Ccircle cx='4.5' cy='3.5' r='1.5' fill='%23A855F7'/%3E%3C/svg%3E"
-CURSOR_POINTER = "data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='14' cy='14' r='9' stroke='%23A855F7' stroke-width='1.8' stroke-dasharray='3 3'/%3E%3Ccircle cx='14' cy='14' r='3.5' fill='%2338BDF8'/%3E%3Cline x1='14' y1='2' x2='14' y2='6' stroke='%2338BDF8' stroke-width='1.5'/%3E%3Cline x1='14' y1='22' x2='14' y2='26' stroke='%2338BDF8' stroke-width='1.5'/%3E%3Cline x1='2' y1='14' x2='6' y2='14' stroke='%2338BDF8' stroke-width='1.5'/%3E%3Cline x1='22' y1='14' x2='26' y2='14' stroke='%2338BDF8' stroke-width='1.5'/%3E%3C/svg%3E"
-
-bg_b64 = load_background_b64()
-bg_css_rule = (
-    f"""
-    background-image: linear-gradient(180deg, rgba(7, 7, 14, 0.88) 0%, rgba(10, 10, 22, 0.94) 100%),
-                      url('data:image/jpeg;base64,{bg_b64}');
-    background-size: cover;
-    background-attachment: fixed;
-    background-position: center;
-    """
-    if bg_b64
-    else """
-    background: radial-gradient(circle at 50% 0%, #151528 0%, #07070E 80%);
-    background-attachment: fixed;
-    """
+# Electric Blue AI Core Reticle Cursor (Default)
+CURSOR_AI_BLUE = (
+    "data:image/svg+xml,%3Csvg width='32' height='32' viewBox='0 0 32 32' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
+    "%3Ccircle cx='16' cy='16' r='12' stroke='%2300F0FF' stroke-width='1.5' stroke-dasharray='6 3' stroke-opacity='0.9'/%3E"
+    "%3Ccircle cx='16' cy='16' r='5' stroke='%23818CF8' stroke-width='1' stroke-opacity='0.7'/%3E"
+    "%3Ccircle cx='16' cy='16' r='2.5' fill='%2300F0FF'/%3E"
+    "%3Cline x1='16' y1='1' x2='16' y2='6' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Cline x1='16' y1='26' x2='16' y2='31' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Cline x1='1' y1='16' x2='6' y1='16' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3Cline x1='26' y1='16' x2='31' y1='16' stroke='%2300F0FF' stroke-width='1.8' stroke-linecap='round'/%3E"
+    "%3C/svg%3E"
 )
 
-CUSTOM_CSS = f"""
+# Electric Blue AI Lock-On Targeting Reticle Cursor (Interactive Hover)
+CURSOR_AI_LOCK = (
+    "data:image/svg+xml,%3Csvg width='36' height='36' viewBox='0 0 36 36' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
+    "%3Cpath d='M8 4H4V8' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
+    "%3Cpath d='M28 4H32V8' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
+    "%3Cpath d='M8 32H4V28' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
+    "%3Cpath d='M28 32H32V28' stroke='%2300F0FF' stroke-width='2' stroke-linecap='round'/%3E"
+    "%3Ccircle cx='18' cy='18' r='9' stroke='%2300F0FF' stroke-width='1.5' stroke-dasharray='4 3'/%3E"
+    "%3Ccircle cx='18' cy='18' r='3' fill='%2300F0FF'/%3E"
+    "%3Cline x1='18' y1='9' x2='18' y2='12' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
+    "%3Cline x1='18' y1='24' x2='18' y2='27' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
+    "%3Cline x1='9' y1='18' x2='12' y2='18' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
+    "%3Cline x1='24' y1='18' x2='27' y2='18' stroke='%2300F0FF' stroke-width='1.5' stroke-linecap='round'/%3E"
+    "%3C/svg%3E"
+)
+
+CUSTOM_CSS_RAW = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-html, body, [class*="css"], .stApp {{
+/* 1. COMPLETELY HIDE NORMAL OS MOUSE CURSOR EVERYWHERE */
+*, *::before, *::after, html, body, #root, .stApp, button, a, select, input, textarea, [role="button"], [data-baseweb="tab"], iframe {
+    cursor: none !important;
+}
+
+/* Fallback: if browser pointer is rendered, force electric blue AI reticle instead of normal arrow */
+html, body, .stApp {
     font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif !important;
     color: #F1F5F9;
-    cursor: url('{CURSOR_DEFAULT}') 3 2, auto !important;
-    {bg_css_rule}
-    animation: bgFloatPan 38s ease-in-out infinite alternate !important;
-}}
+    background: #07070E !important;
+    overflow-x: hidden;
+    cursor: url('__CURSOR_AI_BLUE__') 16 16, crosshair !important;
+}
 
-button, a, select, input, [role="button"], [data-baseweb="tab"], .stButton > button, .sentinel-card, .stSelectbox, .stToggle {{
-    cursor: url('{CURSOR_POINTER}') 14 14, pointer !important;
-}}
+button, a, [role="button"], select, input, textarea, [data-baseweb="tab"], .sentinel-card, .stButton > button, .hero-saved-card {
+    cursor: url('__CURSOR_AI_LOCK__') 18 18, pointer !important;
+}
 
-/* Background Cinematic Panning Animation */
-@keyframes bgFloatPan {{
-    0% {{
-        background-position: 50% 50%;
-        background-size: 104% 104%;
-    }}
-    33% {{
-        background-position: 53% 47%;
-        background-size: 109% 109%;
-    }}
-    66% {{
-        background-position: 47% 53%;
-        background-size: 107% 107%;
-    }}
-    100% {{
-        background-position: 50% 50%;
-        background-size: 104% 104%;
-    }}
-}}
+/* Base transparent containers so animated background shines through */
+[data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stToolbar"], section.main, .block-container {
+    background: transparent !important;
+}
 
-/* Moving Aurora Lighting Effect Behind Glassmorphic Cards */
-.stApp::before {{
-    content: "";
+/* LIVE ANIMATED BACKGROUND: Cybernetic Aurora & Scanning Laser */
+#cs-live-ambient-aurora {
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: radial-gradient(circle at 15% 25%, rgba(99, 102, 241, 0.16) 0%, transparent 45%),
-                radial-gradient(circle at 85% 75%, rgba(20, 184, 166, 0.14) 0%, transparent 45%),
-                radial-gradient(circle at 50% 45%, rgba(168, 85, 247, 0.12) 0%, transparent 55%);
+    top: 0; left: 0; width: 100vw; height: 100vh;
     pointer-events: none;
     z-index: 0;
-    animation: auroraShift 16s ease-in-out infinite alternate;
-}}
+    overflow: hidden;
+    background: radial-gradient(circle at 50% 0%, #111126 0%, #06070D 85%);
+}
 
-@keyframes auroraShift {{
-    0% {{ transform: scale(1) translate(0px, 0px); opacity: 0.75; }}
-    50% {{ transform: scale(1.08) translate(18px, -12px); opacity: 1; }}
-    100% {{ transform: scale(1) translate(-12px, 18px); opacity: 0.75; }}
-}}
+.aurora-orb-cyan {
+    position: absolute;
+    width: 650px; height: 650px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 240, 255, 0.22) 0%, rgba(0, 240, 255, 0.04) 50%, transparent 70%);
+    filter: blur(55px);
+    animation: orbFloat1 20s ease-in-out infinite alternate;
+}
 
-/* Floating cybernetic micro-grid */
-.stApp::after {{
-    content: "";
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: linear-gradient(rgba(139, 92, 246, 0.025) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(139, 92, 246, 0.025) 1px, transparent 1px);
-    background-size: 42px 42px;
-    pointer-events: none;
-    z-index: 0;
-    animation: gridDrift 50s linear infinite;
-}}
+.aurora-orb-violet {
+    position: absolute;
+    width: 750px; height: 750px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.20) 0%, rgba(99, 102, 241, 0.05) 50%, transparent 70%);
+    filter: blur(65px);
+    animation: orbFloat2 26s ease-in-out infinite alternate;
+}
 
-@keyframes gridDrift {{
-    0% {{ background-position: 0 0; }}
-    100% {{ background-position: 42px 42px; }}
-}}
+.aurora-orb-blue {
+    position: absolute;
+    width: 580px; height: 580px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(37, 99, 235, 0.18) 0%, rgba(16, 185, 129, 0.05) 50%, transparent 70%);
+    filter: blur(50px);
+    animation: orbFloat3 18s ease-in-out infinite alternate;
+}
 
-code, pre, .mono-font {{
+@keyframes orbFloat1 {
+    0% { transform: translate(-10%, -10%) scale(1); }
+    50% { transform: translate(45vw, 25vh) scale(1.15); }
+    100% { transform: translate(15vw, 65vh) scale(0.95); }
+}
+
+@keyframes orbFloat2 {
+    0% { transform: translate(65vw, 55vh) scale(0.9); }
+    50% { transform: translate(25vw, 15vh) scale(1.2); }
+    100% { transform: translate(75vw, -5vh) scale(1); }
+}
+
+@keyframes orbFloat3 {
+    0% { transform: translate(30vw, 80vh) scale(1.1); }
+    50% { transform: translate(60vw, 30vh) scale(0.85); }
+    100% { transform: translate(-5vw, 35vh) scale(1.05); }
+}
+
+/* Moving Cyber Horizon Grid */
+.cyber-grid-stream {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background-image: 
+        linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+    background-size: 44px 44px;
+    animation: cyberGridTravel 35s linear infinite;
+}
+
+@keyframes cyberGridTravel {
+    0% { background-position: 0 0; }
+    100% { background-position: 44px 44px; }
+}
+
+/* Live Scanning Cyan Laser Sweep */
+.cyber-scanner-laser {
+    position: absolute;
+    top: -20px; left: 0; width: 100%; height: 2px;
+    background: linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.2) 25%, #00F0FF 50%, rgba(0, 240, 255, 0.2) 75%, transparent 100%);
+    box-shadow: 0 0 16px #00F0FF, 0 0 32px rgba(0, 240, 255, 0.6);
+    animation: scannerDownSweep 9s ease-in-out infinite;
+    opacity: 0.75;
+}
+
+@keyframes scannerDownSweep {
+    0% { top: -20px; opacity: 0; }
+    10% { opacity: 0.8; }
+    90% { opacity: 0.8; }
+    100% { top: 105vh; opacity: 0; }
+}
+
+code, pre, .mono-font {
     font-family: 'JetBrains Mono', monospace !important;
-}}
+}
 
 /* Red flash animation when an agent is terminated */
-@keyframes redFlash {{
-    0% {{ box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.4); }}
-    50% {{ box-shadow: 0 0 35px rgba(239, 68, 68, 0.75); border-color: rgba(239, 68, 68, 1); }}
-    100% {{ box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.4); }}
-}}
+@keyframes redFlash {
+    0% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.4); }
+    50% { box-shadow: 0 0 35px rgba(239, 68, 68, 0.75); border-color: rgba(239, 68, 68, 1); }
+    100% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.4); }
+}
 
-@keyframes yellowWarning {{
-    0% {{ box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.4); }}
-    50% {{ box-shadow: 0 0 25px rgba(245, 158, 11, 0.65); border-color: rgba(245, 158, 11, 1); }}
-    100% {{ box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.4); }}
-}}
+@keyframes yellowWarning {
+    0% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.4); }
+    50% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.65); border-color: rgba(245, 158, 11, 1); }
+    100% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.4); }
+}
 
-.flash-killed {{
+.flash-killed {
     animation: redFlash 2.5s ease-in-out infinite;
-}}
+}
 
-.flash-spiking {{
+.flash-spiking {
     animation: yellowWarning 1.2s ease-in-out infinite;
-}}
+}
 
-/* Glassmorphic Cards */
-.sentinel-card {{
-    background: rgba(16, 17, 34, 0.75);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(139, 92, 246, 0.22);
+/* Glassmorphic Cards (Transparent to let live animation shine through) */
+.sentinel-card {
+    background: rgba(14, 16, 32, 0.72) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(139, 92, 246, 0.25) !important;
     border-radius: 14px;
     padding: 20px 22px;
     margin-bottom: 16px;
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}}
-.sentinel-card:hover {{
-    border-color: rgba(139, 92, 246, 0.45);
+}
+.sentinel-card:hover {
+    border-color: rgba(0, 240, 255, 0.5) !important;
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(139, 92, 246, 0.15);
-}}
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 18px rgba(0, 240, 255, 0.2) !important;
+}
 
 /* Top Hero KPI Counter */
-.hero-saved-card {{
-    background: linear-gradient(135deg, rgba(20, 21, 46, 0.85) 0%, rgba(29, 21, 56, 0.85) 100%);
-    border: 1px solid rgba(168, 85, 247, 0.35);
+.hero-saved-card {
+    background: linear-gradient(135deg, rgba(18, 20, 44, 0.82) 0%, rgba(26, 20, 52, 0.82) 100%) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    border: 1px solid rgba(168, 85, 247, 0.4) !important;
     border-radius: 16px;
     padding: 22px 28px;
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-}}
+}
 
-.saved-amount {{
+.saved-amount {
     font-size: 2.75rem;
     font-weight: 800;
     line-height: 1.1;
@@ -281,19 +335,19 @@ code, pre, .mono-font {{
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.03em;
     font-family: 'JetBrains Mono', monospace;
-}}
+}
 
 /* Claude Highlight Box */
-.claude-box {{
+.claude-box {
     background: linear-gradient(135deg, rgba(88, 28, 135, 0.3) 0%, rgba(30, 27, 75, 0.5) 100%);
     border: 1px solid rgba(168, 85, 247, 0.5);
     border-left: 4px solid #A855F7;
     border-radius: 12px;
     padding: 16px 20px;
     margin: 12px 0 20px 0;
-}}
+}
 
-.status-badge {{
+.status-badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -303,97 +357,277 @@ code, pre, .mono-font {{
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-}}
-.badge-running {{
+}
+.badge-running {
     background: rgba(16, 185, 129, 0.15);
     color: #10B981;
     border: 1px solid rgba(16, 185, 129, 0.3);
-}}
-.badge-warned {{
+}
+.badge-warned {
     background: rgba(245, 158, 11, 0.15);
     color: #F59E0B;
     border: 1px solid rgba(245, 158, 11, 0.3);
-}}
-.badge-killed {{
+}
+.badge-killed {
     background: rgba(239, 68, 68, 0.18);
     color: #EF4444;
     border: 1px solid rgba(239, 68, 68, 0.4);
-}}
+}
 
 /* Streamlit component polish */
-.stButton > button {{
+.stButton > button {
     border-radius: 8px !important;
     font-weight: 600 !important;
     transition: all 0.2s ease !important;
-}}
-.stButton > button[kind="primary"] {{
+}
+.stButton > button[kind="primary"] {
     background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%) !important;
     border: 1px solid #F87171 !important;
     box-shadow: 0 4px 12px rgba(239, 68, 68, 0.35) !important;
-}}
-.stButton > button[kind="primary"]:hover {{
+}
+.stButton > button[kind="primary"]:hover {
     transform: scale(1.02) !important;
     box-shadow: 0 6px 18px rgba(239, 68, 68, 0.55) !important;
-}}
+}
 </style>
 """
+CUSTOM_CSS = CUSTOM_CSS_RAW.replace("__CURSOR_AI_BLUE__", CURSOR_AI_BLUE).replace("__CURSOR_AI_LOCK__", CURSOR_AI_LOCK)
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# INTERACTIVE CUSTOM CURSOR TRACKER (FLUID PARTICLE AURA)
+# LIVE ANIMATED BACKGROUND & ELECTRIC BLUE AI CURSOR OVERLAY
 # -----------------------------------------------------------------------------
-st.components.v1.html(
-    """
-    <script>
-    (function() {
+LIVE_VISUALS_MARKUP = """
+<div id="cs-live-ambient-aurora">
+    <div class="aurora-orb-cyan"></div>
+    <div class="aurora-orb-violet"></div>
+    <div class="aurora-orb-blue"></div>
+    <div class="cyber-grid-stream"></div>
+    <div class="cyber-scanner-laser"></div>
+</div>
+
+<script>
+(function() {
+    function initVisuals() {
+        const targetDocuments = [];
+        try { targetDocuments.push(document); } catch(e) {}
         try {
-            const parentDoc = window.parent.document;
-            if (!parentDoc) return;
-            
-            let dot = parentDoc.getElementById('sentinel-cursor-dot');
-            let aura = parentDoc.getElementById('sentinel-cursor-aura');
-            
-            if (!dot) {
-                dot = parentDoc.createElement('div');
-                dot.id = 'sentinel-cursor-dot';
-                dot.style.cssText = 'position:fixed;top:0;left:0;width:7px;height:7px;background:#38BDF8;border-radius:50%;pointer-events:none;z-index:99999999;box-shadow:0 0 10px #38BDF8,0 0 20px #38BDF8;transform:translate(-50%,-50%);transition:transform 0.04s ease-out;';
-                parentDoc.body.appendChild(dot);
+            if (window.parent && window.parent.document && window.parent.document !== document) {
+                targetDocuments.push(window.parent.document);
             }
-            
-            if (!aura) {
-                aura = parentDoc.createElement('div');
-                aura.id = 'sentinel-cursor-aura';
-                aura.style.cssText = 'position:fixed;top:0;left:0;width:34px;height:34px;border:1.5px solid rgba(168,85,247,0.7);border-radius:50%;pointer-events:none;z-index:99999998;transform:translate(-50%,-50%);transition:left 0.1s ease-out,top 0.1s ease-out,width 0.2s,height 0.2s,border-color 0.2s,background 0.2s;box-shadow:0 0 15px rgba(168,85,247,0.25);';
-                parentDoc.body.appendChild(aura);
+        } catch(e) {}
+
+        targetDocuments.forEach(doc => {
+            // 1. Permanently remove normal OS mouse cursor
+            if (!doc.getElementById('cs-cursor-kill-style')) {
+                const s = doc.createElement('style');
+                s.id = 'cs-cursor-kill-style';
+                s.innerHTML = `
+                    *, *::before, *::after, html, body, div, button, a, input, select, textarea, [role="button"], iframe {
+                        cursor: none !important;
+                    }
+                `;
+                doc.head.appendChild(s);
             }
-            
-            parentDoc.addEventListener('mousemove', function(e) {
-                dot.style.left = e.clientX + 'px';
-                dot.style.top = e.clientY + 'px';
-                aura.style.left = e.clientX + 'px';
-                aura.style.top = e.clientY + 'px';
-            });
-            
-            parentDoc.addEventListener('mousedown', function() {
-                aura.style.width = '24px';
-                aura.style.height = '24px';
-                aura.style.borderColor = '#EF4444';
-                aura.style.background = 'rgba(239,68,68,0.2)';
-            });
-            
-            parentDoc.addEventListener('mouseup', function() {
-                aura.style.width = '34px';
-                aura.style.height = '34px';
-                aura.style.borderColor = 'rgba(168,85,247,0.7)';
-                aura.style.background = 'transparent';
-            });
-        } catch(err) {}
-    })();
-    </script>
-    """,
-    height=0,
-    width=0,
-)
+
+            // 2. Setup Live Neural Canvas
+            if (!doc.getElementById('cs-neural-canvas')) {
+                const canvas = doc.createElement('canvas');
+                canvas.id = 'cs-neural-canvas';
+                canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1;opacity:0.8;';
+                doc.body.insertBefore(canvas, doc.body.firstChild);
+
+                const ctx = canvas.getContext('2d');
+                let w = canvas.width = window.innerWidth;
+                let h = canvas.height = window.innerHeight;
+
+                window.addEventListener('resize', () => {
+                    w = canvas.width = window.innerWidth;
+                    h = canvas.height = window.innerHeight;
+                });
+
+                const particles = [];
+                const count = 60;
+                for (let i = 0; i < count; i++) {
+                    particles.push({
+                        x: Math.random() * w,
+                        y: Math.random() * h,
+                        vx: (Math.random() - 0.5) * 0.95,
+                        vy: (Math.random() - 0.5) * 0.95,
+                        radius: Math.random() * 2.2 + 1.2,
+                        color: Math.random() > 0.45 ? '#00F0FF' : '#818CF8'
+                    });
+                }
+
+                let mouseX = -1000, mouseY = -1000;
+                doc.addEventListener('mousemove', e => {
+                    mouseX = e.clientX;
+                    mouseY = e.clientY;
+                });
+
+                let pulseRadius = 0;
+                function draw() {
+                    ctx.clearRect(0, 0, w, h);
+
+                    // Expanding radar pulse from center
+                    pulseRadius += 0.8;
+                    if (pulseRadius > Math.max(w, h)) pulseRadius = 0;
+                    ctx.beginPath();
+                    ctx.arc(w / 2, h / 2, pulseRadius, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(0, 240, 255, ' + Math.max(0, 0.15 * (1 - pulseRadius / Math.max(w, h))) + ')';
+                    ctx.lineWidth = 1.2;
+                    ctx.stroke();
+
+                    // Particles & Connections
+                    for (let i = 0; i < particles.length; i++) {
+                        const p = particles[i];
+                        p.x += p.vx;
+                        p.y += p.vy;
+                        if (p.x < 0 || p.x > w) p.vx *= -1;
+                        if (p.y < 0 || p.y > h) p.vy *= -1;
+
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                        ctx.fillStyle = p.color;
+                        ctx.shadowBlur = 9;
+                        ctx.shadowColor = p.color;
+                        ctx.fill();
+                        ctx.shadowBlur = 0;
+
+                        // Inter-particle constellation lines
+                        for (let j = i + 1; j < particles.length; j++) {
+                            const p2 = particles[j];
+                            const dx = p.x - p2.x;
+                            const dy = p.y - p2.y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist < 125) {
+                                ctx.beginPath();
+                                ctx.moveTo(p.x, p.y);
+                                ctx.lineTo(p2.x, p2.y);
+                                const alpha = (1 - dist / 125) * 0.35;
+                                ctx.strokeStyle = p.color === '#00F0FF'
+                                    ? 'rgba(0, 240, 255, ' + alpha + ')'
+                                    : 'rgba(129, 140, 248, ' + alpha + ')';
+                                ctx.lineWidth = 1;
+                                ctx.stroke();
+                            }
+                        }
+
+                        // Live Mouse Tethering (Electric Blue Beams)
+                        const mdx = p.x - mouseX;
+                        const mdy = p.y - mouseY;
+                        const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
+                        if (mdist < 155) {
+                            ctx.beginPath();
+                            ctx.moveTo(p.x, p.y);
+                            ctx.lineTo(mouseX, mouseY);
+                            ctx.strokeStyle = 'rgba(0, 240, 255, ' + ((1 - mdist / 155) * 0.6) + ')';
+                            ctx.lineWidth = 1.4;
+                            ctx.stroke();
+                        }
+                    }
+                    requestAnimationFrame(draw);
+                }
+                draw();
+            }
+
+            // 3. Setup Custom Electric Blue AI Mouse Cursor
+            if (!doc.getElementById('cs-ai-mouse-cursor')) {
+                const cur = doc.createElement('div');
+                cur.id = 'cs-ai-mouse-cursor';
+                cur.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;z-index:999999999;transition:opacity 0.2s ease;';
+                cur.innerHTML = `
+                    <div id="cs-ai-dot" style="position:fixed;width:7px;height:7px;background:#00F0FF;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 10px #00F0FF, 0 0 20px #00F0FF;pointer-events:none;transition:background 0.15s ease;"></div>
+                    <div id="cs-ai-hud" style="position:fixed;width:34px;height:34px;border:1.6px dashed rgba(0, 240, 255, 0.8);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 16px rgba(0, 240, 255, 0.4);transition:width 0.18s ease-out, height 0.18s ease-out, border 0.18s, background 0.18s, box-shadow 0.18s;">
+                        <div style="position:absolute;top:-4px;left:50%;width:2px;height:6px;background:#00F0FF;transform:translateX(-50%);"></div>
+                        <div style="position:absolute;bottom:-4px;left:50%;width:2px;height:6px;background:#00F0FF;transform:translateX(-50%);"></div>
+                        <div style="position:absolute;left:-4px;top:50%;width:6px;height:2px;background:#00F0FF;transform:translateY(-50%);"></div>
+                        <div style="position:absolute;right:-4px;top:50%;width:6px;height:2px;background:#00F0FF;transform:translateY(-50%);"></div>
+                        <div id="cs-ai-tag" style="position:absolute;top:40px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:8px;font-weight:700;color:#00F0FF;letter-spacing:1px;white-space:nowrap;text-shadow:0 0 6px #00F0FF;opacity:0.85;">AI // TARGET</div>
+                    </div>
+                `;
+                doc.body.appendChild(cur);
+
+                const dot = cur.querySelector('#cs-ai-dot');
+                const hud = cur.querySelector('#cs-ai-hud');
+                const tag = cur.querySelector('#cs-ai-tag');
+
+                let targetX = -200, targetY = -200;
+                let currentX = -200, currentY = -200;
+
+                doc.addEventListener('mousemove', e => {
+                    cur.style.opacity = '1';
+                    targetX = e.clientX;
+                    targetY = e.clientY;
+                    dot.style.left = targetX + 'px';
+                    dot.style.top = targetY + 'px';
+
+                    // Check hover on interactive target
+                    const el = doc.elementFromPoint(e.clientX, e.clientY);
+                    const isInteractive = el && (
+                        el.closest('button') || el.closest('a') || el.closest('.sentinel-card') ||
+                        el.closest('.hero-saved-card') || el.closest('[role="button"]') ||
+                        el.closest('select') || el.closest('input') || el.closest('[data-baseweb="tab"]')
+                    );
+
+                    if (isInteractive) {
+                        hud.style.width = '48px';
+                        hud.style.height = '48px';
+                        hud.style.border = '2px solid #00F0FF';
+                        hud.style.background = 'rgba(0, 240, 255, 0.12)';
+                        hud.style.boxShadow = '0 0 25px rgba(0, 240, 255, 0.65)';
+                        if (tag) {
+                            tag.innerText = 'AI // LOCKED';
+                            tag.style.color = '#38BDF8';
+                        }
+                    } else {
+                        hud.style.width = '34px';
+                        hud.style.height = '34px';
+                        hud.style.border = '1.6px dashed rgba(0, 240, 255, 0.8)';
+                        hud.style.background = 'transparent';
+                        hud.style.boxShadow = '0 0 16px rgba(0, 240, 255, 0.4)';
+                        if (tag) {
+                            tag.innerText = 'AI // ACTIVE';
+                            tag.style.color = '#00F0FF';
+                        }
+                    }
+                });
+
+                doc.addEventListener('mouseleave', () => {
+                    cur.style.opacity = '0';
+                });
+
+                doc.addEventListener('mousedown', () => {
+                    hud.style.transform = 'translate(-50%,-50%) scale(0.7)';
+                    hud.style.boxShadow = '0 0 35px #00F0FF';
+                });
+
+                doc.addEventListener('mouseup', () => {
+                    hud.style.transform = 'translate(-50%,-50%) scale(1)';
+                });
+
+                function loop() {
+                    currentX += (targetX - currentX) * 0.24;
+                    currentY += (targetY - currentY) * 0.24;
+                    hud.style.left = currentX + 'px';
+                    hud.style.top = currentY + 'px';
+                    requestAnimationFrame(loop);
+                }
+                loop();
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initVisuals);
+    } else {
+        initVisuals();
+    }
+})();
+</script>
+"""
+st.html(LIVE_VISUALS_MARKUP, unsafe_allow_javascript=True)
+st.components.v1.html(LIVE_VISUALS_MARKUP, height=0, width=0)
 
 # -----------------------------------------------------------------------------
 # DATABASE INITIALIZATION
@@ -472,7 +706,7 @@ selected_agent_key = "beta" if "Claude" in target_model_label else ("alpha" if "
 selected_meta = AGENT_CONFIG[selected_agent_key]
 
 # 3. Manual Spike Injection Button
-if st.sidebar.button(f"⚡ Trigger Rogue Spike on {selected_meta['short_name']}", use_container_width=True, key="sidebar_trigger_spike"):
+if st.sidebar.button(f"⚡ Trigger Rogue Spike on {selected_meta['short_name']}", width="stretch", key="sidebar_trigger_spike"):
     st.session_state.demo_spike_active_agent = selected_agent_key
     st.session_state.demo_spike_start_tick = st.session_state.demo_tick_counter
     st.session_state.pop(f"killed_locally_{selected_agent_key}", None)
@@ -488,7 +722,7 @@ if st.sidebar.button(f"⚡ Trigger Rogue Spike on {selected_meta['short_name']}"
     st.rerun()
 
 # 4. Manual Emergency Kill Button
-if st.sidebar.button(f"🛑 Emergency Kill {selected_meta['short_name']}", type="primary", use_container_width=True, key="sidebar_kill_agent"):
+if st.sidebar.button(f"🛑 Emergency Kill {selected_meta['short_name']}", type="primary", width="stretch", key="sidebar_kill_agent"):
     store.insert_command(
         CommandRow(
             agent=selected_agent_key,
@@ -505,7 +739,7 @@ if st.sidebar.button(f"🛑 Emergency Kill {selected_meta['short_name']}", type=
     st.rerun()
 
 # 5. Reset & Respawn Baseline Button
-if st.sidebar.button("🔄 Reset & Respawn All Agents", use_container_width=True, key="sidebar_reset_baseline"):
+if st.sidebar.button("🔄 Reset & Respawn All Agents", width="stretch", key="sidebar_reset_baseline"):
     for ag in ["alpha", "beta", "gamma"]:
         st.session_state.pop(f"killed_locally_{ag}", None)
     st.session_state.demo_spike_active_agent = None
@@ -560,7 +794,7 @@ if hasattr(st, "dialog"):
         )
         col1, col2 = st.columns([1, 1])
         with col1:
-            if st.button("Confirm SIGKILL", type="primary", use_container_width=True, key=f"dlg-confirm-{agent_key}"):
+            if st.button("Confirm SIGKILL", type="primary", width="stretch", key=f"dlg-confirm-{agent_key}"):
                 store.insert_command(
                     CommandRow(
                         agent=agent_key,
@@ -576,7 +810,7 @@ if hasattr(st, "dialog"):
                 st.toast(f"⚡ Dispatched SIGKILL command to {meta['display_name']}!", icon="🛑")
                 st.rerun()
         with col2:
-            if st.button("Cancel", use_container_width=True, key=f"dlg-cancel-{agent_key}"):
+            if st.button("Cancel", width="stretch", key=f"dlg-cancel-{agent_key}"):
                 st.rerun()
 else:
     def confirm_kill_dialog(agent_key: str):
@@ -1071,10 +1305,10 @@ def live_panel() -> None:
             if not is_killed:
                 c_btn1, c_btn2 = st.columns([1, 1])
                 with c_btn1:
-                    if st.button("🛑 EMERGENCY KILL", key=f"btn-kill-{agent_key}", type="primary", use_container_width=True):
+                    if st.button("🛑 EMERGENCY KILL", key=f"btn-kill-{agent_key}", type="primary", width="stretch"):
                         confirm_kill_dialog(agent_key)
                 with c_btn2:
-                    if st.button("😈 Go Rogue", key=f"btn-rogue-{agent_key}", use_container_width=True):
+                    if st.button("😈 Go Rogue", key=f"btn-rogue-{agent_key}", width="stretch"):
                         store.insert_command(
                             CommandRow(
                                 agent=agent_key,
@@ -1222,7 +1456,7 @@ def live_panel() -> None:
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", color="#94A3B8", range=[0, 3600]),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#CBD5E1")),
         )
-        st.plotly_chart(fig_tokens, use_container_width=True)
+        st.plotly_chart(fig_tokens, width="stretch")
 
     with ch_col2:
         st.markdown(
@@ -1275,7 +1509,7 @@ def live_panel() -> None:
             yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", color="#94A3B8", range=[0, 100]),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#CBD5E1")),
         )
-        st.plotly_chart(fig_mem, use_container_width=True)
+        st.plotly_chart(fig_mem, width="stretch")
 
     # -------------------------------------------------------------------------
     # 5. ACTIVITY LOGS & AUDIT TRAIL
