@@ -197,31 +197,31 @@ class SupabaseStore:
     def summary(self) -> dict:
         # kills + tokens saved: the actions table is small, read all of it
         actions = self._fetch_all(
-            lambda: self._db.table("actions")
-            .select("agent,action,tokens_saved_estimate")
-            .order("id")
+            lambda: self._db.table("actions").select("action,tokens_saved_estimate").order("id")
         )
         kills = [a for a in actions if a["action"] == "KILL"]
         saved = sum(a["tokens_saved_estimate"] or 0 for a in kills)
+        return _build_summary(len(kills), saved, self._tokens_by_agent())
 
-        # agents we know about: anyone who got an action + anyone in the newest metric rows
-        names = {a["agent"] for a in actions}
-        newest = self._db.table("agent_metrics").select("agent").order("id", desc=True).limit(1000)
-        names |= {r["agent"] for r in newest.execute().data or []}
-
-        # agent_metrics is huge, so ask for ONE row per agent: its highest total_tokens
-        tokens: dict[str, int] = {}
-        for name in sorted(names):
-            res = (
+    def _tokens_by_agent(self) -> dict[str, int]:
+        """Highest total_tokens per agent, in ONE request (function in db/summary.sql)."""
+        try:
+            rows = self._db.rpc("agent_token_totals", {}).execute().data or []
+            return {r["agent"]: int(r["tokens"] or 0) for r in rows}
+        except Exception:  # noqa: BLE001 - summary.sql not run yet: still ONE request, newest rows only
+            rows = (
                 self._db.table("agent_metrics")
-                .select("total_tokens")
-                .eq("agent", name)
-                .order("total_tokens", desc=True)
-                .limit(1)
+                .select("agent,total_tokens")
+                .order("id", desc=True)
+                .limit(1000)
                 .execute()
+                .data
+                or []
             )
-            tokens[name] = int(res.data[0]["total_tokens"] or 0) if res.data else 0
-        return _build_summary(len(kills), saved, tokens)
+            best: dict[str, int] = {}
+            for r in rows:
+                best[r["agent"]] = max(best.get(r["agent"], 0), int(r["total_tokens"] or 0))
+            return best
 
 
 # ─────────────────────────────────────────────────────────────────────────────
