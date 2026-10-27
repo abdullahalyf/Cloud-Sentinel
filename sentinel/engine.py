@@ -6,17 +6,22 @@ Engine: the main loop. Once per tick:
        CRITICAL   → kill now (no AI, no waiting)
        SUSPICIOUS → ask Claude in a background thread (the loop keeps running)
   3. act on any Claude verdicts that came back
-  4. write everything to the database for the dashboard
+  4. write everything to the database for the dashboard (buffered if the database is down)
 """
 from __future__ import annotations
 
 import logging
+import signal
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 
 from sentinel.brain import Brain, Verdict
 from sentinel.collector import AgentState, Snapshot
 from sentinel.detector import Finding, Level, evaluate
+from sentinel.notifier import Notifier
+from sentinel.safe_store import SafeStore
 from sentinel.sources import AgentHandle, AgentSource
 from shared.config import Settings
 from shared.contracts import ActionRow, AlertRow
@@ -27,27 +32,62 @@ log = logging.getLogger("sentinel.engine")
 
 class Sentinel:
     def __init__(self, source: AgentSource, store: Store, brain: Brain, cfg: Settings,
-                 dry_run: bool = False):
-        self.source, self.store, self.brain, self.cfg = source, store, brain, cfg
+                 dry_run: bool = False, notifier: Notifier | None = None):
+        self.source, self.brain, self.cfg = source, brain, cfg
+        # a database outage must never stop detection or kills: writes are buffered + retried
+        self.store = store if isinstance(store, SafeStore) else SafeStore(store, cfg)
+        self.notifier = notifier or Notifier(cfg)
         self.dry_run = dry_run
         self.states: dict[str, AgentState] = {}
         self.pending: dict[str, Future] = {}
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="brain")
+        self.brain_spent_usd = 0.0   # what Claude calls cost so far
+        self.watched: set[str] = set()   # agent names seen this run
+        self.kills = 0
+        self.tokens_saved = 0
+        self.saved_usd = 0.0         # estimated agent spend stopped by kills so far
+        self.cost_detail: tuple[str, str] | None = None   # (agent, detail) not yet written as an alert
+        self.last_cost_alert = 0.0
+        self.last_heartbeat = 0.0
 
     # ── main loop ────────────────────────────────────────────────────────────
     def run_forever(self) -> None:
+        """Loop until Ctrl+C or SIGTERM (docker stop, kill), then stop the worker threads and log a summary."""
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         log.info("Sentinel running (tick %.1fs, dry_run=%s)", self.cfg.tick_seconds, self.dry_run)
-        while True:
-            started = time.time()
-            try:
-                self.tick()
-            except Exception:
-                log.exception("tick failed — continuing")  # the guard must never die
-            time.sleep(max(0.0, self.cfg.tick_seconds - (time.time() - started)))
+        try:
+            while True:
+                started = time.time()
+                try:
+                    self.tick()
+                except Exception:
+                    log.exception("tick failed — continuing")  # the guard must never die
+                time.sleep(max(0.0, self.cfg.tick_seconds - (time.time() - started)))
+        except KeyboardInterrupt:
+            log.info("Ctrl+C / SIGTERM — stopping")
+        finally:
+            self._flush_cost(force=True)
+            self.shutdown()
+            log.info(self.summary())
+
+    def shutdown(self) -> None:
+        """Drop queued brain/webhook work; a call already running finishes in its thread."""
+        self.pool.shutdown(wait=False, cancel_futures=True)
+        self.notifier.shutdown()
+        if hasattr(self.source, "shutdown"):
+            self.source.shutdown()
+
+    def summary(self) -> str:
+        return (f"Summary: watched {len(self.watched)} agent(s) ({', '.join(sorted(self.watched)) or '-'}), "
+                f"{self.kills} kill(s), ~{self.tokens_saved:,} tokens saved "
+                f"(≈${self.saved_usd:.2f}), brain spent ${self.brain_spent_usd:.4f}")
 
     def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
+        self._heartbeat(now)
         self._process_commands()
+        self._flush_cost(now=now)
         handles = self.source.list_agents()
         for h in handles:
             try:
@@ -63,12 +103,17 @@ class Sentinel:
         st = self.states.get(h.id)
         if st is None:
             st = self.states[h.id] = AgentState(h.name, h.id, h.token_budget)
+            self.watched.add(h.name)
             log.info("Now watching %s (budget %s tokens)", h.name, f"{h.token_budget:,}")
+        if self.source.is_paused(h):
+            self.store.insert_metric(st.snapshot(now).to_metric("paused"))
+            return
         for event in self.source.read_events(h):
             st.add(event)
         st.set_memory(*self.source.read_memory(h))
         snap = st.snapshot(now)
-        finding = evaluate(snap, self.cfg)
+        policy = self._policy(h)
+        finding = evaluate(snap, policy, (e.prompt for e in st.calls))
         self.store.insert_metric(snap.to_metric("warned" if st.warned else "running"))
 
         if finding.level == Level.CRITICAL:
@@ -77,23 +122,36 @@ class Sentinel:
             self.kill(h, actor="rules", reason="Hard limit: " + "; ".join(finding.reasons), snap=snap)
             return
 
-        self._collect_verdict(h, st, snap)
+        if self._collect_verdict(h, st, snap):
+            return  # killed: don't ask the brain about a dead agent
         if finding.level == Level.SUSPICIOUS:
-            self._ask_brain(h, st, snap, finding, now)
+            self._ask_brain(h, st, snap, finding, now, policy)
+
+    def _policy(self, h: AgentHandle) -> Settings:
+        """Global settings, with this agent's label overrides (e.g. its own token limits)."""
+        overrides = {k: v for k in ("soft_tokens_per_min", "hard_tokens_per_min")
+                     if (v := getattr(h, k)) is not None}
+        return replace(self.cfg, **overrides) if overrides else self.cfg
 
     # ── brain ────────────────────────────────────────────────────────────────
-    def _ask_brain(self, h: AgentHandle, st: AgentState, snap: Snapshot, finding: Finding, now: float) -> None:
-        if h.id in self.pending or now - st.last_brain_check < self.cfg.brain_cooldown_seconds:
+    def _ask_brain(self, h: AgentHandle, st: AgentState, snap: Snapshot, finding: Finding, now: float,
+                   policy: Settings | None = None) -> None:
+        new_evidence = not set(finding.rules) <= st.last_brain_rules  # a new rule skips the cooldown
+        cooldown = (self.cfg.memory_recheck_seconds if "memory_growth" in finding.rules
+                    else self.cfg.brain_cooldown_seconds)
+        if h.id in self.pending or (now - st.last_brain_check < cooldown and not new_evidence):
             return
-        st.last_brain_check = now
+        st.last_brain_check, st.last_brain_rules = now, frozenset(finding.rules)
         log.warning("%s looks suspicious: %s → asking the brain", h.name, "; ".join(finding.reasons))
         self.store.insert_alert(AlertRow(h.name, "warning", ",".join(finding.rules), "; ".join(finding.reasons)))
-        self.pending[h.id] = self.pool.submit(self.brain.judge, snap, finding, st.recent_events(12))
+        self.pending[h.id] = self.pool.submit(self.brain.judge, snap, finding, st.recent_events(12),
+                                              policy or self.cfg)
 
-    def _collect_verdict(self, h: AgentHandle, st: AgentState, snap: Snapshot) -> None:
+    def _collect_verdict(self, h: AgentHandle, st: AgentState, snap: Snapshot) -> bool:
+        """Act on a finished brain verdict. True if the agent was killed."""
         fut = self.pending.get(h.id)
         if fut is None or not fut.done():
-            return
+            return False
         self.pending.pop(h.id)
         v: Verdict = fut.result()
         log.warning("Brain verdict for %s: %s (%.0f%%, %s) — %s [%s]",
@@ -102,11 +160,17 @@ class Sentinel:
         self.store.insert_alert(AlertRow(
             h.name, severity, f"{v.source}_verdict",
             f"{v.action} ({v.confidence:.0%}, {v.pattern}): {v.reason}"))
+        if v.tokens_in or v.tokens_out:
+            self.brain_spent_usd += v.cost_usd
+            model = self.cfg.gemini_model if v.source == "gemini" else self.cfg.claude_model
+            self._report_cost(h.name, f"{v.source} call {v.tokens_in:,} in + {v.tokens_out:,} out tokens "
+                                      f"= ${v.cost_usd:.6f} ({model})")
         if v.action == "KILL" and v.confidence >= self.cfg.brain_kill_confidence:
-            self.kill(h, actor=v.source, reason=v.reason, snap=snap)
-        elif v.action in ("WARN", "KILL") and not st.warned:
+            return self.kill(h, actor=v.source, reason=v.reason, snap=snap)
+        if v.action in ("WARN", "KILL") and not st.warned:
             st.warned = True
             self.store.insert_action(ActionRow(h.name, "WARN", v.source, v.reason))
+        return False
 
     # ── actions ──────────────────────────────────────────────────────────────
     def kill(self, h: AgentHandle, actor: str, reason: str, snap: Snapshot | None = None) -> bool:
@@ -126,11 +190,45 @@ class Sentinel:
         saved = snap.tokens_per_min * 60 if snap else 0
         log.critical("☠ KILLED %s by %s — %s (%s)", h.name, actor, reason, result)
         self.store.insert_action(ActionRow(h.name, "KILL", actor, reason, saved))
+        self.notifier.notify(h.name, "KILL", actor, reason)
+        self.kills += 1
+        self.tokens_saved += saved
+        self.saved_usd += saved * self.cfg.agent_price_per_mtok / 1_000_000
+        self._report_cost(h.name, f"kill saved ~{saved:,} tokens")
         if snap:
             self.store.insert_metric(snap.to_metric("killed"))
         self.states.pop(h.id, None)
         self.pending.pop(h.id, None)
+        self.brain.forget(h.name)
         return True
+
+    def _report_cost(self, agent: str, detail: str) -> None:
+        """Remember the running totals; _flush_cost writes them (at most once per interval)."""
+        self.cost_detail = (agent, detail)
+        self._flush_cost()
+
+    def _heartbeat(self, now: float) -> None:
+        """"I am alive": one info alert per HEARTBEAT_SECONDS. While the database is being left alone after a
+        failure no heartbeat is queued (an old one means nothing later), so the buffer is never flooded."""
+        if now - self.last_heartbeat < self.cfg.heartbeat_seconds or self.store.backing_off:
+            return
+        self.last_heartbeat = now
+        self.store.insert_alert(AlertRow(
+            "sentinel", "info", "sentinel_heartbeat",
+            f"alive · watching {len(self.states)} agent(s) · {self.kills} kill(s) · "
+            f"{'DRY RUN' if self.dry_run else 'live'}"))
+
+    def _flush_cost(self, now: float | None = None, force: bool = False) -> None:
+        """Dashboard totals: latest alert with rule 'brain_cost', one per BRAIN_COST_INTERVAL_SECONDS."""
+        now = time.time() if now is None else now
+        if self.cost_detail is None or (not force and now - self.last_cost_alert < self.cfg.brain_cost_interval_seconds):
+            return
+        agent, detail = self.cost_detail
+        self.cost_detail, self.last_cost_alert = None, now
+        self.store.insert_alert(AlertRow(
+            agent, "info", "brain_cost",
+            f"Sentinel spent ${self.brain_spent_usd:.4f} to save ${self.saved_usd:.2f} — {detail} "
+            f"[spent_usd={self.brain_spent_usd:.6f} saved_usd={self.saved_usd:.4f}]"))
 
     def _process_commands(self) -> None:
         commands = self.store.pending_commands()
@@ -147,7 +245,24 @@ class Sentinel:
                     ok = self.kill(h, actor="human", reason=cmd.get("reason") or "Emergency kill switch")
                     self.store.finish_command(cmd["id"], "done" if ok else "failed",
                                               "killed" if ok else "not killed (dry run or error)")
+                elif cmd["command"] in ("PAUSE", "RESUME"):
+                    if self.dry_run:
+                        self.store.finish_command(cmd["id"], "failed", "not changed (dry run)")
+                        continue
+                    if cmd["command"] == "PAUSE":
+                        result = self.source.pause(h)
+                        pending = self.pending.pop(h.id, None)
+                        if pending is not None:
+                            pending.cancel()  # discard even a verdict already running
+                        self.store.insert_action(ActionRow(
+                            h.name, "PAUSE", "human", cmd.get("reason") or "Quarantine"))
+                        self.notifier.notify(h.name, "PAUSE", "human", cmd.get("reason") or "Quarantine")
+                    else:
+                        result = self.source.resume(h)
+                    self.store.finish_command(cmd["id"], "done", result)
                 elif cmd["command"] == "GO_ROGUE":
+                    if self.source.is_paused(h):
+                        raise ValueError("agent is paused; resume before switching to rogue mode")
                     self.store.finish_command(cmd["id"], "done", self.source.go_rogue(h))
                 else:
                     self.store.finish_command(cmd["id"], "failed", f"unknown command {cmd['command']}")

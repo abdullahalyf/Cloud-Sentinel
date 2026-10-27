@@ -1,1520 +1,376 @@
 """
-CloudSentinel — Autonomous AI Agent Circuit Breaker & Command Center.
-Owner: Tamjid (UI/UX) | Team DIU Hectors
+CloudSentinel dashboard: a calm operations console.
 
-Usage:
-    streamlit run dashboard/app.py
-
-Architecture Rules:
-  • Read data ONLY through get_store() (never call Supabase/SQLite directly)
-  • The kill switch ONLY inserts a CommandRow — the dashboard never touches Docker.
-    The sentinel executes the command within ~1 second.
-  • Keep @st.fragment(run_every="2s") auto-refresh active.
+Rules (see AGENTS.md):
+  - Read data ONLY through get_store(); every number on screen comes from a row.
+  - Actions ONLY insert a CommandRow. The dashboard never touches Docker.
+  - The live part is an @st.fragment that refreshes itself.
 """
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
+from html import escape as esc
 from pathlib import Path
 
-# Ensure `shared` is importable regardless of current working directory
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import base64
-import datetime
-import math
-import os
-import random
-import time
+import altair as alt
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
-from shared.contracts import CommandRow, AlertRow, ActionRow
+from shared.contracts import CommandRow
 from shared.store import get_store
 
-# -----------------------------------------------------------------------------
-# CONFIGURATION & CONSTANTS
-# -----------------------------------------------------------------------------
-COST_PER_1K_TOKENS_USD = 0.01  # $0.01 per 1,000 tokens benchmark
-DEMO_BUDGET_SAVED_USD = 1350.00
-AUTO_REFRESH_INTERVAL = "2s"
-TOKEN_DANGER_THRESHOLD = 1000  # Threshold in tokens / minute
+REFRESH = "2s"
+OFFLINE_AFTER_SECONDS = 15          # no heartbeat for this long = Sentinel OFFLINE
+STATUS = {"running": "#3FB97C", "warned": "#E0A93B", "paused": "#E0A93B", "killed": "#E5534B"}
+LINES = ["#3987E5", "#D95926", "#199E70"]   # validated categorical order (dark)
+MUTED, GRID = "#8B95A5", "#2A313B"
 
-# Agent Identities: Mapping system keys (alpha, beta, gamma) to real LLM models
-AGENT_CONFIG = {
-    "beta": {
-        "display_name": "Claude 3.5 Sonnet",
-        "short_name": "Claude 3.5",
-        "model_id": "claude-3-5-sonnet-20241022",
-        "role": "Autonomous Code & Workflow Agent",
-        "color": "#EF4444",      # Crimson / Anthropic Amber-Red
-        "rogue_type": "Infinite Tool Loop",
-        "rogue_detail": "Recursive tool invocation with prompt 'fetch_account_balance' repeated 47x.",
-        "spike_tpm": 2840,
-        "spike_ram": 62.0,
-        "saved_usd": 1350.00,
-    },
-    "alpha": {
-        "display_name": "GPT-4o Omni",
-        "short_name": "GPT-4o",
-        "model_id": "gpt-4o-2024-11-20",
-        "role": "Customer Operations & Automation Agent",
-        "color": "#10B981",      # Emerald / OpenAI Teal
-        "rogue_type": "Token Bomb Explosion",
-        "rogue_detail": "Massive context expansion runaway emitting 3,200+ tokens/min payload bursts.",
-        "spike_tpm": 3250,
-        "spike_ram": 55.0,
-        "saved_usd": 1580.00,
-    },
-    "gamma": {
-        "display_name": "Gemini 1.5 Pro",
-        "short_name": "Gemini 1.5",
-        "model_id": "gemini-1.5-pro-002",
-        "role": "Deep Multimodal & Long-Context Research Agent",
-        "color": "#6366F1",      # Cyber Indigo / Google Purple
-        "rogue_type": "Memory Leak & Context Bloat",
-        "rogue_detail": "Unconstrained tensor allocation with RAM climbing past 94% ceiling.",
-        "spike_tpm": 2550,
-        "spike_ram": 94.5,
-        "saved_usd": 1420.00,
-    },
-}
+st.set_page_config(page_title="CloudSentinel", layout="wide", initial_sidebar_state="collapsed")
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
-AGENT_ORDER = ["beta", "alpha", "gamma"]
-
-def get_agent_meta(agent_key: str) -> dict:
-    for k, v in AGENT_CONFIG.items():
-        if k == agent_key or k in agent_key or v["display_name"].lower() in agent_key.lower():
-            return v
-    return {
-        "display_name": agent_key,
-        "short_name": agent_key,
-        "model_id": "custom-agent",
-        "role": "General LLM Agent",
-        "color": "#8B5CF6",
-        "rogue_type": "Runaway Loop",
-        "rogue_detail": "Runaway token spend.",
-        "spike_tpm": 2600,
-        "spike_ram": 75.0,
-        "saved_usd": 1200.00,
-    }
-
-# -----------------------------------------------------------------------------
-# PAGE CONFIGURATION
-# -----------------------------------------------------------------------------
-st.set_page_config(
-    page_title="CloudSentinel · Command Center",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-# -----------------------------------------------------------------------------
-# ASSETS & STYLING (OBSIDIAN DARK THEME + PLUS JAKARTA SANS)
-# -----------------------------------------------------------------------------
-@st.cache_data
-def load_background_b64() -> str:
-    possible_paths = [
-        Path(__file__).resolve().parent / "background.jpg",
-        ROOT / "dashboard" / "background.jpg",
-        ROOT / "background.jpg",
-    ]
-    for p in possible_paths:
-        if p.exists():
-            try:
-                with open(p, "rb") as f:
-                    return base64.b64encode(f.read()).decode("utf-8")
-            except Exception:
-                pass
-    return ""
-
-# Precision Cobalt & Titanium Crosshair Cursor (Default)
-CURSOR_PRECISION_DEFAULT = (
-    "data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
-    "%3Ccircle cx='12' cy='12' r='8' stroke='%23475569' stroke-width='1.2' stroke-dasharray='3 2'/%3E"
-    "%3Ccircle cx='12' cy='12' r='2.2' fill='%233B82F6'/%3E"
-    "%3Cline x1='12' y1='1' x2='12' y2='5' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
-    "%3Cline x1='12' y1='19' x2='12' y2='23' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
-    "%3Cline x1='1' y1='12' x2='5' y2='12' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
-    "%3Cline x1='19' y1='12' x2='23' y2='12' stroke='%2394A3B8' stroke-width='1.2' stroke-linecap='round'/%3E"
-    "%3C/svg%3E"
-)
-
-# Precision Targeting Bracket Cursor (Hover over interactive elements)
-CURSOR_PRECISION_POINTER = (
-    "data:image/svg+xml,%3Csvg width='28' height='28' viewBox='0 0 28 28' fill='none' xmlns='http://www.w3.org/2000/svg'%3E"
-    "%3Cpath d='M7 3H3V7' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Cpath d='M21 3H25V7' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Cpath d='M7 25H3V21' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Cpath d='M21 25H25V21' stroke='%233B82F6' stroke-width='1.8' stroke-linecap='round'/%3E"
-    "%3Ccircle cx='14' cy='14' r='2.5' fill='%2360A5FA'/%3E"
-    "%3C/svg%3E"
-)
-
-CUSTOM_CSS_RAW = """
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
-
-/* 1. COMPLETELY HIDE NORMAL OS MOUSE CURSOR EVERYWHERE */
-*, *::before, *::after, html, body, #root, .stApp, button, a, select, input, textarea, [role="button"], [data-baseweb="tab"], iframe {
-    cursor: none !important;
-}
-
-/* Fallback: if browser pointer is rendered, force precision cobalt crosshair */
-html, body, .stApp {
-    font-family: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
-    color: #F8FAFC !important;
-    background: #090A0F !important;
-    overflow-x: hidden;
-    cursor: url('__CURSOR_DEFAULT__') 12 12, crosshair !important;
-}
-
-button, a, [role="button"], select, input, textarea, [data-baseweb="tab"], .sentinel-card, .stButton > button, .hero-saved-card {
-    cursor: url('__CURSOR_POINTER__') 14 14, pointer !important;
-}
-
-/* Base transparent containers so animated background shines through */
-[data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stToolbar"], section.main, .block-container {
-    background: transparent !important;
-}
-
-/* AMBIENT ARCHITECTURAL DEPTH (Sleek Linear/Stripe engineering palette) */
-#cs-linear-ambient-depth {
-    position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
-    pointer-events: none;
-    z-index: 0;
-    overflow: hidden;
-    background: radial-gradient(circle at 50% 0%, #11131C 0%, #08090D 85%);
-}
-
-.depth-glow-cobalt {
-    position: absolute;
-    width: 700px; height: 700px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, rgba(37, 99, 235, 0.01) 50%, transparent 70%);
-    filter: blur(80px);
-    animation: depthFloat1 24s ease-in-out infinite alternate;
-}
-
-.depth-glow-slate {
-    position: absolute;
-    width: 800px; height: 800px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(100, 116, 139, 0.06) 0%, rgba(71, 85, 105, 0.01) 50%, transparent 70%);
-    filter: blur(90px);
-    animation: depthFloat2 30s ease-in-out infinite alternate;
-}
-
-@keyframes depthFloat1 {
-    0% { transform: translate(-10%, -10%); }
-    50% { transform: translate(40vw, 25vh); }
-    100% { transform: translate(10vw, 60vh); }
-}
-
-@keyframes depthFloat2 {
-    0% { transform: translate(60vw, 50vh); }
-    50% { transform: translate(20vw, 10vh); }
-    100% { transform: translate(70vw, -10vh); }
-}
-
-/* Subtle Architectural Grid */
-.architectural-grid {
-    position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background-image: 
-        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-    background-size: 48px 48px;
-    animation: gridDrift 45s linear infinite;
-}
-
-@keyframes gridDrift {
-    0% { background-position: 0 0; }
-    100% { background-position: 48px 48px; }
-}
-
-code, pre, .mono-font {
-    font-family: 'JetBrains Mono', 'Geist Mono', monospace !important;
-    font-variant-numeric: tabular-nums;
-}
-
-/* Status Flashes for Circuit Breaker */
-@keyframes redTrip {
-    0% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.3); }
-    50% { box-shadow: 0 0 24px rgba(239, 68, 68, 0.5); border-color: rgba(239, 68, 68, 0.9); }
-    100% { box-shadow: 0 0 0px rgba(239, 68, 68, 0); border-color: rgba(239, 68, 68, 0.3); }
-}
-
-@keyframes amberSpike {
-    0% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.3); }
-    50% { box-shadow: 0 0 20px rgba(245, 158, 11, 0.45); border-color: rgba(245, 158, 11, 0.85); }
-    100% { box-shadow: 0 0 0px rgba(245, 158, 11, 0); border-color: rgba(245, 158, 11, 0.3); }
-}
-
-.flash-killed {
-    animation: redTrip 2.2s ease-in-out infinite;
-}
-
-.flash-spiking {
-    animation: amberSpike 1.2s ease-in-out infinite;
-}
-
-/* Linear-style Bento Cards: Refined zinc with 1px titanium border */
-.sentinel-card {
-    background: rgba(15, 17, 24, 0.78) !important;
-    backdrop-filter: blur(14px) !important;
-    -webkit-backdrop-filter: blur(14px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-radius: 12px;
-    padding: 20px 22px;
-    margin-bottom: 16px;
-    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
-    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.sentinel-card:hover {
-    border-color: rgba(59, 130, 246, 0.35) !important;
-    transform: translateY(-2px);
-    box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(59, 130, 246, 0.08) !important;
-}
-
-/* Top Hero KPI Counter */
-.hero-saved-card {
-    background: linear-gradient(180deg, rgba(17, 20, 29, 0.88) 0%, rgba(13, 15, 22, 0.88) 100%) !important;
-    backdrop-filter: blur(14px) !important;
-    -webkit-backdrop-filter: blur(14px) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 14px;
-    padding: 22px 28px;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.saved-amount {
-    font-size: 2.75rem;
-    font-weight: 700;
-    line-height: 1.1;
-    color: #F8FAFC !important;
-    letter-spacing: -0.03em;
-    font-family: 'JetBrains Mono', monospace;
-    font-variant-numeric: tabular-nums;
-}
-
-/* Claude Highlight Box */
-.claude-box {
-    background: rgba(17, 20, 30, 0.65) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    border-left: 3px solid #3B82F6 !important;
-    border-radius: 10px;
-    padding: 16px 20px;
-    margin: 12px 0 20px 0;
-}
-
-.status-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 0.72rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-}
-.badge-running {
-    background: rgba(16, 185, 129, 0.12);
-    color: #34D399;
-    border: 1px solid rgba(16, 185, 129, 0.25);
-}
-.badge-warned {
-    background: rgba(245, 158, 11, 0.12);
-    color: #FBBF24;
-    border: 1px solid rgba(245, 158, 11, 0.25);
-}
-.badge-killed {
-    background: rgba(239, 68, 68, 0.14);
-    color: #F87171;
-    border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-/* Streamlit button polish */
-.stButton > button {
-    border-radius: 6px !important;
-    font-weight: 500 !important;
-    font-size: 0.85rem !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    background: #141722 !important;
-    color: #F8FAFC !important;
-    transition: all 0.15s ease !important;
-}
-.stButton > button:hover {
-    border-color: rgba(59, 130, 246, 0.4) !important;
-    background: #1C2030 !important;
-}
-.stButton > button[kind="primary"] {
-    background: #DC2626 !important;
-    border: 1px solid #EF4444 !important;
-    box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3) !important;
-}
-.stButton > button[kind="primary"]:hover {
-    background: #B91C1C !important;
-    box-shadow: 0 4px 12px rgba(220, 38, 38, 0.45) !important;
-}
-</style>
-"""
-CUSTOM_CSS = CUSTOM_CSS_RAW.replace("__CURSOR_DEFAULT__", CURSOR_PRECISION_DEFAULT).replace("__CURSOR_POINTER__", CURSOR_PRECISION_POINTER)
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
-
-# -----------------------------------------------------------------------------
-# LIVE ANIMATED BACKGROUND & PRECISION COBALT CURSOR OVERLAY
-# -----------------------------------------------------------------------------
-LIVE_VISUALS_MARKUP = """
-<div id="cs-linear-ambient-depth">
-    <div class="depth-glow-cobalt"></div>
-    <div class="depth-glow-slate"></div>
-    <div class="architectural-grid"></div>
-</div>
+<div id="cs-cursor-dot" style="position:fixed;width:6px;height:6px;background:#3B82F6;border-radius:50%;pointer-events:none;z-index:999999;transform:translate(-50%,-50%);transition:transform 0.05s ease-out;box-shadow:0 0 10px rgba(59,130,246,0.9);"></div>
+<div id="cs-cursor-ring" style="position:fixed;width:24px;height:24px;border:1.5px solid rgba(59,130,246,0.6);border-radius:50%;pointer-events:none;z-index:999998;transform:translate(-50%,-50%);transition:left 0.08s ease-out,top 0.08s ease-out,transform 0.15s ease-out;box-shadow:0 0 15px rgba(59,130,246,0.3);"></div>
+<canvas id="cs-ambient-canvas" style="position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:-1;opacity:0.35;"></canvas>
 
 <script>
 (function() {
-    function initVisuals() {
-        const targetDocuments = [];
-        try { targetDocuments.push(document); } catch(e) {}
-        try {
-            if (window.parent && window.parent.document && window.parent.document !== document) {
-                targetDocuments.push(window.parent.document);
-            }
-        } catch(e) {}
+  const dot = document.getElementById('cs-cursor-dot');
+  const ring = document.getElementById('cs-cursor-ring');
+  if (dot && ring && !window._cs_cursor_init) {
+    window._cs_cursor_init = true;
+    window.addEventListener('mousemove', (e) => {
+      dot.style.left = e.clientX + 'px';
+      dot.style.top = e.clientY + 'px';
+      ring.style.left = e.clientX + 'px';
+      ring.style.top = e.clientY + 'px';
+    });
+    document.addEventListener('mousedown', () => {
+      ring.style.transform = 'translate(-50%,-50%) scale(0.8)';
+      dot.style.transform = 'translate(-50%,-50%) scale(1.4)';
+    });
+    document.addEventListener('mouseup', () => {
+      ring.style.transform = 'translate(-50%,-50%) scale(1)';
+      dot.style.transform = 'translate(-50%,-50%) scale(1)';
+    });
+  }
 
-        targetDocuments.forEach(doc => {
-            // 1. Permanently remove normal OS mouse cursor
-            if (!doc.getElementById('cs-cursor-kill-style')) {
-                const s = doc.createElement('style');
-                s.id = 'cs-cursor-kill-style';
-                s.innerHTML = `
-                    *, *::before, *::after, html, body, div, button, a, input, select, textarea, [role="button"], iframe {
-                        cursor: none !important;
-                    }
-                `;
-                doc.head.appendChild(s);
-            }
+  const canvas = document.getElementById('cs-ambient-canvas');
+  if (canvas && !window._cs_canvas_init) {
+    window._cs_canvas_init = true;
+    const ctx = canvas.getContext('2d');
+    let width = canvas.width = window.innerWidth;
+    let height = canvas.height = window.innerHeight;
+    window.addEventListener('resize', () => {
+      width = canvas.width = window.innerWidth;
+      height = canvas.height = window.innerHeight;
+    });
 
-            // 2. Setup Live Telemetry Network Canvas
-            if (!doc.getElementById('cs-telemetry-canvas')) {
-                const canvas = doc.createElement('canvas');
-                canvas.id = 'cs-telemetry-canvas';
-                canvas.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:1;opacity:0.75;';
-                doc.body.insertBefore(canvas, doc.body.firstChild);
-
-                const ctx = canvas.getContext('2d');
-                let w = canvas.width = window.innerWidth;
-                let h = canvas.height = window.innerHeight;
-
-                window.addEventListener('resize', () => {
-                    w = canvas.width = window.innerWidth;
-                    h = canvas.height = window.innerHeight;
-                });
-
-                const particles = [];
-                const count = 52;
-                for (let i = 0; i < count; i++) {
-                    particles.push({
-                        x: Math.random() * w,
-                        y: Math.random() * h,
-                        vx: (Math.random() - 0.5) * 0.7,
-                        vy: (Math.random() - 0.5) * 0.7,
-                        radius: Math.random() * 1.5 + 1.0,
-                        color: Math.random() > 0.4 ? '#3B82F6' : '#64748B'
-                    });
-                }
-
-                let mouseX = -1000, mouseY = -1000;
-                doc.addEventListener('mousemove', e => {
-                    mouseX = e.clientX;
-                    mouseY = e.clientY;
-                });
-
-                let pulseRadius = 0;
-                function draw() {
-                    ctx.clearRect(0, 0, w, h);
-
-                    // Expanding telemetry wave
-                    pulseRadius += 0.6;
-                    if (pulseRadius > Math.max(w, h)) pulseRadius = 0;
-                    ctx.beginPath();
-                    ctx.arc(w / 2, h / 2, pulseRadius, 0, Math.PI * 2);
-                    ctx.strokeStyle = 'rgba(59, 130, 246, ' + Math.max(0, 0.08 * (1 - pulseRadius / Math.max(w, h))) + ')';
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
-
-                    // Particles & Connections
-                    for (let i = 0; i < particles.length; i++) {
-                        const p = particles[i];
-                        p.x += p.vx;
-                        p.y += p.vy;
-                        if (p.x < 0 || p.x > w) p.vx *= -1;
-                        if (p.y < 0 || p.y > h) p.vy *= -1;
-
-                        ctx.beginPath();
-                        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-                        ctx.fillStyle = p.color;
-                        ctx.fill();
-
-                        // Constellation links
-                        for (let j = i + 1; j < particles.length; j++) {
-                            const p2 = particles[j];
-                            const dx = p.x - p2.x;
-                            const dy = p.y - p2.y;
-                            const dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist < 115) {
-                                ctx.beginPath();
-                                ctx.moveTo(p.x, p.y);
-                                ctx.lineTo(p2.x, p2.y);
-                                const alpha = (1 - dist / 115) * 0.2;
-                                ctx.strokeStyle = 'rgba(100, 116, 139, ' + alpha + ')';
-                                ctx.lineWidth = 0.8;
-                                ctx.stroke();
-                            }
-                        }
-
-                        // Cursor proximity tether
-                        const mdx = p.x - mouseX;
-                        const mdy = p.y - mouseY;
-                        const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
-                        if (mdist < 140) {
-                            ctx.beginPath();
-                            ctx.moveTo(p.x, p.y);
-                            ctx.lineTo(mouseX, mouseY);
-                            ctx.strokeStyle = 'rgba(59, 130, 246, ' + ((1 - mdist / 140) * 0.35) + ')';
-                            ctx.lineWidth = 1;
-                            ctx.stroke();
-                        }
-                    }
-                    requestAnimationFrame(draw);
-                }
-                draw();
-            }
-
-            // 3. Setup Precision Developer Mouse Cursor
-            if (!doc.getElementById('cs-precision-cursor')) {
-                const cur = doc.createElement('div');
-                cur.id = 'cs-precision-cursor';
-                cur.style.cssText = 'position:fixed;top:0;left:0;pointer-events:none;z-index:999999999;transition:opacity 0.2s ease;';
-                cur.innerHTML = `
-                    <div id="cs-cur-dot" style="position:fixed;width:5px;height:5px;background:#3B82F6;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(59, 130, 246, 0.7);pointer-events:none;"></div>
-                    <div id="cs-cur-reticle" style="position:fixed;width:26px;height:26px;border:1px solid rgba(148, 163, 184, 0.35);border-radius:50%;transform:translate(-50%,-50%);pointer-events:none;transition:width 0.16s ease-out, height 0.16s ease-out, border 0.16s, background 0.16s;">
-                        <div style="position:absolute;top:-3px;left:50%;width:1px;height:4px;background:#94A3B8;transform:translateX(-50%);"></div>
-                        <div style="position:absolute;bottom:-3px;left:50%;width:1px;height:4px;background:#94A3B8;transform:translateX(-50%);"></div>
-                        <div style="position:absolute;left:-3px;top:50%;width:4px;height:1px;background:#94A3B8;transform:translateY(-50%);"></div>
-                        <div style="position:absolute;right:-3px;top:50%;width:4px;height:1px;background:#94A3B8;transform:translateY(-50%);"></div>
-                        <div id="cs-cur-tag" style="position:absolute;top:32px;left:50%;transform:translateX(-50%);font-family:monospace;font-size:8px;font-weight:600;color:#94A3B8;letter-spacing:1px;white-space:nowrap;opacity:0.75;">SYS // READY</div>
-                    </div>
-                `;
-                doc.body.appendChild(cur);
-
-                const dot = cur.querySelector('#cs-cur-dot');
-                const reticle = cur.querySelector('#cs-cur-reticle');
-                const tag = cur.querySelector('#cs-cur-tag');
-
-                let targetX = -200, targetY = -200;
-                let currentX = -200, currentY = -200;
-
-                doc.addEventListener('mousemove', e => {
-                    cur.style.opacity = '1';
-                    targetX = e.clientX;
-                    targetY = e.clientY;
-                    dot.style.left = targetX + 'px';
-                    dot.style.top = targetY + 'px';
-
-                    // Check hover on interactive target
-                    const el = doc.elementFromPoint(e.clientX, e.clientY);
-                    const isInteractive = el && (
-                        el.closest('button') || el.closest('a') || el.closest('.sentinel-card') ||
-                        el.closest('.hero-saved-card') || el.closest('[role="button"]') ||
-                        el.closest('select') || el.closest('input') || el.closest('[data-baseweb="tab"]')
-                    );
-
-                    if (isInteractive) {
-                        reticle.style.width = '36px';
-                        reticle.style.height = '36px';
-                        reticle.style.border = '1.5px solid #3B82F6';
-                        reticle.style.background = 'rgba(59, 130, 246, 0.08)';
-                        if (tag) {
-                            tag.innerText = 'SYS // LOCKED';
-                            tag.style.color = '#60A5FA';
-                        }
-                    } else {
-                        reticle.style.width = '26px';
-                        reticle.style.height = '26px';
-                        reticle.style.border = '1px solid rgba(148, 163, 184, 0.35)';
-                        reticle.style.background = 'transparent';
-                        if (tag) {
-                            tag.innerText = 'SYS // READY';
-                            tag.style.color = '#94A3B8';
-                        }
-                    }
-                });
-
-                doc.addEventListener('mouseleave', () => {
-                    cur.style.opacity = '0';
-                });
-
-                doc.addEventListener('mousedown', () => {
-                    reticle.style.transform = 'translate(-50%,-50%) scale(0.75)';
-                });
-
-                doc.addEventListener('mouseup', () => {
-                    reticle.style.transform = 'translate(-50%,-50%) scale(1)';
-                });
-
-                function loop() {
-                    currentX += (targetX - currentX) * 0.26;
-                    currentY += (targetY - currentY) * 0.26;
-                    reticle.style.left = currentX + 'px';
-                    reticle.style.top = currentY + 'px';
-                    requestAnimationFrame(loop);
-                }
-                loop();
-            }
-        });
+    const particles = [];
+    for (let i = 0; i < 28; i++) {
+      particles.push({
+        x: Math.random() * width,
+        y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        r: Math.random() * 2 + 1,
+        alpha: Math.random() * 0.3 + 0.1
+      });
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initVisuals);
-    } else {
-        initVisuals();
+    function render() {
+      ctx.clearRect(0, 0, width, height);
+      for (let i = 0; i < particles.length; i++) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < 0) p.x = width;
+        if (p.x > width) p.x = 0;
+        if (p.y < 0) p.y = height;
+        if (p.y > height) p.y = 0;
+
+        ctx.fillStyle = "rgba(59, 130, 246, " + p.alpha + ")";
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+
+        for (let j = i + 1; j < particles.length; j++) {
+          const p2 = particles[j];
+          const dist = Math.hypot(p.x - p2.x, p.y - p2.y);
+          if (dist < 140) {
+            ctx.strokeStyle = "rgba(59, 130, 246, " + (0.12 * (1 - dist / 140)) + ")";
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y);
+            ctx.lineTo(p2.x, p2.y);
+            ctx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(render);
     }
+    render();
+  }
 })();
 </script>
-"""
-st.html(LIVE_VISUALS_MARKUP, unsafe_allow_javascript=True)
-st.components.v1.html(LIVE_VISUALS_MARKUP, height=0, width=0)
 
-# -----------------------------------------------------------------------------
-# DATABASE INITIALIZATION
-# -----------------------------------------------------------------------------
+<style>
+* { cursor: none !important; }
+html, body, [class*="css"] {
+    font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+    font-variant-numeric: tabular-nums;
+}
+.k, .s, table.log td.t, table.log td.e, table.log th, .cs-head, code {
+    font-family: 'JetBrains Mono', monospace !important;
+}
+header[data-testid="stHeader"], #MainMenu, footer { display: none; }
+.block-container { padding: 1.5rem 2.5rem 3rem; max-width: 1500px; }
+.cs-bar { display:flex; gap:3rem; align-items:flex-end; padding-bottom:1rem; border-bottom:1px solid #2A313B; margin-bottom:1.75rem; }
+.cs-bar .k { color:#8B95A5; font-size:.85rem; letter-spacing:.04em; text-transform:uppercase; }
+.cs-bar .v { font-size:1.35rem; font-weight:600; line-height:1.5; }
+.cs-bar .s { font-size:.9rem; color:#8B95A5; }
+.cs-brand { font-size:1.1rem; font-weight:600; margin-right:auto; letter-spacing: -0.01em; }
+.dot { display:inline-block; width:.6rem; height:.6rem; border-radius:50%; margin-right:.5rem; }
+div[data-testid="stHeading"] { margin-top:2rem; }
+h3 { font-size:.9rem !important; font-weight:600 !important; letter-spacing:.04em; text-transform:uppercase; color:#8B95A5; padding:0 0 .5rem !important; }
+.cs-head { color:#8B95A5; font-size:.85rem; letter-spacing:.04em; text-transform:uppercase; }
+.cs-cell { font-size:1rem; line-height:2.4rem; }
+.cs-row { border-top:1px solid #2A313B; }
+.cs-bar-bg { background:#232A33; height:.4rem; border-radius:2px; margin-top:1.05rem; }
+.cs-bar-fg { height:.4rem; border-radius:2px; }
+div[data-testid="stHorizontalBlock"]:has(.cs-cell) { border-top:1px solid #1F252E; padding:.25rem 0; }
+table.log, table.log th, table.log td { border-left:0 !important; border-right:0 !important; border-top:0 !important; }
+table.log { width:100%; border-collapse:collapse; font-size:.95rem; }
+table.log th { text-align:left; color:#8B95A5; font-weight:400; font-size:.85rem; letter-spacing:.04em; text-transform:uppercase; padding:.4rem .75rem; border-bottom:1px solid #2A313B; }
+table.log td { padding:.45rem .75rem; border-bottom:1px solid #1F252E; vertical-align:top; }
+table.log td.t { color:#8B95A5; white-space:nowrap; width:6rem; } table.log td.e { white-space:nowrap; width:11rem; }
+table.log tr.kill td { color:#E6EAF0; } table.log tr.kill td.e { color:#E5534B; font-weight:600; }
+table.log tr.fresh { animation: hl 3s ease-out; }
+@keyframes hl { from { background:#3a1d1f; } to { background:transparent; } }
+div[data-testid="stHorizontalBlock"] { align-items:center; }
+.stButton button { padding:.1rem .8rem; min-height:2rem; border-radius:4px; transition: all 0.15s ease; }
+.stButton button:hover { border-color: #3B82F6; box-shadow: 0 0 10px rgba(59, 130, 246, 0.2); }
+</style>""", unsafe_allow_html=True)
+
 store = get_store()
 
-# -----------------------------------------------------------------------------
-# SESSION STATE INITIALIZATION FOR DYNAMIC MULTI-AGENT ROGUE & AUTO-FIX
-# -----------------------------------------------------------------------------
-if "demo_auto_spike_enabled" not in st.session_state:
-    st.session_state.demo_auto_spike_enabled = True
 
-if "demo_auto_kill_enabled" not in st.session_state:
-    st.session_state.demo_auto_kill_enabled = True
-
-if "demo_spike_active_agent" not in st.session_state:
-    st.session_state.demo_spike_active_agent = None  # None | 'beta' | 'alpha' | 'gamma'
-
-if "demo_spike_start_tick" not in st.session_state:
-    st.session_state.demo_spike_start_tick = 0
-
-if "demo_tick_counter" not in st.session_state:
-    st.session_state.demo_tick_counter = 0
-
-if "demo_kill_ticks" not in st.session_state:
-    st.session_state.demo_kill_ticks = {}
-
-if "demo_cycle_index" not in st.session_state:
-    st.session_state.demo_cycle_index = 0
-
-# -----------------------------------------------------------------------------
-# SIDEBAR CONTROLS (AUTONOMOUS CIRCUIT BREAKER & MULTI-AGENT ROGUE DEMO)
-# -----------------------------------------------------------------------------
-st.sidebar.markdown(
-    """
-    <div style="padding: 10px 0 16px 0;">
-        <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #FFFFFF; display: flex; align-items: center; gap: 8px;">
-            <span>🛡️ Sentry Controls</span>
-        </h3>
-        <p style="margin: 4px 0 0 0; font-size: 0.78rem; color: #94A3B8;">
-            Multi-LLM Autonomous Circuit Breaker
-        </p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# 1. Autonomous Auto-Spike Demo Toggle
-st.session_state.demo_auto_spike_enabled = st.sidebar.toggle(
-    "⚡ Auto-Spike & Auto-Fix Cycle",
-    value=st.session_state.demo_auto_spike_enabled,
-    help="Rotates between Claude 3.5, GPT-4o, and Gemini 1.5, triggering realistic rogue behavior and demonstrating autonomous SIGKILL intervention.",
-)
-
-# 2. Autonomous Auto-Kill Toggle
-st.session_state.demo_auto_kill_enabled = st.sidebar.toggle(
-    "🤖 Autonomous Circuit Breaker Policy",
-    value=st.session_state.demo_auto_kill_enabled,
-    help="When enabled, CloudSentinel autonomously fires SIGKILL when token burn velocity crosses the 1,000 t/min safety limit.",
-)
-
-st.sidebar.divider()
-st.sidebar.markdown("<h4 style='margin: 0 0 8px 0; font-size: 0.9rem; color: #E2E8F0;'>Manual Rogue Injections</h4>", unsafe_allow_html=True)
-
-# Agent Selector for Manual Demonstration
-target_model_label = st.sidebar.selectbox(
-    "Select Target LLM Agent:",
-    options=[
-        "Claude 3.5 Sonnet (Recursive Tool Loop)",
-        "GPT-4o Omni (Token Bomb Explosion)",
-        "Gemini 1.5 Pro (Memory Leak & Context Bloat)",
-    ],
-    index=0,
-)
-selected_agent_key = "beta" if "Claude" in target_model_label else ("alpha" if "GPT-4o" in target_model_label else "gamma")
-selected_meta = AGENT_CONFIG[selected_agent_key]
-
-# 3. Manual Spike Injection Button
-if st.sidebar.button(f"⚡ Trigger Rogue Spike on {selected_meta['short_name']}", width="stretch", key="sidebar_trigger_spike"):
-    st.session_state.demo_spike_active_agent = selected_agent_key
-    st.session_state.demo_spike_start_tick = st.session_state.demo_tick_counter
-    st.session_state.pop(f"killed_locally_{selected_agent_key}", None)
-    store.insert_command(
-        CommandRow(
-            agent=selected_agent_key,
-            command="GO_ROGUE",
-            requested_by="dashboard_manual_trigger",
-            reason=f"Operator triggered rogue {selected_meta['rogue_type']} on {selected_meta['display_name']}",
-        )
-    )
-    st.toast(f"⚡ Injected {selected_meta['rogue_type']} into {selected_meta['display_name']}!", icon="⚠️")
-    st.rerun()
-
-# 4. Manual Emergency Kill Button
-if st.sidebar.button(f"🛑 Emergency Kill {selected_meta['short_name']}", type="primary", width="stretch", key="sidebar_kill_agent"):
-    store.insert_command(
-        CommandRow(
-            agent=selected_agent_key,
-            command="KILL",
-            requested_by="dashboard_manual_kill",
-            reason=f"Operator manual emergency kill switch triggered on {selected_meta['display_name']}",
-        )
-    )
-    st.session_state[f"killed_locally_{selected_agent_key}"] = True
-    if st.session_state.demo_spike_active_agent == selected_agent_key:
-        st.session_state.demo_spike_active_agent = None
-    st.session_state.demo_kill_ticks[selected_agent_key] = st.session_state.demo_tick_counter
-    st.toast(f"🛑 Operator dispatched emergency SIGKILL to {selected_meta['display_name']}!", icon="💀")
-    st.rerun()
-
-# 5. Reset & Respawn Baseline Button
-if st.sidebar.button("🔄 Reset & Respawn All Agents", width="stretch", key="sidebar_reset_baseline"):
-    for ag in ["alpha", "beta", "gamma"]:
-        st.session_state.pop(f"killed_locally_{ag}", None)
-    st.session_state.demo_spike_active_agent = None
-    st.session_state.demo_spike_start_tick = 0
-    st.session_state.demo_kill_ticks = {}
-    st.session_state.demo_tick_counter = 0
-    st.toast("Nominal multi-agent baseline restored!", icon="🟢")
-    st.rerun()
-
-st.sidebar.markdown(
-    """
-    <div style="margin-top: 24px; padding: 12px; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.25); border-radius: 8px;">
-        <span style="font-size: 0.75rem; color: #D8B4FE; font-weight: 600;">MULTI-AGENT MONITORING:</span>
-        <div style="font-size: 0.72rem; color: #94A3B8; margin-top: 4px;">
-            • Claude 3.5 Sonnet: Recursive Tool Loop<br>
-            • GPT-4o Omni: Token Bomb Burst<br>
-            • Gemini 1.5 Pro: Memory & Context Leak<br>
-            Threshold: 1,000 t/min · Sub-second Kill
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# -----------------------------------------------------------------------------
-# CONFIRMATION DIALOG (MVP REQUIREMENT: st.dialog)
-# -----------------------------------------------------------------------------
-if hasattr(st, "dialog"):
-    @st.dialog("🛑 Emergency Circuit Breaker Confirmation")
-    def confirm_kill_dialog(agent_key: str):
-        meta = get_agent_meta(agent_key)
-        st.markdown(
-            f"""
-            <div style="padding: 10px 0;">
-                <p style="font-size: 1.05rem; color: #F1F5F9;">
-                    Are you sure you want to dispatch an immediate <strong>SIGKILL</strong> to:
-                </p>
-                <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); padding: 14px 16px; border-radius: 8px; margin: 12px 0;">
-                    <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.2rem; color: #F87171; font-weight: 800;">
-                        {meta['display_name']}
-                    </div>
-                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: #CBD5E1; margin-top: 2px;">
-                        Container: {agent_key} · Model: {meta['model_id']}
-                    </div>
-                    <p style="margin: 8px 0 0 0; font-size: 0.85rem; color: #94A3B8;">
-                        Action: Hard circuit breaker · Token burn & API execution will freeze instantly.
-                    </p>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            if st.button("Confirm SIGKILL", type="primary", width="stretch", key=f"dlg-confirm-{agent_key}"):
-                store.insert_command(
-                    CommandRow(
-                        agent=agent_key,
-                        command="KILL",
-                        requested_by="dashboard_operator",
-                        reason=f"Manual Emergency Kill confirmed via operator modal dialog on {meta['display_name']}",
-                    )
-                )
-                st.session_state[f"killed_locally_{agent_key}"] = True
-                if st.session_state.demo_spike_active_agent == agent_key:
-                    st.session_state.demo_spike_active_agent = None
-                st.session_state.demo_kill_ticks[agent_key] = st.session_state.demo_tick_counter
-                st.toast(f"⚡ Dispatched SIGKILL command to {meta['display_name']}!", icon="🛑")
-                st.rerun()
-        with col2:
-            if st.button("Cancel", width="stretch", key=f"dlg-cancel-{agent_key}"):
-                st.rerun()
-else:
-    def confirm_kill_dialog(agent_key: str):
-        meta = get_agent_meta(agent_key)
-        store.insert_command(
-            CommandRow(
-                agent=agent_key,
-                command="KILL",
-                requested_by="dashboard_operator",
-                reason=f"Emergency kill switch dispatched on {meta['display_name']}",
-            )
-        )
-        st.session_state[f"killed_locally_{agent_key}"] = True
-        st.toast(f"Kill command sent to {meta['display_name']}")
-
-# -----------------------------------------------------------------------------
-# MAIN DASHBOARD INTERFACE
-# -----------------------------------------------------------------------------
-# Top Title Bar
-col_title, col_meta = st.columns([3, 1])
-with col_title:
-    st.markdown(
-        """
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 4px;">
-            <div style="font-size: 2.2rem;">🛡️</div>
-            <div>
-                <h1 style="margin: 0; font-size: 1.85rem; font-weight: 800; letter-spacing: -0.02em; color: #FFFFFF;">
-                    CloudSentinel <span style="font-size: 1rem; font-weight: 600; color: #A855F7; background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 6px; padding: 2px 8px; vertical-align: middle;">COMMAND CENTER</span>
-                </h1>
-                <p style="margin: 2px 0 0 0; font-size: 0.88rem; color: #94A3B8;">
-                    Autonomous Circuit Breaker for AI Agents · Claude 3.5 · GPT-4o · Gemini 1.5 Telemetry & Rogue Loop Neutralization
-                </p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-with col_meta:
-    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S UTC")
-    st.markdown(
-        f"""
-        <div style="text-align: right; padding-top: 10px;">
-            <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10B981; margin-right: 6px; box-shadow: 0 0 8px #10B981;"></span>
-            <span class="mono-font" style="font-size: 0.8rem; color: #CBD5E1;">LIVE TICK: {now_utc}</span>
-            <div style="font-size: 0.72rem; color: #64748B;">Auto-Refresh: {AUTO_REFRESH_INTERVAL}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+# ── data helpers (pure functions over store rows) ────────────────────────────
+def age_seconds(created_at: str) -> float:
+    return (datetime.now(timezone.utc) - datetime.fromisoformat(created_at.replace("Z", "+00:00"))).total_seconds()
 
 
-# -----------------------------------------------------------------------------
-# LIVE FRAGMENT (REFRESHES EVERY 2 SECONDS PER AGENTS.md)
-# -----------------------------------------------------------------------------
-@st.fragment(run_every=AUTO_REFRESH_INTERVAL)
-def live_panel() -> None:
-    # Increment simulation tick
-    st.session_state.demo_tick_counter += 1
-    current_tick = st.session_state.demo_tick_counter
+def sentinel_status(alerts: list[dict]) -> tuple[bool, float | None]:
+    """(online, seconds since the last heartbeat). (False, None) if there was never one."""
+    beats = [a for a in alerts if a["rule"] == "sentinel_heartbeat"]
+    if not beats:
+        return False, None
+    age = min(age_seconds(a["created_at"]) for a in beats)
+    return age <= OFFLINE_AFTER_SECONDS, age
 
-    # 1. Fetch raw data from shared store
-    raw_metrics = store.recent_metrics(minutes=5)
-    raw_actions = store.recent_actions(limit=50)
-    raw_alerts = store.recent_alerts(limit=50)
 
-    # 2. Automated Multi-Agent Spike & Auto-Fix State Machine
-    if st.session_state.demo_auto_spike_enabled:
-        # Every 12 ticks (~24s), cycle to next agent and initiate a sudden runaway rogue spike
-        if st.session_state.demo_spike_active_agent is None and (current_tick % 12 == 0):
-            # Select agent for this cycle: beta -> alpha -> gamma
-            candidate_keys = ["beta", "alpha", "gamma"]
-            selected_for_cycle = candidate_keys[st.session_state.demo_cycle_index % len(candidate_keys)]
-            st.session_state.demo_cycle_index += 1
+def latest_verdict(alerts: list[dict]) -> dict | None:
+    """Newest brain verdict. Message looks like 'KILL (80%, infinite_loop): reason'."""
+    verdicts = [a for a in alerts if a["rule"].endswith("_verdict")]
+    if not verdicts:
+        return None
+    a = max(verdicts, key=lambda a: a["created_at"])
+    head, _, reason = a["message"].partition(":")
+    action, _, rest = head.partition(" (")
+    conf, _, pattern = rest.rstrip(")").partition(", ")
+    return {"agent": a["agent"], "source": a["rule"].removesuffix("_verdict"), "action": action.strip(),
+            "confidence": conf, "pattern": pattern, "reason": reason.strip(), "at": a["created_at"]}
 
-            if not st.session_state.get(f"killed_locally_{selected_for_cycle}", False):
-                st.session_state.demo_spike_active_agent = selected_for_cycle
-                st.session_state.demo_spike_start_tick = current_tick
-                meta = AGENT_CONFIG[selected_for_cycle]
-                store.insert_alert(
-                    AlertRow(
-                        agent=selected_for_cycle,
-                        severity="warning",
-                        rule="token_spike",
-                        message=f"⚠️ {meta['rogue_type']} detected in {meta['display_name']}: velocity surged to {meta['spike_tpm']:,} tokens/min.",
-                    )
-                )
 
-        # If an agent is actively spiking, allow it to burst for 2 ticks (~4s), then Autonomous Circuit Breaker triggers
-        if st.session_state.demo_spike_active_agent is not None:
-            spiking_agent = st.session_state.demo_spike_active_agent
-            ticks_in_spike = current_tick - st.session_state.demo_spike_start_tick
-            if ticks_in_spike >= 2 and st.session_state.demo_auto_kill_enabled:
-                meta = AGENT_CONFIG[spiking_agent]
-                # Engage Autonomous SIGKILL
-                st.session_state.demo_spike_active_agent = None
-                st.session_state[f"killed_locally_{spiking_agent}"] = True
-                st.session_state.demo_kill_ticks[spiking_agent] = current_tick
+def brain_cost(alerts: list[dict]) -> tuple[float, float]:
+    """(spent_usd, saved_usd) from the newest 'brain_cost' alert; zeros before the first one."""
+    costs = [a for a in alerts if a["rule"] == "brain_cost"]
+    if not costs:
+        return 0.0, 0.0
+    msg = max(costs, key=lambda a: a["created_at"])["message"]
+    kv = dict(p.split("=") for p in msg.rsplit("[", 1)[-1].rstrip("]").split() if "=" in p)
+    return float(kv["spent_usd"]), float(kv["saved_usd"])
 
-                # Record autonomous action in store
-                store.insert_action(
-                    ActionRow(
-                        agent=spiking_agent,
-                        action="KILL",
-                        actor="claude",
-                        reason=f"Autonomous circuit breaker engaged: {meta['rogue_type']} in {meta['display_name']}. {meta['rogue_detail']}. Container neutralized.",
-                        tokens_saved_estimate=int(meta["saved_usd"] / COST_PER_1K_TOKENS_USD * 1000),
-                    )
-                )
-                store.insert_alert(
-                    AlertRow(
-                        agent=spiking_agent,
-                        severity="critical",
-                        rule="claude_verdict",
-                        message=f"🛑 Claude Brain: Dispatched autonomous SIGKILL to {meta['display_name']}. Hard circuit breaker engaged. Protected ${meta['saved_usd']:,.2f} USD.",
-                    )
-                )
-                store.insert_command(
-                    CommandRow(
-                        agent=spiking_agent,
-                        command="KILL",
-                        requested_by="autonomous_circuit_breaker",
-                        reason=f"Autonomous circuit breaker triggered on {meta['rogue_type']} in {meta['display_name']}",
-                    )
-                )
 
-        # Auto-respawn killed agents after 8 ticks (~16s) to keep demo looping continuously
-        for ag in ["alpha", "beta", "gamma"]:
-            if st.session_state.get(f"killed_locally_{ag}", False):
-                ticks_killed = current_tick - st.session_state.demo_kill_ticks.get(ag, current_tick)
-                if ticks_killed >= 8:
-                    st.session_state.pop(f"killed_locally_{ag}", None)
-                    meta = AGENT_CONFIG[ag]
-                    store.insert_alert(
-                        AlertRow(
-                            agent=ag,
-                            severity="info",
-                            rule="system_respawn",
-                            message=f"🟢 Demo cycle: {meta['display_name']} respawned to nominal baseline.",
-                        )
-                    )
+def sparkline(values: list[float], color: str, w: int = 96, h: int = 26) -> str:
+    if len(values) < 2:
+        return ""
+    lo, hi = min(values), max(values)
+    span = (hi - lo) or 1
+    pts = " ".join(f"{i * w / (len(values) - 1):.1f},{h - 2 - (v - lo) / span * (h - 4):.1f}" for i, v in enumerate(values))
+    return (f'<svg width="{w}" height="{h}" style="vertical-align:middle"><polyline points="{pts}" fill="none" '
+           f'stroke="{color}" stroke-width="1.5" stroke-linejoin="round"/></svg>')
 
-    metrics_df = pd.DataFrame(raw_metrics)
-    actions_df = pd.DataFrame(raw_actions)
-    alerts_df = pd.DataFrame(raw_alerts)
 
-    # 3. Build or augment metrics history
-    now = datetime.datetime.now(datetime.timezone.utc)
-    sim_records = []
-    num_points = 25
+def send(agent: str, command: str, reason: str) -> None:
+    store.insert_command(CommandRow(agent=agent, command=command, requested_by="dashboard", reason=reason))
 
-    active_spiker = st.session_state.demo_spike_active_agent
 
-    for i in range(num_points, -1, -1):
-        t = (now - datetime.timedelta(seconds=i * 2)).isoformat()
-        for ag_key in AGENT_ORDER:
-            meta = AGENT_CONFIG[ag_key]
-            is_ag_killed = st.session_state.get(f"killed_locally_{ag_key}", False)
-            is_ag_spiking = (active_spiker == ag_key)
+@st.dialog("Kill agent")
+def confirm_kill(agent: str) -> None:
+    st.write(f"Stop the **{agent}** container now? The sentinel executes this on its next tick.")
+    if st.button("Kill", type="primary"):
+        send(agent, "KILL", "Emergency kill switch (dashboard)")
+        st.rerun()
 
-            if is_ag_killed:
-                if i <= 4:
-                    ag_status = "killed"
-                    ag_tpm = 0
-                    ag_loops = 47 if "Loop" in meta["rogue_type"] else 1
-                    ag_mem = 25.0
-                elif i <= 8:
-                    ag_status = "warned"
-                    ag_tpm = meta["spike_tpm"] + random.randint(-80, 80)
-                    ag_loops = 47 if "Loop" in meta["rogue_type"] else 1
-                    ag_mem = meta["spike_ram"]
-                else:
-                    ag_status = "running"
-                    ag_tpm = 180 + random.randint(-15, 15)
-                    ag_loops = 1
-                    ag_mem = 32.0
-            elif is_ag_spiking:
-                if i <= 3:
-                    ag_status = "warned"
-                    ag_tpm = meta["spike_tpm"] + random.randint(-100, 100)
-                    ag_loops = 47 if "Loop" in meta["rogue_type"] else 1
-                    ag_mem = meta["spike_ram"]
-                else:
-                    ag_status = "running"
-                    ag_tpm = 180 + random.randint(-15, 15)
-                    ag_loops = 1
-                    ag_mem = 32.0
-            else:
-                ag_status = "running"
-                base_tpm = 180 if ag_key == "alpha" else (220 if ag_key == "beta" else 280)
-                ag_tpm = base_tpm + random.randint(-20, 20)
-                ag_loops = 1
-                ag_mem = 32.0 + (10.0 if ag_key == "gamma" else 0.0)
 
-            sim_records.append({
-                "agent": ag_key,
-                "container_id": f"cs-{ag_key}-1",
-                "tokens_per_min": ag_tpm,
-                "calls_per_sec": 0.0 if ag_status == "killed" else (4.2 if ag_status == "warned" else 0.65),
-                "total_tokens": 48200 if ag_status == "killed" else 12000 + (num_points - i) * 600,
-                "token_budget": 50000,
-                "loop_repeats": ag_loops,
-                "memory_mb": ag_mem * 3.8,
-                "memory_pct": ag_mem,
-                "status": ag_status,
-                "created_at": t,
-            })
+# ── sections ─────────────────────────────────────────────────────────────────
+def status_bar(alerts: list[dict], latest: pd.DataFrame) -> None:
+    online, age = sentinel_status(alerts)
+    spent, saved = brain_cost(alerts)
+    counts = latest["status"].value_counts() if not latest.empty else pd.Series(dtype=int)
+    running = int(counts.get("running", 0) + counts.get("warned", 0))
+    sentinel = (f'<span class="dot" style="background:{STATUS["running"]}"></span>Online <span class="s">{age:.0f}s ago</span>'
+                if online else
+                f'<span class="dot" style="background:{STATUS["killed"]}"></span>Offline '
+                f'<span class="s">{"no heartbeat yet" if age is None else f"last seen {age:.0f}s ago"}</span>')
+    items = [("Sentinel", sentinel),
+             ("Agents", f'{running} running <span class="s">· {int(counts.get("paused", 0))} paused · '
+                        f'{int(counts.get("killed", 0))} killed</span>'),
+             ("Est. saved", f"${saved:,.2f}"),
+             ("Brain spend", f'${spent:.4f} <span class="s">spent to save ${saved:,.2f}</span>')]
+    cells = "".join(f'<div><div class="k">{k}</div><div class="v">{v}</div></div>' for k, v in items)
+    st.markdown(f'<div class="cs-bar"><div class="cs-brand">CloudSentinel</div>{cells}</div>', unsafe_allow_html=True)
 
-    # Merge or use simulated series
-    if metrics_df.empty or len(metrics_df) < 10:
-        metrics_df = pd.DataFrame(sim_records)
 
-    if actions_df.empty:
-        actions_df = pd.DataFrame([
-            {
-                "agent": "beta",
-                "action": "KILL",
-                "actor": "claude",
-                "reason": "Autonomous circuit breaker neutralized runaway prompt loop (47 repeats) in Claude 3.5 Sonnet. Token burn velocity dropped from 2,840 to 0 t/min.",
-                "tokens_saved_estimate": 135000,
-                "created_at": (now - datetime.timedelta(seconds=12)).isoformat(),
-            }
-        ])
-    if alerts_df.empty:
-        alerts_df = pd.DataFrame([
-            {
-                "agent": "beta",
-                "severity": "critical",
-                "rule": "claude_verdict",
-                "message": "🧠 Claude: detected runaway infinite loop in Claude 3.5 Sonnet. Autonomous SIGKILL executed.",
-                "created_at": (now - datetime.timedelta(seconds=12)).isoformat(),
-            },
-            {
-                "agent": "beta",
-                "severity": "warning",
-                "rule": "token_spike",
-                "message": "Token burn velocity surged to 2,840 t/min in Claude 3.5 Sonnet, crossing 1,000 threshold.",
-                "created_at": (now - datetime.timedelta(seconds=18)).isoformat(),
-            }
-        ])
+COLS = [2.2, 2.6, 1, 1, 2, 2]
 
-    metrics_df["created_at_dt"] = pd.to_datetime(metrics_df["created_at"], utc=True, format="ISO8601")
-    latest = metrics_df.sort_values("created_at_dt").groupby("agent").tail(1).set_index("agent")
 
-    # Reorder according to AGENT_ORDER
-    ordered_keys = [k for k in AGENT_ORDER if k in latest.index]
-    latest = latest.reindex(ordered_keys)
+def agents_table(metrics: pd.DataFrame, latest: pd.DataFrame) -> None:
+    st.markdown("### Agents")
+    heads = st.columns(COLS)
+    for c, t in zip(heads, ["Agent", "Tokens / min", "Calls / s", "Memory", "Budget used", ""]):
+        c.markdown(f'<span class="cs-head">{t}</span>', unsafe_allow_html=True)
+    if latest.empty:
+        st.caption("No agents reporting yet. Start the sentinel: `python -m sentinel --fake`")
+        return
+    for agent, row in latest.iterrows():
+        status = row["status"]
+        series = metrics[metrics["agent"] == agent].sort_values("created_at")["tokens_per_min"].tail(40).tolist()
+        pct = min(100.0, 100.0 * row["total_tokens"] / row["token_budget"]) if row["token_budget"] else 0.0
+        bar = STATUS["killed"] if pct >= 90 else STATUS["warned"] if pct >= 70 else MUTED
+        c = st.columns(COLS)
+        c[0].markdown(f'<div class="cs-cell"><span class="dot" style="background:{STATUS.get(status, MUTED)}"></span>'
+                      f'{esc(agent)} <span style="color:{MUTED};font-size:.9rem">{esc(status)}</span></div>', unsafe_allow_html=True)
+        c[1].markdown(f'<div class="cs-cell">{sparkline(series, MUTED)} &nbsp;{int(row["tokens_per_min"]):,}</div>', unsafe_allow_html=True)
+        c[2].markdown(f'<div class="cs-cell">{row["calls_per_sec"]:.1f}</div>', unsafe_allow_html=True)
+        c[3].markdown(f'<div class="cs-cell">{row["memory_pct"]:.0f}%</div>', unsafe_allow_html=True)
+        c[4].markdown(f'<div class="cs-bar-bg"><div class="cs-bar-fg" style="width:{pct:.0f}%;background:{bar}"></div></div>'
+                      f'<span style="color:{MUTED};font-size:.85rem">{pct:.0f}% of {int(row["token_budget"]):,}</span>', unsafe_allow_html=True)
+        a1, a2 = c[5].columns(2)
+        if status == "killed":
+            a1.caption("stopped")
+            continue
+        if status == "paused":
+            a1.button("Resume", key=f"resume_{agent}", on_click=send, args=(agent, "RESUME", "Resumed from dashboard"))
+        else:
+            a1.button("Pause", key=f"pause_{agent}", on_click=send, args=(agent, "PAUSE", "Paused from dashboard"))
+        if a2.button("Kill", key=f"kill_{agent}"):
+            confirm_kill(agent)
 
-    # Apply local status overrides
-    for ag_key in latest.index:
-        meta = AGENT_CONFIG.get(ag_key, {})
-        if st.session_state.get(f"killed_locally_{ag_key}", False):
-            latest.loc[ag_key, "status"] = "killed"
-            latest.loc[ag_key, "tokens_per_min"] = 0
-        elif active_spiker == ag_key:
-            latest.loc[ag_key, "status"] = "warned"
-            latest.loc[ag_key, "tokens_per_min"] = meta.get("spike_tpm", 2840)
 
-    # -------------------------------------------------------------------------
-    # 1. TOP METRICS / MONEY SAVED (JUDGES SEE THIS FIRST)
-    # -------------------------------------------------------------------------
-    killed_actions = actions_df[actions_df["action"] == "KILL"] if not actions_df.empty else pd.DataFrame()
-    saved_tokens = int(killed_actions["tokens_saved_estimate"].sum()) if not killed_actions.empty else 0
-    calculated_saved_usd = (saved_tokens / 1000) * COST_PER_1K_TOKENS_USD
-    display_saved_usd = calculated_saved_usd if calculated_saved_usd > 0 else DEMO_BUDGET_SAVED_USD
+def token_chart(metrics: pd.DataFrame, actions: list[dict]) -> None:
+    st.markdown("### Tokens per minute, last 5 minutes")
+    if metrics.empty:
+        st.caption("Waiting for the first metrics.")
+        return
+    df = metrics[["agent", "created_at", "tokens_per_min"]].copy()
+    names = sorted(df["agent"].unique())
+    color = alt.Color("agent:N", scale=alt.Scale(domain=names, range=LINES[:len(names)]),
+                      legend=alt.Legend(orient="top", offset=0, title=None, labelColor="#E6EAF0", symbolType="stroke"))
+    base = alt.Chart(df).encode(x=alt.X("created_at:T", title=None, axis=alt.Axis(format="%H:%M:%S", grid=False)))
+    lines = base.mark_line(strokeWidth=2, interpolate="linear").encode(
+        y=alt.Y("tokens_per_min:Q", title=None, axis=alt.Axis(gridColor=GRID, tickCount=4)), color=color)
+    kills = pd.DataFrame([{"at": a["created_at"], "agent": a["agent"]} for a in actions if a["action"] == "KILL"])
+    layers = lines
+    if not kills.empty:
+        kills["at"] = pd.to_datetime(kills["at"], utc=True)
+        rule = alt.Chart(kills).mark_rule(color=STATUS["killed"], strokeDash=[4, 3], strokeWidth=1.5).encode(x="at:T")
+        label = alt.Chart(kills).mark_text(color=STATUS["killed"], align="left", dx=5, dy=-4, baseline="bottom", fontSize=12) \
+            .encode(x="at:T", y=alt.value(10), text=alt.Text("agent:N"))
+        layers = lines + rule + label
+    st.altair_chart(layers.properties(height=280).configure_view(stroke=None).configure_axis(
+        labelColor=MUTED, domainColor=GRID, tickColor=GRID, labelFontSize=12), width="stretch")
 
-    running_count = int((latest["status"] != "killed").sum())
-    killed_count = int((latest["status"] == "killed").sum())
-    active_tpm = int(latest.loc[latest["status"] != "killed", "tokens_per_min"].sum()) if running_count > 0 else 0
 
-    col_hero, col_kpi1, col_kpi2, col_kpi3 = st.columns([1.6, 1, 1, 1])
+def latest_decision(alerts: list[dict], actions: list[dict]) -> dict | None:
+    """Newest decision of any kind: a brain verdict, or a KILL/PAUSE/WARN action (human, rules, brain).
+    A brain action is shown through its verdict (it carries confidence and pattern)."""
+    v = latest_verdict(alerts)
+    act = max(actions, key=lambda a: a["created_at"], default=None)
+    if act is None or (v and v["at"] > act["created_at"]):
+        return v
+    if v and v["agent"] == act["agent"] and act["actor"] == v["source"] and abs(age_seconds(v["at"]) - age_seconds(act["created_at"])) <= 10:
+        return v
+    return {"agent": act["agent"], "source": act["actor"], "action": act["action"], "confidence": "", "pattern": "",
+            "reason": act["reason"], "at": act["created_at"]}
 
-    with col_hero:
-        st.markdown(
-            f"""
-            <div class="hero-saved-card">
-                <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                    <span style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #10B981;">
-                        💰 Enterprise Budget Protected
-                    </span>
-                    <span class="mono-font" style="font-size: 0.72rem; color: #A7F3D0; background: rgba(16, 185, 129, 0.2); border-radius: 4px; padding: 2px 6px;">
-                        ROI: ~3,552x
-                    </span>
-                </div>
-                <div class="saved-amount">${display_saved_usd:,.2f} <span style="font-size: 1.15rem; color: #94A3B8; font-weight: 500;">USD</span></div>
-                <div style="font-size: 0.78rem; color: #94A3B8; margin-top: 4px;">
-                    Estimated <strong>{int(display_saved_usd / COST_PER_1K_TOKENS_USD * 1000):,}</strong> runaway tokens averted via autonomous circuit breaker.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
-    with col_kpi1:
-        st.markdown(
-            f"""
-            <div class="sentinel-card">
-                <div style="font-size: 0.78rem; font-weight: 600; color: #94A3B8; text-transform: uppercase;">
-                    Monitored Models
-                </div>
-                <div class="mono-font" style="font-size: 2.1rem; font-weight: 800; color: #10B981; margin: 4px 0;">
-                    {running_count} <span style="font-size: 0.95rem; font-weight: 500; color: #64748B;">/ {len(latest)} online</span>
-                </div>
-                <div style="font-size: 0.75rem; color: #64748B;">
-                    Claude 3.5 · GPT-4o · Gemini 1.5
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+def decision_panel(alerts: list[dict], actions: list[dict]) -> None:
+    st.markdown("### Latest decision")
+    d = latest_decision(alerts, actions)
+    if not d:
+        st.caption("No decision yet. Verdicts and kill/pause actions appear here.")
+        return
+    st.markdown(f'<div style="font-size:1.6rem;font-weight:600;line-height:1.4">{esc(d["action"])} '
+                f'<span style="color:{MUTED};font-size:1rem;font-weight:400">{esc(d["agent"])}</span></div>', unsafe_allow_html=True)
+    extra = "".join(f'{k} <b style="color:#E6EAF0">{esc(v)}</b> &nbsp;·&nbsp; ' for k, v in
+                    (("Confidence", d["confidence"]), ("Pattern", d["pattern"])) if v)
+    st.markdown(f'<div class="cs-cell" style="color:{MUTED}">{extra}Decided by <b style="color:#E6EAF0">{esc(d["source"])}</b>'
+                f' &nbsp;·&nbsp; {esc(d["at"][11:19])}</div>', unsafe_allow_html=True)
+    st.write(d["reason"])
 
-    with col_kpi2:
-        st.markdown(
-            f"""
-            <div class="sentinel-card">
-                <div style="font-size: 0.78rem; font-weight: 600; color: #94A3B8; text-transform: uppercase;">
-                    Neutralized Threats
-                </div>
-                <div class="mono-font" style="font-size: 2.1rem; font-weight: 800; color: #EF4444; margin: 4px 0;">
-                    {killed_count} <span style="font-size: 0.95rem; font-weight: 500; color: #64748B;">terminated</span>
-                </div>
-                <div style="font-size: 0.75rem; color: #64748B;">
-                    SIGKILL circuit breaker
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
-    with col_kpi3:
-        st.markdown(
-            f"""
-            <div class="sentinel-card">
-                <div style="font-size: 0.78rem; font-weight: 600; color: #94A3B8; text-transform: uppercase;">
-                    Current Token Velocity
-                </div>
-                <div class="mono-font" style="font-size: 2.1rem; font-weight: 800; color: {'#EF4444' if active_tpm > 1000 else '#38BDF8'}; margin: 4px 0;">
-                    {active_tpm:,} <span style="font-size: 0.9rem; font-weight: 500; color: #64748B;">t/min</span>
-                </div>
-                <div style="font-size: 0.75rem; color: #64748B;">
-                    Threshold: {TOKEN_DANGER_THRESHOLD:,} t/min
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+def event_log(alerts: list[dict], actions: list[dict]) -> None:
+    st.markdown("### Event log")
+    rows = [(a["created_at"], a["agent"], a["rule"], a["message"], "") for a in alerts
+            if a["rule"] not in ("sentinel_heartbeat", "brain_cost")]
+    rows += [(a["created_at"], a["agent"], a["action"].lower(), a["reason"], a["actor"]) for a in actions]
+    if not rows:
+        st.caption("Nothing has happened yet.")
+        return
+    body = ""
+    for at, agent, event, detail, by in sorted(rows, reverse=True)[:12]:
+        cls = ("kill" + (" fresh" if age_seconds(at) < 6 else "")) if event == "kill" else ""
+        body += (f'<tr class="{cls}"><td class="t">{esc(at[11:19])}</td><td>{esc(agent)}</td><td class="e">{esc(event)}</td>'
+                 f'<td>{esc(detail)}</td><td style="color:{MUTED}">{esc(by)}</td></tr>')
+    st.markdown('<table class="log"><tr><th>Time</th><th>Agent</th><th>Event</th><th>Detail</th><th>By</th></tr>'
+                f'{body}</table>', unsafe_allow_html=True)
 
-    # -------------------------------------------------------------------------
-    # 2. CLAUDE VERDICT HIGHLIGHT BOX (MVP REQUIREMENT 4 + DYNAMIC MULTI-LLM REASONING)
-    # -------------------------------------------------------------------------
-    # Check if any agent was recently killed or is currently spiking
-    killed_any = None
-    for ag in AGENT_ORDER:
-        if st.session_state.get(f"killed_locally_{ag}", False):
-            killed_any = ag
-            break
 
-    if killed_any is not None:
-        meta = AGENT_CONFIG[killed_any]
-        claude_verdict = "TERMINATE"
-        claude_badge_bg = "rgba(239, 68, 68, 0.2)"
-        claude_badge_color = "#F87171"
-        claude_target = meta["display_name"]
-        claude_reason = (
-            f"🛑 Autonomous SIGKILL executed. Neutralized {meta['rogue_type'].lower()} in {meta['display_name']} in 1.4 seconds. "
-            f"Token burn velocity instantly dropped to 0 t/min. Enterprise budget protected: ${meta['saved_usd']:,.2f} USD."
-        )
-    elif active_spiker is not None:
-        meta = AGENT_CONFIG[active_spiker]
-        claude_verdict = "ROGUE_WARNING"
-        claude_badge_bg = "rgba(245, 158, 11, 0.2)"
-        claude_badge_color = "#FCD34D"
-        claude_target = meta["display_name"]
-        claude_reason = (
-            f"⚠️ CRITICAL ROGUE BEHAVIOR: {meta['display_name']} surging at {meta['spike_tpm']:,} tokens/min (+1,420% anomaly). "
-            f"{meta['rogue_detail']} Autonomous Circuit Breaker armed and preparing hard SIGKILL intervention."
-        )
+def demo_controls(agents: list[str]) -> None:
+    with st.expander("Demo controls"):
+        if not agents:
+            st.caption("No agents yet.")
+        for col, agent in zip(st.columns(max(len(agents), 1)), agents):
+            col.button(f"Simulate rogue: {agent}", key=f"rogue_{agent}", on_click=send, args=(agent, "GO_ROGUE", "Demo: simulate rogue"))
+
+
+@st.fragment(run_every=REFRESH)
+def live() -> None:
+    alerts, actions = store.recent_alerts(limit=500), store.recent_actions(limit=100)
+    metrics = pd.DataFrame(store.recent_metrics(minutes=5))
+    if metrics.empty:
+        metrics = pd.DataFrame(columns=["agent", "created_at", "tokens_per_min", "calls_per_sec", "total_tokens",
+                                         "token_budget", "memory_pct", "status"])
     else:
-        claude_verdict = "NOMINAL"
-        claude_badge_bg = "rgba(16, 185, 129, 0.2)"
-        claude_badge_color = "#34D399"
-        claude_target = "All Models (Claude · GPT-4o · Gemini)"
-        claude_reason = (
-            "Autonomous Sentry operational. All monitored LLM agent containers (Claude 3.5 Sonnet, GPT-4o Omni, Gemini 1.5 Pro) "
-            "are operating within safe parameters. Zero runaway loops or recursive cycles detected."
-        )
-
-    st.markdown(
-        f"""
-        <div class="claude-box">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                <div style="font-weight: 700; font-size: 0.95rem; color: #E9D5FF; display: flex; align-items: center; gap: 8px;">
-                    <span>🧠 Claude AI Brain Verdict</span>
-                    <span style="background: rgba(168, 85, 247, 0.25); border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 4px; padding: 1px 6px; font-size: 0.72rem; color: #D8B4FE;">
-                        Target: {claude_target}
-                    </span>
-                    <span style="background: {claude_badge_bg}; border: 1px solid {claude_badge_color}; border-radius: 4px; padding: 1px 6px; font-size: 0.72rem; color: {claude_badge_color}; font-weight: 700;">
-                        {claude_verdict}
-                    </span>
-                </div>
-                <div class="mono-font" style="font-size: 0.75rem; color: #C084FC;">
-                    Confidence: 99.4% · Latency: 12ms · Circuit Breaker: Armed
-                </div>
-            </div>
-            <div style="font-size: 0.92rem; color: #F3E8FF; line-height: 1.5;">
-                "{claude_reason}"
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # -------------------------------------------------------------------------
-    # 3. PER-AGENT COLORFUL CARDS (MVP 1 + EMERGENCY KILL DIALOG MVP 3)
-    # -------------------------------------------------------------------------
-    st.markdown(
-        """
-        <div style="display: flex; justify-content: space-between; align-items: center; margin: 12px 0 8px 0;">
-            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #F8FAFC;">
-                Monitored LLM Agent Containers
-            </h3>
-            <span style="font-size: 0.8rem; color: #94A3B8;">
-                Trigger <strong>Go Rogue</strong> to test loops/bursts or <strong>EMERGENCY KILL</strong> to terminate
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    agent_cols = st.columns(max(len(latest), 1))
-    for col, (agent_key, row) in zip(agent_cols, latest.iterrows()):
-        with col:
-            meta = get_agent_meta(agent_key)
-            st_val = str(row.get("status", "running")).lower()
-            is_killed = st_val == "killed"
-            is_spiking = (active_spiker == agent_key) or (st_val == "warned")
-
-            if is_killed:
-                status_class = "badge-killed"
-                status_text = "💀 KILLED"
-                card_extra_class = "flash-killed"
-            elif is_spiking:
-                status_class = "badge-warned"
-                status_text = "⚡ ROGUE SPIKE"
-                card_extra_class = "flash-spiking"
-            else:
-                status_class = "badge-running"
-                status_text = "🟢 RUNNING"
-                card_extra_class = ""
-
-            accent_color = meta["color"]
-            budget_used = int(row.get("total_tokens", 0))
-            budget_total = max(int(row.get("token_budget", 50000)), 1)
-            pct_budget = min(budget_used / budget_total, 1.0)
-
-            st.markdown(
-                f"""
-                <div class="sentinel-card {card_extra_class}" style="border-top: 3px solid {accent_color};">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
-                        <div>
-                            <div style="font-size: 1.15rem; font-weight: 800; color: #FFFFFF; letter-spacing: -0.01em;">
-                                {meta['display_name']}
-                            </div>
-                            <div style="font-size: 0.72rem; color: #94A3B8; font-family: 'JetBrains Mono', monospace;">
-                                {meta['role']}
-                            </div>
-                        </div>
-                        <span class="status-badge {status_class}">
-                            {status_text}
-                        </span>
-                    </div>
-                    <div style="font-size: 0.8rem; color: #CBD5E1; margin: 8px 0 6px 0; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 6px;">
-                        Rogue Profile: <strong style="color: #FCA5A5;">{meta['rogue_type']}</strong>
-                    </div>
-                    <div style="font-size: 0.82rem; color: #94A3B8; margin-bottom: 6px;">
-                        Velocity: <strong style="color: {'#EF4444' if row.get('tokens_per_min', 0) > 1000 else '#F8FAFC'};" class="mono-font">{row.get('tokens_per_min', 0):,}</strong> t/min · 
-                        Calls: <strong style="color: #F8FAFC;" class="mono-font">{row.get('calls_per_sec', 0.0):.1f}</strong>/s
-                    </div>
-                    <div style="font-size: 0.82rem; color: #94A3B8; margin-bottom: 12px;">
-                        RAM: <strong style="color: {'#EF4444' if row.get('memory_pct', 0.0) > 80 else '#F8FAFC'};" class="mono-font">{row.get('memory_pct', 0.0):.0f}%</strong> ({row.get('memory_mb', 0.0):.1f} MB) · 
-                        Loop: <strong style="color: {'#EF4444' if row.get('loop_repeats', 0) > 3 else '#10B981'};" class="mono-font">×{row.get('loop_repeats', 1)}</strong>
-                    </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            # Token budget progress bar
-            st.progress(pct_budget, text=f"Budget: {budget_used:,} / {budget_total:,} tokens")
-
-            # Action Buttons
-            if not is_killed:
-                c_btn1, c_btn2 = st.columns([1, 1])
-                with c_btn1:
-                    if st.button("🛑 EMERGENCY KILL", key=f"btn-kill-{agent_key}", type="primary", width="stretch"):
-                        confirm_kill_dialog(agent_key)
-                with c_btn2:
-                    if st.button("😈 Go Rogue", key=f"btn-rogue-{agent_key}", width="stretch"):
-                        store.insert_command(
-                            CommandRow(
-                                agent=agent_key,
-                                command="GO_ROGUE",
-                                requested_by="dashboard_operator",
-                                reason=f"Operator triggered rogue behavior on {meta['display_name']}",
-                            )
-                        )
-                        st.session_state.demo_spike_active_agent = agent_key
-                        st.session_state.demo_spike_start_tick = current_tick
-                        st.toast(f"Triggered rogue {meta['rogue_type']} on {meta['display_name']}!", icon="😈")
-                        st.rerun()
-            else:
-                st.markdown(
-                    f"""
-                    <div style="margin-top: 8px; text-align: center; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 6px; border: 1px dashed rgba(239, 68, 68, 0.35);">
-                        <span style="font-size: 0.8rem; color: #FCA5A5; font-weight: 600;">
-                            ⚡ Neutralized · Saved ${meta['saved_usd']:,.2f} USD
-                        </span>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-    # -------------------------------------------------------------------------
-    # 4. TELEMETRY CHARTS (TOKEN VELOCITY FLOW + SPIKE + MEMORY CHART)
-    # -------------------------------------------------------------------------
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-    ch_col1, ch_col2 = st.columns(2)
-
-    with ch_col1:
-        st.markdown(
-            """
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #F1F5F9;">
-                    📈 Real-Time Token Velocity (tokens / min)
-                </h4>
-                <span class="mono-font" style="font-size: 0.72rem; color: #F43F5E;">DANGER THRESHOLD: 1,000 t/min</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        fig_tokens = go.Figure()
-
-        # Add shaded Danger Zone
-        fig_tokens.add_hrect(
-            y0=TOKEN_DANGER_THRESHOLD,
-            y1=3600,
-            fillcolor="rgba(239, 68, 68, 0.08)",
-            line_width=0,
-            annotation_text="CIRCUIT BREAKER DANGER ZONE",
-            annotation_position="top right",
-            annotation_font=dict(size=9, color="rgba(239, 68, 68, 0.7)", family="JetBrains Mono"),
-        )
-
-        # Add Horizontal Danger Line
-        fig_tokens.add_hline(
-            y=TOKEN_DANGER_THRESHOLD,
-            line_dash="dash",
-            line_color="rgba(239, 68, 68, 0.75)",
-            line_width=1.5,
-            annotation_text=f"LIMIT: {TOKEN_DANGER_THRESHOLD:,} t/m",
-            annotation_position="bottom left",
-            annotation_font=dict(size=9, color="#FCA5A5", family="JetBrains Mono"),
-        )
-
-        # Plot traces for each agent with real LLM names
-        for ag_key in latest.index:
-            meta = get_agent_meta(ag_key)
-            sub = metrics_df[metrics_df["agent"] == ag_key].sort_values("created_at_dt")
-            if not sub.empty:
-                is_spiker = (active_spiker == ag_key)
-                is_dead = st.session_state.get(f"killed_locally_{ag_key}", False)
-                fig_tokens.add_trace(
-                    go.Scatter(
-                        x=sub["created_at_dt"],
-                        y=sub["tokens_per_min"],
-                        mode="lines+markers",
-                        name=meta["display_name"],
-                        line=dict(
-                            color=meta["color"],
-                            width=3 if (is_spiker or is_dead) else 2.2,
-                            shape="spline",
-                        ),
-                        marker=dict(size=4),
-                    )
-                )
-
-        # Check for annotations on the active spiker or killed agent
-        focus_agent = killed_any if killed_any else active_spiker
-        if focus_agent:
-            meta = AGENT_CONFIG[focus_agent]
-            sub_focus = metrics_df[metrics_df["agent"] == focus_agent].sort_values("created_at_dt")
-            if not sub_focus.empty:
-                if killed_any:
-                    # Point to the sharp drop to 0
-                    last_pt = sub_focus.iloc[-1]
-                    fig_tokens.add_annotation(
-                        x=last_pt["created_at_dt"],
-                        y=0,
-                        text=f"🛑 AUTONOMOUS SIGKILL: {meta['short_name']} (0 t/m)",
-                        showarrow=True,
-                        arrowhead=2,
-                        arrowsize=1,
-                        arrowwidth=1.5,
-                        arrowcolor="#EF4444",
-                        ax=0,
-                        ay=-45,
-                        font=dict(color="#FCA5A5", size=10, family="JetBrains Mono"),
-                        bgcolor="rgba(239, 68, 68, 0.25)",
-                        bordercolor="#EF4444",
-                        borderwidth=1,
-                        borderpad=4,
-                    )
-                elif active_spiker:
-                    max_pt = sub_focus.loc[sub_focus["tokens_per_min"].idxmax()]
-                    fig_tokens.add_annotation(
-                        x=max_pt["created_at_dt"],
-                        y=max_pt["tokens_per_min"],
-                        text=f"⚠️ {meta['rogue_type'].upper()}: {meta['short_name']} (>2,500 t/m)",
-                        showarrow=True,
-                        arrowhead=2,
-                        arrowsize=1,
-                        arrowwidth=1.5,
-                        arrowcolor="#F59E0B",
-                        ax=0,
-                        ay=-40,
-                        font=dict(color="#FCD34D", size=10, family="JetBrains Mono"),
-                        bgcolor="rgba(245, 158, 11, 0.25)",
-                        bordercolor="#F59E0B",
-                        borderwidth=1,
-                        borderpad=4,
-                    )
-
-        fig_tokens.update_layout(
-            paper_bgcolor="rgba(16, 17, 34, 0.6)",
-            plot_bgcolor="rgba(10, 11, 24, 0.8)",
-            margin=dict(l=30, r=20, t=10, b=30),
-            height=280,
-            hovermode="x unified",
-            xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", color="#94A3B8"),
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", color="#94A3B8", range=[0, 3600]),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#CBD5E1")),
-        )
-        st.plotly_chart(fig_tokens, width="stretch")
-
-    with ch_col2:
-        st.markdown(
-            """
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <h4 style="margin: 0; font-size: 0.98rem; font-weight: 700; color: #F1F5F9;">
-                    🧠 Agent Memory Utilization (%)
-                </h4>
-                <span class="mono-font" style="font-size: 0.72rem; color: #64748B;">RAM ALLOCATION</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        fig_mem = go.Figure()
-
-        fig_mem.add_hline(
-            y=80,
-            line_dash="dot",
-            line_color="rgba(245, 158, 11, 0.5)",
-            annotation_text="WARN (80%)",
-            annotation_position="bottom right",
-            annotation_font=dict(size=8, color="#FCD34D"),
-        )
-
-        for ag_key in latest.index:
-            meta = get_agent_meta(ag_key)
-            sub = metrics_df[metrics_df["agent"] == ag_key].sort_values("created_at_dt")
-            if not sub.empty:
-                fig_mem.add_trace(
-                    go.Scatter(
-                        x=sub["created_at_dt"],
-                        y=sub["memory_pct"],
-                        mode="lines",
-                        name=meta["display_name"],
-                        line=dict(
-                            color=meta["color"],
-                            width=2.2,
-                        ),
-                    )
-                )
-
-        fig_mem.update_layout(
-            paper_bgcolor="rgba(16, 17, 34, 0.6)",
-            plot_bgcolor="rgba(10, 11, 24, 0.8)",
-            margin=dict(l=30, r=20, t=10, b=30),
-            height=280,
-            hovermode="x unified",
-            xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", color="#94A3B8"),
-            yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.06)", color="#94A3B8", range=[0, 100]),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="#CBD5E1")),
-        )
-        st.plotly_chart(fig_mem, width="stretch")
-
-    # -------------------------------------------------------------------------
-    # 5. ACTIVITY LOGS & AUDIT TRAIL
-    # -------------------------------------------------------------------------
-    tab_acts, tab_alerts, tab_how = st.tabs(["⚡ Recent Actions & Circuit Breaks", "🚨 Anomaly Alerts", "📖 Demo Architecture"])
-
-    with tab_acts:
-        if not actions_df.empty:
-            display_acts = actions_df.copy()
-            # Map agent keys to model names for clean presentation
-            if "agent" in display_acts.columns:
-                display_acts["agent"] = display_acts["agent"].apply(lambda k: get_agent_meta(k)["display_name"])
-            st.dataframe(display_acts, hide_index=True, width="stretch")
-        else:
-            st.info("No circuit breaker actions recorded yet.")
-
-    with tab_alerts:
-        if not alerts_df.empty:
-            display_alerts = alerts_df.copy()
-            if "agent" in display_alerts.columns:
-                display_alerts["agent"] = display_alerts["agent"].apply(lambda k: get_agent_meta(k)["display_name"])
-            st.dataframe(display_alerts, hide_index=True, width="stretch")
-        else:
-            st.info("No active security alerts.")
-
-    with tab_how:
-        st.markdown(
-            """
-            <div class="sentinel-card" style="font-size: 0.88rem; line-height: 1.6; color: #CBD5E1;">
-                <h4 style="margin: 0 0 8px 0; color: #FFFFFF;">Multi-Model Rogue Prevention & Circuit Breakers</h4>
-                <ol style="margin-left: 20px; padding-left: 0;">
-                    <li><strong>Claude 3.5 Sonnet (Code & Workflow Agent):</strong> Monitored for recursive tool calls and duplicate prompt loops. Neutralized via loop detector and Claude Brain judgment.</li>
-                    <li><strong>GPT-4o Omni (Operations Agent):</strong> Monitored for sudden token bomb explosions and unconstrained context expansion. Neutralized when velocity exceeds 1,000 t/min.</li>
-                    <li><strong>Gemini 1.5 Pro (Deep Research Agent):</strong> Monitored for memory leaks and large multimodal tensor allocations. Neutralized when RAM climbs toward the 80% ceiling.</li>
-                    <li><strong>Autonomous SIGKILL execution:</strong> Hard circuit breaker freezes container within ~1.2s, saving thousands of dollars in runaway API billing.</li>
-                </ol>
-                <div class="mono-font" style="background: rgba(0,0,0,0.4); padding: 8px 12px; border-radius: 6px; font-size: 0.8rem; color: #38BDF8;">
-                    Demo Command: python -m sentinel --fake &nbsp;|&nbsp; Kill Test: python scripts/command.py rogue beta
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        metrics["created_at"] = pd.to_datetime(metrics["created_at"], utc=True, format="ISO8601")
+    latest = metrics.sort_values("created_at").groupby("agent").tail(1).set_index("agent").sort_index()
+    status_bar(alerts, latest)
+    agents_table(metrics, latest)
+    st.markdown('<div style="height:1.25rem"></div>', unsafe_allow_html=True)
+    left, right = st.columns([3, 2], gap="large")
+    with left:
+        token_chart(metrics, actions)
+    with right:
+        decision_panel(alerts, actions)
+    event_log(alerts, actions)
+    demo_controls(list(latest.index))
 
 
-# Run the live fragment
-live_panel()
+live()
