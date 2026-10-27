@@ -18,6 +18,8 @@ from typing import Protocol
 from shared.config import settings
 from shared.contracts import ActionRow, AlertRow, CommandRow, MetricRow, utc_now_iso
 
+TABLES = ("agent_metrics", "alerts", "actions", "commands")
+
 
 def _since_iso(minutes: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
@@ -43,6 +45,9 @@ class Store(Protocol):
     def recent_alerts(self, limit: int = 50) -> list[dict]: ...
     def recent_actions(self, limit: int = 50) -> list[dict]: ...
     def summary(self) -> dict: ...  # {"total_kills", "tokens_saved", "tokens_by_agent": {agent: tokens}}
+    # maintenance (db/reset.py)
+    def table_counts(self) -> dict[str, int]: ...  # how many rows each table has
+    def reset(self) -> None: ...  # delete EVERY row of all 4 tables
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -127,6 +132,16 @@ class LocalStore:
             "select agent, max(total_tokens) as tokens from agent_metrics group by agent"
         )
         return _build_summary(kills["n"], kills["saved"], {r["agent"]: r["tokens"] or 0 for r in rows})
+
+    def table_counts(self) -> dict[str, int]:
+        return {t: self._select(f"select count(*) as n from {t}")[0]["n"] for t in TABLES}
+
+    def reset(self) -> None:
+        with self._lock:
+            for table in TABLES:
+                self._conn.execute(f"delete from {table}")
+                self._conn.execute("delete from sqlite_sequence where name = ?", (table,))  # ids start at 1 again
+            self._conn.commit()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,6 +237,16 @@ class SupabaseStore:
             for r in rows:
                 best[r["agent"]] = max(best.get(r["agent"], 0), int(r["total_tokens"] or 0))
             return best
+
+    def table_counts(self) -> dict[str, int]:
+        return {
+            t: self._db.table(t).select("id", count="exact").limit(1).execute().count or 0
+            for t in TABLES
+        }
+
+    def reset(self) -> None:
+        for table in TABLES:
+            self._db.table(table).delete().gte("id", 0).execute()  # Supabase needs a filter
 
 
 # ─────────────────────────────────────────────────────────────────────────────
