@@ -553,11 +553,14 @@ def token_chart(metrics: pd.DataFrame, actions: list[dict]) -> None:
 
     # Add drop-to-zero point for killed agents so the spike visibly drops to zero
     now_utc = pd.Timestamp.now(tz="UTC")
+    min_t = metrics["created_at"].min()
     extra_rows = []
     for a in actions:
         if a["action"] == "KILL" and a["agent"] in active_agents:
             try:
                 kill_ts = pd.to_datetime(a["created_at"], utc=True)
+                if kill_ts < min_t:
+                    continue  # do not pull historical kills that distort the visible time range
                 extra_rows.append({"agent": a["agent"], "created_at": kill_ts + pd.Timedelta(seconds=1), "tokens_per_min": 0})
                 extra_rows.append({"agent": a["agent"], "created_at": now_utc, "tokens_per_min": 0})
             except Exception:
@@ -592,23 +595,77 @@ def token_chart(metrics: pd.DataFrame, actions: list[dict]) -> None:
         color="rgba(245, 158, 11, 0.45)", strokeDash=[5, 4], strokeWidth=1.5
     ).encode(y="limit:Q")
 
+    min_t = metrics["created_at"].min()
+
     kills = [a for a in actions if a["action"] == "KILL" and a["agent"] in active_agents]
     layers = lines + limit_line
     if kills:
-        k_df = pd.DataFrame([{
-            "at": pd.to_datetime(a["created_at"], utc=True),
-            "agent": a["agent"],
-            "actor": a.get("actor", "rules"),
-            "label": f"☠ {a['agent']} KILLED ({a.get('actor', 'brain')})"
-        } for a in kills])
-        min_t = df["created_at"].min()
-        k_df = k_df[k_df["at"] >= min_t]
-        if not k_df.empty:
-            rule = alt.Chart(k_df).mark_rule(color=STATUS["killed"], strokeDash=[4, 3], strokeWidth=2.0).encode(x="at:T")
-            label = alt.Chart(k_df).mark_text(
-                color=STATUS["killed"], align="left", dx=5, dy=-4, baseline="bottom", fontSize=12, fontWeight=700
-            ).encode(x="at:T", y=alt.value(12), text=alt.Text("label:N"))
-            layers = layers + rule + label
+        k_rows = []
+        for a in kills:
+            try:
+                kill_ts = pd.to_datetime(a["created_at"], utc=True)
+                if kill_ts < min_t:
+                    continue
+                agent_window = df[
+                    (df["agent"] == a["agent"]) &
+                    (df["created_at"] >= kill_ts - pd.Timedelta(seconds=12)) &
+                    (df["created_at"] <= kill_ts + pd.Timedelta(seconds=2))
+                ]
+                peak_val = float(agent_window["tokens_per_min"].max()) if not agent_window.empty else 0.0
+                if peak_val <= 0:
+                    agent_all = df[df["agent"] == a["agent"]]
+                    peak_val = float(agent_all["tokens_per_min"].max()) if not agent_all.empty else 5000.0
+
+                actor_name = a.get("actor", "rules")
+                k_rows.append({
+                    "at": kill_ts,
+                    "agent": a["agent"],
+                    "actor": actor_name,
+                    "tokens_per_min": max(peak_val, 1500.0),
+                    "reason": a.get("reason", "Malfunctioning agent terminated"),
+                    "event": f"KILL by {actor_name}",
+                })
+            except Exception:
+                pass
+
+        if k_rows:
+            k_df = pd.DataFrame(k_rows).sort_values("at")
+            deduped = []
+            for _, row in k_df.iterrows():
+                if not deduped or (row["agent"] != deduped[-1]["agent"]) or (row["at"] - deduped[-1]["at"]).total_seconds() > 12:
+                    deduped.append(row)
+                elif row["tokens_per_min"] > deduped[-1]["tokens_per_min"]:
+                    deduped[-1] = row
+            k_df = pd.DataFrame(deduped)
+
+            stem = alt.Chart(k_df).mark_rule(
+                strokeWidth=1.5, strokeDash=[3, 3], color="rgba(229, 83, 75, 0.45)"
+            ).encode(x="at:T", y=alt.Y("tokens_per_min:Q"), y2=alt.datum(0))
+
+            glow = alt.Chart(k_df).mark_circle(
+                size=140, color="#E5534B", opacity=0.32
+            ).encode(x="at:T", y="tokens_per_min:Q")
+
+            dot = alt.Chart(k_df).mark_circle(
+                size=55, color="#E5534B", opacity=1.0
+            ).encode(
+                x="at:T",
+                y="tokens_per_min:Q",
+                tooltip=[
+                    alt.Tooltip("event:N", title="Event"),
+                    alt.Tooltip("agent:N", title="Agent"),
+                    alt.Tooltip("actor:N", title="Terminated By"),
+                    alt.Tooltip("at:T", title="Kill Time", format="%H:%M:%S"),
+                    alt.Tooltip("tokens_per_min:Q", title="Peak Spend", format=",.0f"),
+                    alt.Tooltip("reason:N", title="Reason"),
+                ]
+            )
+
+            pip = alt.Chart(k_df).mark_point(
+                shape="circle", size=14, color="#FFFFFF", fill="#FFFFFF"
+            ).encode(x="at:T", y="tokens_per_min:Q")
+
+            layers = layers + stem + glow + dot + pip
 
     st.altair_chart(layers.properties(height=330).configure_view(stroke=None).configure_axis(
         labelColor=MUTED, domainColor=GRID, tickColor=GRID, labelFontSize=12), width="stretch")
