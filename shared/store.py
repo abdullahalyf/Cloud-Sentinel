@@ -18,9 +18,17 @@ from typing import Protocol
 from shared.config import settings
 from shared.contracts import ActionRow, AlertRow, CommandRow, MetricRow, utc_now_iso
 
+TABLES = ("agent_metrics", "alerts", "actions", "commands")
+
 
 def _since_iso(minutes: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+
+
+def _build_summary(kills: int, saved: int, tokens_by_agent: dict[str, int]) -> dict:
+    """Same shape from both stores. Agents are sorted: the biggest token user first."""
+    ordered = dict(sorted(tokens_by_agent.items(), key=lambda kv: kv[1], reverse=True))
+    return {"total_kills": int(kills), "tokens_saved": int(saved), "tokens_by_agent": ordered}
 
 
 class Store(Protocol):
@@ -36,6 +44,10 @@ class Store(Protocol):
     def recent_metrics(self, minutes: float = 5) -> list[dict]: ...
     def recent_alerts(self, limit: int = 50) -> list[dict]: ...
     def recent_actions(self, limit: int = 50) -> list[dict]: ...
+    def summary(self) -> dict: ...  # {"total_kills", "tokens_saved", "tokens_by_agent": {agent: tokens}}
+    # maintenance (db/reset.py)
+    def table_counts(self) -> dict[str, int]: ...  # how many rows each table has
+    def reset(self) -> None: ...  # delete EVERY row of all 4 tables
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -111,6 +123,26 @@ class LocalStore:
     def recent_actions(self, limit: int = 50) -> list[dict]:
         return self._select("select * from actions order by id desc limit ?", (limit,))
 
+    def summary(self) -> dict:
+        kills = self._select(
+            "select count(*) as n, coalesce(sum(tokens_saved_estimate), 0) as saved "
+            "from actions where action = 'KILL'"
+        )[0]
+        rows = self._select(
+            "select agent, max(total_tokens) as tokens from agent_metrics group by agent"
+        )
+        return _build_summary(kills["n"], kills["saved"], {r["agent"]: r["tokens"] or 0 for r in rows})
+
+    def table_counts(self) -> dict[str, int]:
+        return {t: self._select(f"select count(*) as n from {t}")[0]["n"] for t in TABLES}
+
+    def reset(self) -> None:
+        with self._lock:
+            for table in TABLES:
+                self._conn.execute(f"delete from {table}")
+                self._conn.execute("delete from sqlite_sequence where name = ?", (table,))  # ids start at 1 again
+            self._conn.commit()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 class SupabaseStore:
@@ -123,6 +155,17 @@ class SupabaseStore:
 
     def _insert(self, table: str, row: dict) -> None:
         self._db.table(table).insert(row).execute()
+
+    def _fetch_all(self, build) -> list[dict]:
+        """Supabase returns at most 1000 rows per request, so read page by page."""
+        rows: list[dict] = []
+        start = 0
+        while True:
+            page = build().range(start, start + 999).execute().data or []
+            rows.extend(page)
+            if len(page) < 1000:
+                return rows
+            start += 1000
 
     def insert_metric(self, row: MetricRow) -> None:
         self._insert("agent_metrics", row.to_row())
@@ -165,6 +208,45 @@ class SupabaseStore:
     def recent_actions(self, limit: int = 50) -> list[dict]:
         res = self._db.table("actions").select("*").order("id", desc=True).limit(limit).execute()
         return res.data or []
+
+    def summary(self) -> dict:
+        # kills + tokens saved: the actions table is small, read all of it
+        actions = self._fetch_all(
+            lambda: self._db.table("actions").select("action,tokens_saved_estimate").order("id")
+        )
+        kills = [a for a in actions if a["action"] == "KILL"]
+        saved = sum(a["tokens_saved_estimate"] or 0 for a in kills)
+        return _build_summary(len(kills), saved, self._tokens_by_agent())
+
+    def _tokens_by_agent(self) -> dict[str, int]:
+        """Highest total_tokens per agent, in ONE request (function in db/summary.sql)."""
+        try:
+            rows = self._db.rpc("agent_token_totals", {}).execute().data or []
+            return {r["agent"]: int(r["tokens"] or 0) for r in rows}
+        except Exception:  # noqa: BLE001 - summary.sql not run yet: still ONE request, newest rows only
+            rows = (
+                self._db.table("agent_metrics")
+                .select("agent,total_tokens")
+                .order("id", desc=True)
+                .limit(1000)
+                .execute()
+                .data
+                or []
+            )
+            best: dict[str, int] = {}
+            for r in rows:
+                best[r["agent"]] = max(best.get(r["agent"], 0), int(r["total_tokens"] or 0))
+            return best
+
+    def table_counts(self) -> dict[str, int]:
+        return {
+            t: self._db.table(t).select("id", count="exact").limit(1).execute().count or 0
+            for t in TABLES
+        }
+
+    def reset(self) -> None:
+        for table in TABLES:
+            self._db.table(table).delete().gte("id", 0).execute()  # Supabase needs a filter
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,76 @@
+# SCALE DEMO: 10 agents at once ("we can monitor many agents").
+#   Start:  docker compose -f docker-compose.scale.yml up -d --build
+#   Reset:  docker compose -f docker-compose.scale.yml up -d --force-recreate
+#   Stop:   docker compose -f docker-compose.scale.yml down
+#
+# Stop the normal 3-agent demo first (docker compose down) so only these 10 are watched.
+# Make one go rogue:  python scripts/command.py rogue agent-04
+#
+# agent-01..03 loop | 04..06 token_bomb | 07..08 memory_leak | 09..10 paraphrase_loop
+# Everything stays healthy until you send the "rogue" command.
+
+name: cloudsentinel-scale
+
+x-agent: &agent
+  build:
+    context: .
+    dockerfile: agents/Dockerfile
+  image: cloudsentinel-agent
+  mem_limit: 512m
+  restart: "no"          # a killed agent must stay dead
+
+x-labels: &labels        # the sentinel ignores containers without cloudsentinel.monitor=true
+  cloudsentinel.monitor: "true"
+  cloudsentinel.token_budget: "150000"
+
+services:
+  agent-01:
+    <<: *agent
+    container_name: agent-01
+    environment: { AGENT_NAME: agent-01, ROGUE_TYPE: loop }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-01 }
+  agent-02:
+    <<: *agent
+    container_name: agent-02
+    environment: { AGENT_NAME: agent-02, ROGUE_TYPE: loop }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-02 }
+  agent-03:
+    <<: *agent
+    container_name: agent-03
+    environment: { AGENT_NAME: agent-03, ROGUE_TYPE: loop }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-03 }
+  agent-04:
+    <<: *agent
+    container_name: agent-04
+    environment: { AGENT_NAME: agent-04, ROGUE_TYPE: token_bomb }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-04 }
+  agent-05:
+    <<: *agent
+    container_name: agent-05
+    environment: { AGENT_NAME: agent-05, ROGUE_TYPE: token_bomb }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-05 }
+  agent-06:
+    <<: *agent
+    container_name: agent-06
+    environment: { AGENT_NAME: agent-06, ROGUE_TYPE: token_bomb }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-06 }
+  agent-07:
+    <<: *agent
+    container_name: agent-07
+    environment: { AGENT_NAME: agent-07, ROGUE_TYPE: memory_leak, LEAK_CAP_MB: "440" }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-07 }
+  agent-08:
+    <<: *agent
+    container_name: agent-08
+    environment: { AGENT_NAME: agent-08, ROGUE_TYPE: memory_leak, LEAK_CAP_MB: "440" }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-08 }
+  agent-09:
+    <<: *agent
+    container_name: agent-09
+    environment: { AGENT_NAME: agent-09, ROGUE_TYPE: paraphrase_loop }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-09 }
+  agent-10:
+    <<: *agent
+    container_name: agent-10
+    environment: { AGENT_NAME: agent-10, ROGUE_TYPE: paraphrase_loop }
+    labels: { <<: *labels, cloudsentinel.agent_name: agent-10 }
