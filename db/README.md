@@ -15,10 +15,12 @@
 | `security.sql` | Row Level Security (RLS) চালু করে। Dashboard-এর key শুধু পড়তে পারে | `schema.sql`-এর পরে, একবার |
 
 | `cleanup.sql` | প্রতি ঘণ্টায় ১ দিনের পুরনো `agent_metrics` মোছে (pg_cron) | একবার |
+| `summary.sql` | `Store.summary()`-র জন্য একটা function (`agent_token_totals`), যাতে Supabase-এ প্রতি agent-এর জন্য আলাদা query না লাগে | `schema.sql`-এর পরে, একবার |
 
 | `reset.py` | ৪টা table-র **সব** data মোছে | প্রতিটা demo-র আগে |
 
 | `check_rls.py` | RLS ঠিকমতো কাজ করছে কিনা পরীক্ষা করে | `security.sql` চালানোর পর |
+| `rogue_times.py` | সত্যিকারের Docker-এ ৪ ধরনের rogue কত সেকেন্ডে kill হয় মাপে, ফল `docs/RESULTS.md`-এ লেখে (আগে sentinel আর agent চালু রাখতে হয়, উপরে ফাইলের ভেতরে লেখা আছে) | demo-র আগে, দরকার হলে |
 
 
 
