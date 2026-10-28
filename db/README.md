@@ -1,8 +1,8 @@
-\# db/ — Database folder (Fojle)
+# db/ — Database folder (Fojle)
 
 
 
-\## ফাইলগুলো কী করে
+## ফাইলগুলো কী করে
 
 
 
@@ -14,21 +14,21 @@
 
 | `security.sql` | Row Level Security (RLS) চালু করে। Dashboard-এর key শুধু পড়তে পারে | `schema.sql`-এর পরে, একবার |
 
-| `cleanup.sql` | প্রতি ঘণ্টায় ১ দিনের পুরনো `agent\_metrics` মোছে (pg\_cron) | একবার |
+| `cleanup.sql` | প্রতি ঘণ্টায় ১ দিনের পুরনো `agent_metrics` মোছে (pg_cron) | একবার |
 
-| `reset.py` | ৪টা table-র \*\*সব\*\* data মোছে | প্রতিটা demo-র আগে |
+| `reset.py` | ৪টা table-র **সব** data মোছে | প্রতিটা demo-র আগে |
 
-| `check\_rls.py` | RLS ঠিকমতো কাজ করছে কিনা পরীক্ষা করে | `security.sql` চালানোর পর |
-
-
-
-\- `.sql` ফাইল চালাতে: Supabase → \*\*SQL Editor\*\* → ফাইলের সব লেখা paste করো → \*\*Run\*\*। সবগুলো আবার চালালেও ক্ষতি নেই।
-
-\- `.py` ফাইল repo-র ভেতর থেকে চালাও, যেমন `python db/reset.py`।
+| `check_rls.py` | RLS ঠিকমতো কাজ করছে কিনা পরীক্ষা করে | `security.sql` চালানোর পর |
 
 
 
-\## দুটো key, দুটো কাজ
+- `.sql` ফাইল চালাতে: Supabase → **SQL Editor** → ফাইলের সব লেখা paste করো → **Run**। সবগুলো আবার চালালেও ক্ষতি নেই।
+
+- `.py` ফাইল repo-র ভেতর থেকে চালাও, যেমন `python db/reset.py`।
+
+
+
+## দুটো key, দুটো কাজ
 
 
 
@@ -36,9 +36,9 @@
 
 |---|---|---|
 
-| `service\_role` (secret) | \*\*Sentinel\*\* আর agent | সব কিছু। RLS এর ওপর খাটে না। এটাই `.env`-এর `SUPABASE\_KEY` |
+| `service_role` (secret) | **Sentinel** আর agent | সব কিছু। RLS এর ওপর খাটে না। এটাই `.env`-এর `SUPABASE_KEY` |
 
-| `anon` (public) | শুধু \*\*Dashboard\*\* | চারটা table \*\*পড়তে\*\* পারে, আর `commands`-এ নতুন `KILL` বা `GO\_ROGUE` (status `pending`) \*\*যোগ\*\* করতে পারে। আর কিছু না |
+| `anon` (public) | শুধু **Dashboard** | চারটা table **পড়তে** পারে, আর `commands`-এ নতুন `KILL` বা `GO_ROGUE` (status `pending`) **যোগ** করতে পারে। আর কিছু না |
 
 
 
@@ -46,21 +46,21 @@
 
 
 
-\## Dashboard নিরাপদ key দিয়ে চালানো
+## Dashboard নিরাপদ key দিয়ে চালানো
 
 
 
-1\. `anon` key নাও: Supabase → \*\*Project Settings → API Keys → "Legacy anon, service\_role API keys"\*\* tab → \*\*`anon` `public`\*\* row → copy।
+1. `anon` key নাও: Supabase → **Project Settings → API Keys → "Legacy anon, service_role API keys"** tab → **`anon` `public`** row → copy।
 
-&#x20;  (নতুন `sb\_publishable\_...` key আমাদের setup-এ `401` দিয়েছিল, তাই legacy `anon` key ব্যবহার করো।)
+   (নতুন `sb_publishable_...` key আমাদের setup-এ `401` দিয়েছিল, তাই legacy `anon` key ব্যবহার করো।)
 
-2\. Dashboard-এর terminal-এ (`.env`-এর `service\_role` key বদলাবে না, শুধু এই terminal-এর জন্য):
+2. Dashboard-এর terminal-এ (`.env`-এর `service_role` key বদলাবে না, শুধু এই terminal-এর জন্য):
 
 
 
 ```
 
-$env:SUPABASE\_KEY="<anon key এখানে>"
+$env:SUPABASE_KEY="<anon key এখানে>"
 
 streamlit run dashboard/app.py
 
@@ -74,27 +74,27 @@ Mac/Linux:
 
 ```
 
-SUPABASE\_KEY="<anon key এখানে>" streamlit run dashboard/app.py
+SUPABASE_KEY="<anon key এখানে>" streamlit run dashboard/app.py
 
 ```
 
 
 
-`python-dotenv` আগে থেকে সেট করা variable বদলায় না, তাই terminal-এর key-ই জেতে। Sentinel অন্য terminal-এ `.env`-এর `service\_role` key দিয়ে চলে।
+`python-dotenv` আগে থেকে সেট করা variable বদলায় না, তাই terminal-এর key-ই জেতে। Sentinel অন্য terminal-এ `.env`-এর `service_role` key দিয়ে চলে।
 
 
 
-\## পরীক্ষা
+## পরীক্ষা
 
 
 
 ```
 
-$env:DASHBOARD\_KEY="<anon key এখানে>"
+$env:DASHBOARD_KEY="<anon key এখানে>"
 
-python db/check\_rls.py
+python db/check_rls.py
 
-Remove-Item Env:DASHBOARD\_KEY
+Remove-Item Env:DASHBOARD_KEY
 
 ```
 
@@ -104,17 +104,17 @@ Remove-Item Env:DASHBOARD\_KEY
 
 
 
-\## কখনো করবে না
+## কখনো করবে না
 
 
 
-\- `service\_role` key dashboard-এ, browser-এ, chat-এ বা GitHub-এ দেবে না।
+- `service_role` key dashboard-এ, browser-এ, chat-এ বা GitHub-এ দেবে না।
 
-\- `.env` কখনো commit করবে না।
+- `.env` কখনো commit করবে না।
 
 
 
-\## কিছু কাজ না করলে
+## কিছু কাজ না করলে
 
 
 
@@ -122,19 +122,19 @@ Remove-Item Env:DASHBOARD\_KEY
 
 |---|---|
 
-| Sentinel-এর data Supabase-এ জমছে না | Sentinel ভুল করে `anon` key পেয়েছে। `.env`-এ `service\_role` key থাকতে হবে |
+| Sentinel-এর data Supabase-এ জমছে না | Sentinel ভুল করে `anon` key পেয়েছে। `.env`-এ `service_role` key থাকতে হবে |
 
 | Dashboard-এ `401` | key কপি করার সময় কিছু কেটে গেছে, বা `...`/space থেকে গেছে |
 
-| Dashboard-এর Kill button কাজ করে না | `anon` শুধু `pending` অবস্থার `KILL` ও `GO\_ROGUE` command যোগ করতে পারে। অন্য কিছু পাঠালে RLS আটকাবে |
+| Dashboard-এর Kill button কাজ করে না | `anon` শুধু `pending` অবস্থার `KILL` ও `GO_ROGUE` command যোগ করতে পারে। অন্য কিছু পাঠালে RLS আটকাবে |
 
-| `check\_rls.py` `FAIL` দেখায় | `security.sql` আবার চালাও, তারপর `check\_rls.py` |
-
-
-
-\## সীমা (জেনে রাখো)
+| `check_rls.py` `FAIL` দেখায় | `security.sql` আবার চালাও, তারপর `check_rls.py` |
 
 
 
-যার কাছে `anon` key আছে সে সব data \*\*পড়তে\*\* পারে। হ্যাকাথনের জন্য এটা ঠিক আছে। তবে সে data মুছতে বা নকল data লিখতে পারবে না।
+## সীমা (জেনে রাখো)
+
+
+
+যার কাছে `anon` key আছে সে সব data **পড়তে** পারে। হ্যাকাথনের জন্য এটা ঠিক আছে। তবে সে data মুছতে বা নকল data লিখতে পারবে না।
 
