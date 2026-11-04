@@ -30,3 +30,10 @@ Demo-র গল্প: **"রাত ৩টার ঘটনা"** (ShopBD-র ৪
 
 নিয়ম: শুধু নিজের folder, নিজের branch (`নাম/কাজ`)। প্রতিদিন ছোট PR, রাত ১০টায় Taseen merge করবে। AI tool-কে প্রথমেই `AGENTS.md` পড়তে বলবে।
 Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draft submit **১৩ নভেম্বর**, final **১৫ নভেম্বর সন্ধ্যা ৬টার মধ্যে**।
+
+## আপডেট: ৪ নভেম্বর রাত (কী বদলাল, Alif-এর পরের কাজ)
+১. পুরো কাজ `main`-এ merge হয়েছে (PR #16), কাল সবাই `main` থেকেই শুরু করবে।
+২. brain এখন আরও শক্ত: ভুল span, ভুল command, অদ্ভুত LLM উত্তর বা agent-এর লেখা কৌশল কোনোটাতেই engine থামে না, ভুলও সিদ্ধান্ত নেয় না (৭৫টা test পাস)।
+৩. প্রতিটা contract-এর জন্য mock আছে (`shared/mocks/README.md`)। mock API এখন আসল API-র মতোই error দেয়, তাই কেউ কারও জন্য আটকে থাকবে না।
+৪. Loop এখন ১৩ সেকেন্ডের বদলে **৩ সেকেন্ডে** ধরা পড়ে। কিন্তু আসল Claude judge এখনো চালানো যায়নি, কারণ cloud session-এ key আর cloudcampbd.com কোনোটাই পৌঁছায়নি।
+৫. **Alif, পরের কাজ:** `.env`-এ key বসিয়ে `python -m brain.judge_bench --judge claude --runs 3 --write` চালাও, `docs/research/judge-eval.md`-এর checklist মেলাও (legit_burst-এ যেন PAUSE না আসে, p50 < ৩ সেকেন্ড), তারপর `alif/judge-eval` branch-এ commit করো।
