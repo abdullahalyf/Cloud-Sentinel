@@ -22,7 +22,7 @@ create table if not exists spans (
     span_id        text not null default '',
     parent_span_id text not null default '',
     agent_id       text not null,
-    operation      text not null,                 -- invoke_agent | chat | execute_tool
+    operation      text not null,                 -- invoke_agent | chat | execute_tool | graph_node
     name           text not null default '',
     provider       text not null default '',
     model          text not null default '',
@@ -40,9 +40,11 @@ create table if not exists spans (
     start_ts       double precision not null default 0,
     end_ts         double precision not null default 0,
     duration_ms    double precision not null default 0,
+    detail         text not null default '{}',    -- JSON; graph_node: {node, step, framework, changed}
     created_at     timestamptz not null default now()
 );
 create index if not exists spans_agent_ts on spans (agent_id, start_ts);
+alter table spans add column if not exists detail text not null default '{}';  -- for databases made before 4 Nov
 
 create table if not exists agent_metrics (
     id             bigint generated always as identity primary key,

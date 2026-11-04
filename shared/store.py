@@ -23,7 +23,7 @@ from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, MemoryC
 
 TABLES = ("agents", "spans", "agent_metrics", "alerts", "verdicts", "actions", "commands",
           "agent_memory", "tool_calls")
-JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args")
+JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail")
 
 
 def _since_iso(minutes: float) -> str:
@@ -91,7 +91,7 @@ class LocalStore:
         agent_id text, operation text, name text, provider text, model text, input_tokens integer,
         output_tokens integer, cost_usd real, tool_name text, tool_args text, prompt_preview text,
         prompt_hash text, task_id text, task_status text, status text, error_type text,
-        start_ts real, end_ts real, duration_ms real, created_at text);
+        start_ts real, end_ts real, duration_ms real, detail text, created_at text);
     create index if not exists spans_agent_ts on spans (agent_id, start_ts);
     create table if not exists agent_metrics (
         id integer primary key autoincrement, agent_id text, state text, tokens_per_min integer,
@@ -127,6 +127,7 @@ class LocalStore:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("pragma journal_mode=wal")  # brain + dashboard + collector at once
         self._conn.executescript(self._SCHEMA)
+        self._migrate()
         self._lock = threading.RLock()
 
     # ── helpers ──
@@ -155,6 +156,13 @@ class LocalStore:
         updates = ", ".join(f"{c}=excluded.{c}" for c in d if c != "agent_id")
         self._exec(f"insert into agents ({cols}) values ({marks}) "
                    f"on conflict(agent_id) do update set {updates}", tuple(d.values()))
+
+    def _migrate(self) -> None:
+        """Add columns that newer contracts introduced to an older data/*.db file (additive only)."""
+        cols = {r[1] for r in self._conn.execute("pragma table_info(spans)")}
+        if "detail" not in cols:
+            self._conn.execute("alter table spans add column detail text")
+            self._conn.commit()
 
     def insert_spans(self, rows: list[SpanRow]) -> None:
         if not rows:

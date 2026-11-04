@@ -12,7 +12,9 @@ def test_sdk_attribute_names_match_contract():
 
     pairs = {"OPERATION": Attr.OPERATION, "INPUT_TOKENS": Attr.INPUT_TOKENS, "OUTPUT_TOKENS": Attr.OUTPUT_TOKENS,
              "TOOL_NAME": Attr.TOOL_NAME, "CS_AGENT_ID": Attr.CS_AGENT_ID, "CS_PROMPT_PREVIEW": Attr.CS_PROMPT_PREVIEW,
-             "CS_TASK_STATUS": Attr.CS_TASK_STATUS, "CS_TOOL_ARGS": Attr.CS_TOOL_ARGS, "REQUEST_MODEL": Attr.REQUEST_MODEL}
+             "CS_TASK_STATUS": Attr.CS_TASK_STATUS, "CS_TOOL_ARGS": Attr.CS_TOOL_ARGS, "REQUEST_MODEL": Attr.REQUEST_MODEL,
+             "CS_NODE": Attr.CS_NODE, "CS_NODE_STEP": Attr.CS_NODE_STEP, "CS_NODE_FRAMEWORK": Attr.CS_NODE_FRAMEWORK,
+             "CS_NODE_STATE_DELTA": Attr.CS_NODE_STATE_DELTA, "CS_NODE_NEXT": Attr.CS_NODE_NEXT}
     for name, value in pairs.items():
         assert getattr(cs, name) == value, name
     assert cs._prompt_hash("Hello  World") == prompt_hash("hello world")

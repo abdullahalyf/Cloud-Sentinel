@@ -9,7 +9,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12", cache: pip }
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -e "telemetry/sdk[langgraph]"
       - run: python -m pytest -q
       - name: Offline smoke test (fake mode boots and serves the API)
         run: |
@@ -17,6 +17,15 @@ jobs:
           for i in $(seq 1 20); do curl -sf localhost:8000/v1/health && break; sleep 1; done
           sleep 15
           curl -sf localhost:8000/v1/fleet | python -c "import json,sys; a=json.load(sys.stdin)['agents']; print(a); assert len(a)==4"
+  adapters:
+    # CrewAI pins mcp<2 (the brain needs mcp>=2), so its adapter is tested in its own environment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -e "telemetry/sdk[crewai]" fastapi httpx PyYAML pytest
+      - run: python -m pytest -q telemetry/tests/test_adapter_crewai.py telemetry/tests/test_sdk_nodes.py
   compose:
     runs-on: ubuntu-latest
     steps:
