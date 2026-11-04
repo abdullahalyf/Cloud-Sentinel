@@ -42,3 +42,12 @@ def test_claude_path_and_error_fallback(cfg):
     j._client = SimpleNamespace(messages=SimpleNamespace(create=boom))
     v = j.judge(ctx())
     assert v.source == "fallback" and "claude unavailable" in v.reason
+
+
+def test_fallback_pauses_a_failing_tool_cycle_early(cfg):
+    c = ctx(rule="tool_cycle")
+    c.tools = [{"tool": "orders_api", "status": "ok"}] + [{"tool": "orders_api", "status": "error"}] * 3
+    v = fallback_verdict(c, cfg)
+    assert v.action == "PAUSE" and v.confidence >= cfg.brain_kill_confidence and v.suggested_fix
+    c.tools[-1] = {"tool": "orders_api", "status": "ok"}  # a healthy cycle that still succeeds → only WARN
+    assert fallback_verdict(c, cfg).action == "WARN"

@@ -6,15 +6,20 @@ Thin layer: validation + brain.service. The engine executes commands on its next
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from brain import service
 from brain.policy import Policy
 from shared.config import Settings
-from shared.contracts import CONTRACT_VERSION
+from shared.contracts import CONTRACT_VERSION, TOOL_DECISIONS
+
+log = logging.getLogger("brain.api")
 
 
 class CommandIn(BaseModel):
@@ -44,9 +49,24 @@ class DecisionIn(BaseModel):
     reason: str = ""
 
 
+def clamp_limit(limit: int, top: int = 1000) -> int:
+    return max(1, min(int(limit), top))
+
+
+def clamp_minutes(minutes: float, top: float = 24 * 60) -> float:
+    return max(0.1, min(float(minutes), top)) if minutes == minutes else 5.0  # NaN → default
+
+
 def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> FastAPI:
     app = FastAPI(title="CloudSentinel C2 API", version=f"contract-{CONTRACT_VERSION}",
                   description="Command & Control for AI agent fleets: observe, pause, heal, kill.")
+
+    @app.exception_handler(RequestValidationError)
+    async def bad_request(_: Request, exc: RequestValidationError) -> JSONResponse:
+        """CONTRACTS §6: client errors are 400 with a readable {"detail": "..."} (not FastAPI's 422 list)."""
+        first = exc.errors()[0] if exc.errors() else {}
+        where = ".".join(str(x) for x in first.get("loc", ()) if x != "body")
+        return JSONResponse({"detail": f"{where}: {first.get('msg', 'invalid request')}"}, status_code=400)
 
     def auth(x_cs_token: str = Header(default="")) -> None:
         if cfg.api_token and x_cs_token != cfg.api_token:
@@ -76,23 +96,23 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
 
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
-        return {"metrics": store.recent_metrics(minutes=minutes, agent_id=agent_id)}
+        return {"metrics": store.recent_metrics(minutes=clamp_minutes(minutes), agent_id=agent_id)}
 
     @app.get("/v1/graph", dependencies=[Depends(auth)])
     def graph(minutes: float = 2) -> dict:
-        return service.graph(store, minutes, cfg.loop_score_threshold)
+        return service.graph(store, clamp_minutes(minutes), cfg.loop_score_threshold)
 
     @app.get("/v1/verdicts", dependencies=[Depends(auth)])
     def verdicts(limit: int = 20) -> dict:
-        return {"items": store.recent_verdicts(limit=limit)}
+        return {"items": store.recent_verdicts(limit=clamp_limit(limit))}
 
     @app.get("/v1/actions", dependencies=[Depends(auth)])
     def actions(limit: int = 50) -> dict:
-        return {"items": store.recent_actions(limit=limit)}
+        return {"items": store.recent_actions(limit=clamp_limit(limit))}
 
     @app.get("/v1/alerts", dependencies=[Depends(auth)])
     def alerts(limit: int = 50) -> dict:
-        return {"items": store.recent_alerts(limit=limit)}
+        return {"items": store.recent_alerts(limit=clamp_limit(limit))}
 
     @app.post("/v1/agents/{agent_id}/commands", dependencies=[Depends(auth)])
     def command(agent_id: str, body: CommandIn) -> dict:
@@ -112,15 +132,17 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
 
     @app.get("/v1/agents/{agent_id}/memory/history", dependencies=[Depends(auth)])
     def memory_history(agent_id: str, limit: int = 10) -> dict:
-        return {"items": store.memory_history(agent_id, limit=limit)}
+        return {"items": store.memory_history(agent_id, limit=clamp_limit(limit, 100))}
 
     @app.post("/v1/agents/{agent_id}/tool-calls", dependencies=[Depends(auth)])
     def tool_call(agent_id: str, body: ToolCallIn) -> dict:
-        return service.request_tool_call(store, policy, agent_id, body.tool_name, body.args, body.value_usd)
+        return call(service.request_tool_call, store, policy, agent_id, body.tool_name, body.args, body.value_usd)
 
     @app.get("/v1/tool-calls", dependencies=[Depends(auth)])
     def tool_calls(status: Optional[str] = None, limit: int = 50) -> dict:
-        return {"items": store.list_tool_calls(status=status, limit=limit)}
+        if status is not None and status not in TOOL_DECISIONS:
+            raise HTTPException(400, f"status must be one of {', '.join(TOOL_DECISIONS)}")
+        return {"items": store.list_tool_calls(status=status, limit=clamp_limit(limit))}
 
     @app.get("/v1/tool-calls/{call_id}", dependencies=[Depends(auth)])
     def get_tool_call(call_id: int) -> dict:
@@ -150,14 +172,21 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
                    "alert": lambda: store.recent_alerts(20), "tool_call": lambda: store.list_tool_calls(limit=20)}
         try:
             while True:
-                for kind, fetch in sources.items():
-                    for row in sorted(fetch(), key=lambda r: r["id"]):
+                try:
+                    batch = {kind: fetch() for kind, fetch in sources.items()}
+                    fleet_rows = service.fleet_view(store)
+                except Exception:  # a store hiccup must not kill the stream; try again next second
+                    log.exception("stream: store read failed")
+                    await asyncio.sleep(1.0)
+                    continue
+                for kind, rows in batch.items():
+                    for row in sorted(rows, key=lambda r: r["id"]):
                         if row["id"] > seen[kind]:
                             seen[kind] = row["id"]
                             await ws.send_json({"type": kind, "data": row})
-                await ws.send_json({"type": "metric", "data": service.fleet_view(store)})
+                await ws.send_json({"type": "metric", "data": fleet_rows})
                 await asyncio.sleep(1.0)
-        except WebSocketDisconnect:
+        except (WebSocketDisconnect, RuntimeError):  # client went away mid-send
             return
 
     return app

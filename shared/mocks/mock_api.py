@@ -7,22 +7,31 @@ Used by: dashboard (Tamjid) and MCP development. Shapes come from shared.contrac
 shared/tests/test_api_parity.py checks they match the real API.
 States cycle every ~60 s so every UI state can be seen: beta loops → paused, gamma → killed,
 delta has a pending refund approval.
+
+It behaves like the real API where a client could notice: the same 400/404/409 errors, commands
+change the agent's state for OVERRIDE_SECONDS (so a Pause button visibly works), tool calls follow
+brain/policies.yaml (a 50,000 refund is held as `pending`), memory keeps every version, and
+WS /v1/stream pushes events.
 """
 from __future__ import annotations
 
+import asyncio
 import math
 import random
 import time
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
-from shared.contracts import (CONTRACT_VERSION, ROI_FORMULA, ActionRow, AlertRow, MetricRow, ToolCallRow,
-                              VerdictRow, agent_view, utc_now_iso)
+from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, ROGUE_KINDS, ROI_FORMULA, TOOL_DECISIONS, ActionRow,
+                              AlertRow, MetricRow, ToolCallRow, VerdictRow, agent_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
 T0 = time.time()
+OVERRIDE_SECONDS = 20.0
+OVERRIDES: dict[str, tuple[str, float]] = {}   # agent → (state, until) set by commands
+COMMAND_STATE = {"PAUSE": "paused", "KILL": "killed", "RESUME": "probation", "RESTART": "probation"}
 
 
 def _phase() -> float:
@@ -30,6 +39,9 @@ def _phase() -> float:
 
 
 def _state(agent: str) -> str:
+    forced = OVERRIDES.get(agent)
+    if forced and time.time() < forced[1]:
+        return forced[0]
     p = _phase()
     if agent == "beta":
         return "healthy" if p < 15 else "suspicious" if p < 22 else "paused" if p < 40 else "probation" if p < 50 else "healthy"
@@ -59,16 +71,31 @@ def _verdict() -> dict:
                       812.0).to_row() | {"id": 1}
 
 
-MEMORY: dict[str, dict] = {"beta": {"id": 1, "agent_id": "beta", "version": 1, "edited_by": "agent", "reason": "",
-                                    "content": {"order_4471": "orders API returned 500 - retry until success"},
-                                    "created_at": utc_now_iso()}}
-TOOL_CALLS: dict[int, dict] = {1: ToolCallRow("delta", "issue_refund", {"order_id": 4471, "amount": 50000},
-                                              "pending", {}, "", "refunds over 5,000 BDT need a human", 410.0)
-                               .to_row() | {"id": 1, "args": {"order_id": 4471, "amount": 50000}, "final_args": {}}}
+MEMORY: dict[str, list[dict]] = {}
+TOOL_CALLS: dict[int, dict] = {}
 COMMANDS: list[dict] = []
-ACTIONS: list[dict] = [ActionRow("beta", "PAUSE", "claude", "semantic loop on order 4471", 2.52, 210000).to_row() | {"id": 2},
-                       ActionRow("gamma", "KILL", "rules", "Hard limit: 80,816 tokens/min", 129.6, 4800000).to_row() | {"id": 1}]
-ALERTS: list[dict] = [AlertRow("beta", "warning", "loop_semantic,injection", "semantic loop score 0.85").to_row() | {"id": 1}]
+ACTIONS: list[dict] = []
+ALERTS: list[dict] = []
+
+
+def seed() -> None:
+    """(Re)fill the fake data in place. Called at import and by POST /v1/mock/reset (and tests)."""
+    for coll in (MEMORY, TOOL_CALLS, COMMANDS, ACTIONS, ALERTS, OVERRIDES):
+        coll.clear()
+    BUDGETS.update({"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2})
+    MEMORY["beta"] = [{"id": 1, "agent_id": "beta", "version": 1, "edited_by": "agent", "reason": "",
+                       "created_at": utc_now_iso(),
+                       "content": {"order_4471": "orders API returned 500 - retry until success"}}]
+    TOOL_CALLS[1] = ToolCallRow("delta", "issue_refund", {"order_id": 4471, "amount": 50000}, "pending", {}, "",
+                                "refunds over 5,000 BDT need a human", 410.0).to_row() | {
+        "id": 1, "args": {"order_id": 4471, "amount": 50000}, "final_args": {}}
+    ACTIONS.extend([
+        ActionRow("beta", "PAUSE", "claude", "semantic loop on order 4471", 2.52, 210000).to_row() | {"id": 2},
+        ActionRow("gamma", "KILL", "rules", "Hard limit: 80,816 tokens/min", 129.6, 4800000).to_row() | {"id": 1}])
+    ALERTS.append(AlertRow("beta", "warning", "loop_semantic,injection", "semantic loop score 0.85").to_row() | {"id": 1})
+
+
+seed()
 
 
 def _fleet() -> list[dict]:
@@ -101,7 +128,7 @@ def agent(agent_id: str) -> dict:
     if view is None:
         raise HTTPException(404, f"agent {agent_id} not found")
     return {"agent": view, "spans": [], "verdicts": [_verdict()] if agent_id == "beta" else [],
-            "memory": MEMORY.get(agent_id)}
+            "memory": _latest_memory(agent_id)}
 
 
 @app.get("/v1/metrics")
@@ -141,68 +168,162 @@ def alerts(limit: int = 50) -> dict:
     return {"items": ALERTS[:limit]}
 
 
+def _bad(status: int, detail: str):
+    raise HTTPException(status, detail)
+
+
+def _action(agent_id: str, action: str, actor: str, reason: str, usd: float = 0.0) -> None:
+    ACTIONS.insert(0, ActionRow(agent_id, action, actor, reason, usd).to_row() | {"id": len(ACTIONS) + 1})
+
+
 @app.post("/v1/agents/{agent_id}/commands")
 def command(agent_id: str, body: dict[str, Any]) -> dict:
+    cmd = str(body.get("command", "")).upper()
+    params = body.get("params") or {}
+    if cmd not in COMMAND_TYPES:
+        _bad(400, f"unknown command {cmd}; use one of {', '.join(COMMAND_TYPES)}")
+    if cmd == "SET_BUDGET":
+        try:
+            if float(params.get("budget_usd", -1)) <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            _bad(400, "SET_BUDGET needs params.budget_usd > 0")
+        BUDGETS[agent_id] = float(params["budget_usd"])
+    if cmd == "GO_ROGUE" and params.get("kind", "paraphrase_loop") not in ROGUE_KINDS:
+        _bad(400, f"kind must be one of {ROGUE_KINDS}")
     COMMANDS.append({"id": len(COMMANDS) + 1, "agent_id": agent_id, **body})
-    ACTIONS.insert(0, ActionRow(agent_id, body.get("command", "?"), "human", body.get("reason", "")).to_row()
-                   | {"id": len(ACTIONS) + 1})
+    if cmd in COMMAND_STATE and agent_id in AGENTS:
+        OVERRIDES[agent_id] = (COMMAND_STATE[cmd], time.time() + OVERRIDE_SECONDS)
+    actor = "mcp" if body.get("requested_by") == "mcp" else "human"
+    _action(agent_id, cmd, actor, body.get("reason") or f"{cmd.lower()} (mock)", 2.52 if cmd in ("PAUSE", "KILL") else 0)
     return {"id": len(COMMANDS), "status": "pending"}
+
+
+def _latest_memory(agent_id: str) -> Optional[dict]:
+    versions = MEMORY.get(agent_id)
+    return versions[-1] if versions else None
 
 
 @app.get("/v1/agents/{agent_id}/memory")
 def get_memory(agent_id: str) -> dict:
-    if agent_id not in MEMORY:
-        raise HTTPException(404, f"no memory for {agent_id}")
-    return MEMORY[agent_id]
+    mem = _latest_memory(agent_id)
+    if mem is None:
+        _bad(404, f"no memory for {agent_id}")
+    return mem
 
 
 @app.put("/v1/agents/{agent_id}/memory")
 def put_memory(agent_id: str, body: dict[str, Any]) -> dict:
-    old = MEMORY.get(agent_id, {"version": 0})
-    if body.get("base_version") is not None and body.get("edited_by") == "agent" and old["version"] > body["base_version"]:
-        raise HTTPException(409, "memory changed by a human; reload it first")
-    MEMORY[agent_id] = {"id": old["version"] + 1, "agent_id": agent_id, "version": old["version"] + 1,
-                        "content": body.get("content", {}), "edited_by": body.get("edited_by", "human"),
-                        "reason": body.get("reason", ""), "created_at": utc_now_iso()}
-    return MEMORY[agent_id]
+    content, edited_by, base = body.get("content"), body.get("edited_by", "human"), body.get("base_version")
+    if not isinstance(content, dict):
+        _bad(400, "memory content must be a JSON object")
+    if edited_by not in ("agent", "human", "mcp"):
+        _bad(400, "edited_by must be one of agent, human, mcp")
+    versions = MEMORY.setdefault(agent_id, [])
+    last = versions[-1]["version"] if versions else 0
+    newer_by_others = [v for v in versions if base is not None and v["version"] > base and v["edited_by"] != "agent"]
+    if edited_by == "agent" and newer_by_others:
+        _bad(409, "memory changed by a human; reload it first")
+    row = {"id": sum(len(v) for v in MEMORY.values()) + 1, "agent_id": agent_id, "version": last + 1,
+           "content": content, "edited_by": edited_by, "reason": body.get("reason", ""), "created_at": utc_now_iso()}
+    versions.append(row)
+    if edited_by in ("human", "mcp"):
+        _action(agent_id, "MEMORY_EDIT", edited_by, body.get("reason") or "memory edited")
+    return row
 
 
 @app.get("/v1/agents/{agent_id}/memory/history")
 def memory_history(agent_id: str, limit: int = 10) -> dict:
-    return {"items": [MEMORY[agent_id]] if agent_id in MEMORY else []}
+    return {"items": list(reversed(MEMORY.get(agent_id, [])))[:max(1, limit)]}
+
+
+def _policy(tool_name: str, args: dict) -> tuple[str, str]:
+    """Same decision as the real brain (brain/policies.yaml); allow-all if the brain isn't importable."""
+    try:
+        from brain.policy import Policy
+
+        return Policy.load("brain/policies.yaml").decide_tool(tool_name, args)
+    except Exception:
+        return "allow", "mock allows everything"
 
 
 @app.post("/v1/agents/{agent_id}/tool-calls")
 def tool_call(agent_id: str, body: dict[str, Any]) -> dict:
+    name, args = str(body.get("tool_name") or "").strip(), body.get("args") or {}
+    if not name:
+        _bad(400, "tool_name is required")
+    action, reason = _policy(name, args)
+    if _state(agent_id) in ("paused", "killed"):
+        action, reason = "deny", f"agent is {_state(agent_id)} by CloudSentinel"
+    decision = {"allow": "allow", "deny": "deny"}.get(action, "pending")
     cid = max(TOOL_CALLS) + 1
-    TOOL_CALLS[cid] = ToolCallRow(agent_id, body["tool_name"], body.get("args", {}), "allow", body.get("args", {}),
-                                  "policy", "mock allows everything", body.get("value_usd") or 0).to_row() | {
-        "id": cid, "args": body.get("args", {}), "final_args": body.get("args", {})}
+    TOOL_CALLS[cid] = ToolCallRow(agent_id, name, args, decision, args if decision == "allow" else {},
+                                  "policy" if decision != "pending" else "", reason,
+                                  float(body.get("value_usd") or 0)).to_row() | {
+        "id": cid, "args": args, "final_args": args if decision == "allow" else {}}
     return TOOL_CALLS[cid]
 
 
 @app.get("/v1/tool-calls")
 def tool_calls(status: Optional[str] = None, limit: int = 50) -> dict:
-    return {"items": [c for c in TOOL_CALLS.values() if status is None or c["decision"] == status][:limit]}
+    if status is not None and status not in TOOL_DECISIONS:
+        _bad(400, f"status must be one of {', '.join(TOOL_DECISIONS)}")
+    rows = sorted(TOOL_CALLS.values(), key=lambda c: -c["id"])
+    return {"items": [c for c in rows if status is None or c["decision"] == status][:max(1, limit)]}
 
 
 @app.get("/v1/tool-calls/{call_id}")
 def get_tool_call(call_id: int) -> dict:
     if call_id not in TOOL_CALLS:
-        raise HTTPException(404, "not found")
+        _bad(404, f"tool call {call_id} not found")
     return TOOL_CALLS[call_id]
 
 
 @app.post("/v1/tool-calls/{call_id}/decision")
 def decide(call_id: int, body: dict[str, Any]) -> dict:
+    decision, final_args = str(body.get("decision", "")).lower(), body.get("final_args")
+    if decision not in ("allow", "deny", "rewrite"):
+        _bad(400, "decision must be allow, deny or rewrite")
+    if body.get("decided_by", "human") not in ("human", "mcp"):
+        _bad(400, "decided_by must be one of human, mcp")
+    if decision == "rewrite" and not isinstance(final_args, dict):
+        _bad(400, "rewrite needs final_args (the new arguments)")
     call = TOOL_CALLS.get(call_id)
     if call is None:
-        raise HTTPException(404, "not found")
+        _bad(404, f"tool call {call_id} not found")
     if call["decision"] != "pending":
-        raise HTTPException(409, "already decided")
-    call.update(decision=body["decision"], final_args=body.get("final_args") or call["args"],
-                decided_by=body.get("decided_by", "human"), reason=body.get("reason", ""), decided_at=utc_now_iso())
+        _bad(409, f"tool call {call_id} already decided: {call['decision']}")
+    final = final_args if decision == "rewrite" else call["args"] if decision == "allow" else {}
+    call.update(decision=decision, final_args=final, decided_by=body.get("decided_by", "human"),
+                reason=body.get("reason", ""), decided_at=utc_now_iso())
+    _action(call["agent_id"], f"TOOL_{decision.upper()}", call["decided_by"], f"{call['tool_name']}: {decision}",
+            call["value_usd"] if decision == "deny" else 0)
     return call
+
+
+@app.post("/v1/mock/reset")
+def mock_reset() -> dict:
+    """Mock only (not in the contract): back to the seeded data (pending refund, beta's bad memory)."""
+    seed()
+    return {"ok": True}
+
+
+@app.websocket("/v1/stream")
+async def stream(ws: WebSocket) -> None:
+    await ws.accept()
+    seen = {"action": 0, "verdict": 0, "alert": 0, "tool_call": 0}
+    try:
+        while True:
+            sources = {"action": ACTIONS, "verdict": [_verdict()], "alert": ALERTS, "tool_call": list(TOOL_CALLS.values())}
+            for kind, rows in sources.items():
+                for row in sorted(rows, key=lambda r: r["id"]):
+                    if row["id"] > seen[kind]:
+                        seen[kind] = row["id"]
+                        await ws.send_json({"type": kind, "data": row})
+            await ws.send_json({"type": "metric", "data": _fleet()})
+            await asyncio.sleep(1.0)
+    except (WebSocketDisconnect, RuntimeError):
+        return
 
 
 @app.get("/v1/roi")

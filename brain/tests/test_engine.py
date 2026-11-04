@@ -12,7 +12,7 @@ def test_paraphrase_loop_paused_then_healed(sim):
     sim.fleet.go_rogue("beta", "paraphrase_loop", sim.now)
     sim.run(25)
     assert sim.state("beta") == "paused"
-    assert sim.store.recent_verdicts(1, agent_id="beta")[0]["pattern"] == "semantic_loop"
+    assert sim.store.recent_verdicts(1, agent_id="beta")[0]["pattern"] in ("semantic_loop", "infinite_loop")
     sim.run(3)
     assert sim.state("alpha") == "healthy"
     # heal: fix the bad belief, resume → probation → healthy

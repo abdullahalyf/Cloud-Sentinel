@@ -3,6 +3,8 @@ Per-agent sliding windows: turns raw spans into numbers. Pure Python, no I/O.
 """
 from __future__ import annotations
 
+import math
+import time
 from collections import Counter, deque
 from dataclasses import asdict, dataclass
 
@@ -11,6 +13,15 @@ from brain import loops
 RATE_WINDOW = 15.0    # seconds for tokens/min and $/min (short = reacts fast)
 CALLS_WINDOW = 5.0    # seconds for calls/sec
 LOOP_WINDOW = 60.0    # seconds kept for loop detection
+
+
+def _num(value) -> float:
+    """float(value), or 0.0 for None / text / NaN / inf / negative numbers."""
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return v if math.isfinite(v) and v > 0 else 0.0
 
 
 @dataclass
@@ -52,13 +63,18 @@ class AgentWindow:
         self.last_seen = 0.0
 
     def add(self, span: dict) -> None:
+        """Numbers are coerced first, so one broken span (None/"abc" tokens, no timestamp) can't poison the window."""
         op = span.get("operation")
-        ts = float(span.get("start_ts") or 0)
+        ts = _num(span.get("start_ts"))
+        if ts <= 0:  # missing/broken timestamp: treat it as "just now"
+            ts = self.last_seen or time.time()
+        span = {**span, "start_ts": ts, "input_tokens": int(_num(span.get("input_tokens"))),
+                "output_tokens": int(_num(span.get("output_tokens"))), "cost_usd": _num(span.get("cost_usd"))}
         self.last_seen = max(self.last_seen, ts)
-        self.spend_usd += float(span.get("cost_usd") or 0)
+        self.spend_usd += span["cost_usd"]
         if op == "chat":
             self.chats.append(span)
-            self.total_tokens += int(span.get("input_tokens") or 0) + int(span.get("output_tokens") or 0)
+            self.total_tokens += span["input_tokens"] + span["output_tokens"]
         elif op == "execute_tool":
             self.tools.append(span)
 

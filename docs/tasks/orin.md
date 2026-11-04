@@ -135,3 +135,18 @@ Rehearse the live demo 3 times with a timer.
 ## Buffer (13–15 Nov)
 Record and edit the video (OBS for recording, any free editor), upload it to YouTube as **Unlisted**,
 and add a thumbnail. Make sure it's under 5 minutes.
+
+---
+
+## ⚠️ Notes from the lead review (Wed 4 Nov), read before Day 1
+1. **The benchmark numbers changed.** The brain now catches the paraphrase loop at its first failing tool cycle:
+   `python -m eval.harness` shows **3 s to detect, $2.25 saved** (it was 13 s / $6.30). Use the new numbers
+   in the deck. "Saved" is lower because we stop the agent sooner, which is a good thing. Say "caught in 3 s".
+2. A second benchmark exists for the judge only: `python -m brain.judge_bench` → `docs/research/judge-eval.md`.
+   It includes a **false-positive case** (`legit_burst`). Add a matching harness scenario on Day 4: a busy
+   healthy agent must get "no action".
+3. QA checklist additions:
+   - (a) In Claude Desktop, pause/resume/kill/edit-memory/decide now **ask for confirmation**, because they are marked destructive. Write that as the expected result.
+   - (b) A command for a misspelled agent (`alpah`) must fail, and no new agent card may appear.
+   - (c) A rewrite with no new arguments must show an error.
+4. `value_usd` that is negative or NaN is now stored as 0, so ROI can't be inflated by a bad agent.

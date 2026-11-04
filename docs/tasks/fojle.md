@@ -164,3 +164,21 @@ Fix the GitHub issues labelled `telemetry`. No new features.
 Write the **Data & AI provenance** text for the submission in `docs/PROVENANCE.md`: we use
 synthetic data only, which models we call (Claude Haiku 5.5, optional Gemini), and which open-source
 libraries we use (licences from `requirements.txt`).
+
+---
+
+## ⚠️ Notes from the lead review (Wed 4 Nov), read before Day 1
+1. **The refund can slip through if the API is down.** In `telemetry/simulators/agent.py` the `bad_tool_call`
+   branch calls `cs.tool("issue_refund", ...)` **without `fail_closed=True`**. The SDK fails open, so if the
+   brain is unreachable the 50,000 refund "runs". Add `fail_closed=True` there, and in the Task 5.1 prompt,
+   and to every money-moving tool in `real_agent.py`. In the demo, this is exactly the question a judge will ask.
+2. **Clock skew hides agents.** The brain only looks at spans whose `start_ts` is within the last 60 s.
+   If an external agent's clock is more than a minute behind, its spans are dropped from the loop window,
+   so it is never caught. In `telemetry/collector/normalize.py`, consider: if `start_ts` is more than 30 s
+   away from the collector's clock, use the receive time and add the attribute `cloudsentinel.clock_skew_s`.
+   That's your call, but add a test either way.
+3. The brain now **skips spans with an empty `agent_id`**, and a malformed span (bad token count, missing
+   timestamp) can no longer break an agent's window. So the `service.name` fallback (Task 3.1 test 4) is
+   what keeps external agents visible. Don't drop it.
+4. `SupabaseStore.write_memory` (Day 4) must raise `MemoryConflict` exactly like LocalStore. The mock API
+   now has the same conflict rule, and `shared/tests/test_api_parity.py` checks it.

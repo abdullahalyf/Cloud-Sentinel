@@ -14,7 +14,22 @@ Your job is to **harden, tune and demo-polish** it, and to own integration quali
 
 ---
 
+## Done on Wed 4 Nov (lead session), so start from here
+- **Hardening:**
+  - The judge can't be broken by agent text that closes our tags, by NaN confidence, or by cut-off or empty replies.
+  - Malformed spans are skipped.
+  - Commands for unknown agents fail instead of creating ghosts.
+  - The service validates actors, sizes and rewrites, and the API returns contract 400s.
+  - Tests: `brain/tests/test_hardening.py`, `test_mcp.py`.
+- **Mocks:** the mock API now matches the real API's errors and flows (`shared/mocks/README.md`).
+- **Tuning:** a failing tool cycle → PAUSE, so loops are caught in 3 s instead of 13 s. Prompt tuned (`docs/research/judge-eval.md`).
+- **Not done:** the real Claude run. The key isn't visible in that cloud session.
+
 ## Day 1 (Thu 5 Nov): judge live + tune the semantic loop
+**First:** put `ANTHROPIC_API_KEY` in `.env` (or open a new cloud session), then run
+`python -m brain.judge_bench --judge claude --runs 3 --write` and go through the checklist at the bottom of
+`docs/research/judge-eval.md` (no PAUSE on `legit_burst`, p50 < 3 s, zero `fallback` sources). Commit the
+table on `alif/judge-eval`.
 > Prompt (Claude Code):
 > *Read AGENTS.md, docs/ARCHITECTURE.md §5 and brain/loops.py, brain/judge.py. With
 > ANTHROPIC_API_KEY set, run `python -m brain --fake -v` and the eval harness `python -m
