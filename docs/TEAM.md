@@ -23,10 +23,10 @@ python scripts/check_setup.py
 
 চালিয়ে দেখো:
 ```bash
-python -m sentinel --fake          # এই terminal খোলা রাখো
+python -m brain --fake             # এই terminal খোলা রাখো
 streamlit run dashboard/app.py     # নতুন একটা terminal-এ (সেখানেও আগে activate করে নিও)
 ```
-Browser-এ dashboard খুলবে। ২০ সেকেন্ড পর "beta" rogue হবে, আর কয়েক সেকেন্ডের মধ্যে 💀 হয়ে যাবে। এটাই আমাদের পুরো demo।
+Browser-এ dashboard খুলবে। ২০ সেকেন্ড পর "beta" rogue হবে, আর কয়েক সেকেন্ডের মধ্যে 🟡 PAUSED হয়ে যাবে। এটাই আমাদের পুরো demo।
 
 ## ৩. প্রতিদিন কাজ করার নিয়ম (Git)
 `main` branch-এ কেউ সরাসরি কাজ করবে না। প্রত্যেকে নিজের branch-এ কাজ করবে, শেষ হলে Pull Request খুলবে, Taseen review করে merge করবেন।
@@ -52,7 +52,7 @@ git push -u origin fojle/rogue-agent
 ## ৪. AI tool দিয়ে কাজ করার নিয়ম
 যেকোনো AI tool-কে (Codex, AntiGravity, Puku) প্রথম message-এ এটা দেবে:
 
-> Read AGENTS.md and the "<তোমার নাম>" section of docs/TASKS.md first. Then do task <নম্বর>.
+> Read AGENTS.md, docs/CONTRACTS.md and docs/tasks/<তোমার নাম>.md first. Then do task <নম্বর>.
 > Only edit files in the folders I own. Run `python -m pytest -q` before you finish
 > and tell me which files you changed and how to test it by hand.
 

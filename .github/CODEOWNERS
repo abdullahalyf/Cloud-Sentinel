@@ -1,0 +1,20 @@
+# Every PR needs approval from the owner of the folder it touches.
+# Alif = @abdullahalyf · Taseen = @irfanulhoquetaseen · Tamjid = @tamjidul04
+# Fojle = @mdfojlerabby4 · Orin = @anika-322-orin
+
+*                       @irfanulhoquetaseen
+/brain/                 @abdullahalyf
+/infra/                 @irfanulhoquetaseen
+/.github/               @irfanulhoquetaseen
+/docker-compose.yml     @irfanulhoquetaseen
+/dashboard/             @tamjidul04
+/telemetry/             @mdfojlerabby4
+/eval/                  @anika-322-orin
+/shared/                @abdullahalyf @irfanulhoquetaseen
+/shared/store.py        @abdullahalyf @irfanulhoquetaseen @mdfojlerabby4
+/docs/CONTRACTS.md      @abdullahalyf @irfanulhoquetaseen
+/docs/ARCHITECTURE.md   @abdullahalyf @irfanulhoquetaseen
+/docs/tasks/fojle.md    @mdfojlerabby4 @irfanulhoquetaseen
+/docs/tasks/orin.md     @anika-322-orin @irfanulhoquetaseen
+/docs/tasks/tamjid.md   @tamjidul04 @irfanulhoquetaseen
+/docs/tasks/alif.md     @abdullahalyf @irfanulhoquetaseen

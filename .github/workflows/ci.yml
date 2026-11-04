@@ -1,0 +1,24 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - name: Offline smoke test (fake mode boots and serves the API)
+        run: |
+          python -m brain --fake --rogue-after 3 &
+          for i in $(seq 1 20); do curl -sf localhost:8000/v1/health && break; sleep 1; done
+          sleep 15
+          curl -sf localhost:8000/v1/fleet | python -c "import json,sys; a=json.load(sys.stdin)['agents']; print(a); assert len(a)==4"
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config -q

@@ -1,55 +1,72 @@
-# The 3 "AI agents" of our fake company.
-#   Start:  docker compose up -d --build
-#   Reset after a demo (bring killed agents back):  docker compose up -d --force-recreate
+# CloudSentinel: the whole stack in Docker.   Owner: Taseen.
+#   Start:  docker compose up -d --build        → dashboard http://localhost:8501 · API http://localhost:8000/docs
+#   Demo:   python scripts/demo.py rogue beta paraphrase_loop
+#   Reset:  python scripts/demo.py reset   (or: docker compose up -d --force-recreate)
 #   Stop:   docker compose down
 #
-# Pick HOW an agent goes rogue without editing this file (PowerShell example):
-#   $env:BETA_ROGUE_TYPE="paraphrase_loop"; docker compose up -d --force-recreate
-# Options: loop | token_bomb | memory_leak | paraphrase_loop
-# Defaults: alpha=loop, beta=token_bomb, gamma=memory_leak
-#
-# The sentinel itself runs on the laptop (python -m sentinel), not in a container.
-# Every agent MUST have the label cloudsentinel.monitor=true or the sentinel ignores it.
+# The brain controls the agent containers through the Docker socket (pause/unpause/kill/start).
+# Every agent MUST have the label cloudsentinel.monitor=true or the brain ignores it.
+
+x-app: &app
+  build: { context: ., dockerfile: infra/docker/app.Dockerfile }
+  image: cloudsentinel-app
+  env_file: [{ path: .env, required: false }]
+  volumes: [csdata:/app/data]
 
 x-agent: &agent
-  build:
-    context: .
-    dockerfile: agents/Dockerfile
+  build: { context: ., dockerfile: infra/docker/agent.Dockerfile }
   image: cloudsentinel-agent
-  mem_limit: 512m        # memory % in the dashboard is measured against this
-  restart: "no"          # a killed agent must stay dead
+  mem_limit: 512m          # memory % is measured against this
+  restart: "no"            # a killed agent must stay dead until RESTART
+  depends_on: [collector, brain]
 
 services:
+  collector:
+    <<: *app
+    command: ["python", "-m", "telemetry.collector"]
+    ports: ["4318:4318"]
+
+  brain:
+    <<: *app
+    command: ["python", "-m", "brain"]
+    environment: { EXECUTOR: docker }
+    ports: ["8000:8000"]
+    volumes: [csdata:/app/data, /var/run/docker.sock:/var/run/docker.sock]
+
+  dashboard:
+    <<: *app
+    command: ["streamlit", "run", "dashboard/app.py", "--server.address=0.0.0.0", "--server.headless=true"]
+    environment: { CS_API_URL: "http://brain:8000" }
+    ports: ["8501:8501"]
+    depends_on: [brain]
+
   agent-alpha:
     <<: *agent
     container_name: agent-alpha
-    environment:
-      AGENT_NAME: alpha
+    environment: &agent-env
+      CS_AGENT_ID: alpha
       ROGUE_TYPE: ${ALPHA_ROGUE_TYPE:-loop}
-    labels:
-      cloudsentinel.monitor: "true"
-      cloudsentinel.agent_name: alpha
-      cloudsentinel.token_budget: "150000"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://collector:4318
+      CS_API_URL: http://brain:8000
+    labels: { cloudsentinel.monitor: "true", cloudsentinel.agent_id: alpha }
 
   agent-beta:
     <<: *agent
     container_name: agent-beta
-    environment:
-      AGENT_NAME: beta
-      ROGUE_TYPE: ${BETA_ROGUE_TYPE:-token_bomb}
-    labels:
-      cloudsentinel.monitor: "true"
-      cloudsentinel.agent_name: beta
-      cloudsentinel.token_budget: "150000"
+    environment: { <<: *agent-env, CS_AGENT_ID: beta, ROGUE_TYPE: "${BETA_ROGUE_TYPE:-paraphrase_loop}" }
+    labels: { cloudsentinel.monitor: "true", cloudsentinel.agent_id: beta }
 
   agent-gamma:
     <<: *agent
     container_name: agent-gamma
-    environment:
-      AGENT_NAME: gamma
-      ROGUE_TYPE: ${GAMMA_ROGUE_TYPE:-memory_leak}
-      LEAK_CAP_MB: "440"   # keep below mem_limit (512m) so the leak is caught, not OOM-killed
-    labels:
-      cloudsentinel.monitor: "true"
-      cloudsentinel.agent_name: gamma
-      cloudsentinel.token_budget: "150000"
+    environment: { <<: *agent-env, CS_AGENT_ID: gamma, ROGUE_TYPE: "${GAMMA_ROGUE_TYPE:-token_bomb}" }
+    labels: { cloudsentinel.monitor: "true", cloudsentinel.agent_id: gamma }
+
+  agent-delta:
+    <<: *agent
+    container_name: agent-delta
+    environment: { <<: *agent-env, CS_AGENT_ID: delta, ROGUE_TYPE: "${DELTA_ROGUE_TYPE:-bad_tool_call}", LEAK_CAP_MB: "440" }
+    labels: { cloudsentinel.monitor: "true", cloudsentinel.agent_id: delta }
+
+volumes:
+  csdata:
