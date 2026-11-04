@@ -42,3 +42,10 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 - LangGraph/CrewAI adapter, live graph feed, per-task ROI আর Phoenix export এখন `main`-এ (PR #18, squash merge)। কাল সবাই `main` থেকে শুরু করবে।
 - ⛔ **আটকে আছে ১:** cloudcampbd.com এই cloud session থেকে এখনো খোলে না (DNS/proxy 403)। তাই Winning Signal আর আসল deadline মেলানো যায়নি। **Taseen:** platform থেকে হাতে কপি করে `docs/DECISION.md` §6-এ বসাও, অথবা নতুন session খোলো যেখানে domain-টা allowed।
 - ⛔ **আটকে আছে ২:** এই container-এ `ANTHROPIC_API_KEY` নেই, তাই আসল Claude judge চালানো যায়নি। **Taseen:** key-টা cloud environment-এর secret আর GitHub Actions secret (`ANTHROPIC_API_KEY`) হিসেবে বসাও। তারপর Alif-এর agent নিজেই `alif.md`-এর A1 task চালাবে।
+
+## আপডেট: ৪ নভেম্বর রাত (৩): পরের ধাপের প্রস্তুতি
+১. সবার task file নতুন করে সাজানো হয়েছে: 🔴 MUST → 🟡 SHOULD → 🟢 STRETCH। প্রতিটা কাজে Codex/Antigravity-র জন্য prompt আর "Done when" আছে।
+২. Tamjid এখন React + Vite দিয়ে আসল web dashboard বানাবে। আগে `docs/DESIGN.md` লিখবে, প্রতিদিন screenshot review করবে। Streamlit থাকবে শুধু backup।
+৩. Alif-এর কাজ এখন পুরোটাই autonomous Codex agent করবে (`AGENTS.md` → "Alif's agent loop", `docs/tasks/alif.md` A0–A15)। প্রতিটা কাজের পর এখানে ৩ লাইন লিখবে।
+৪. প্রতি রাত ১টায় (BST) nightly CI পুরো test, E2E/chaos আর benchmark চালাবে। কিছু ভাঙলে `nightly` label দিয়ে issue খুলবে।
+৫. নতুন session বা নতুন মানুষ শুরু করবে `docs/HANDOFF.md` থেকে। group chat-এর জন্য ছোট brief আছে `docs/TEAM_BRIEF_BN.md`-এ।
