@@ -1,60 +1,90 @@
 # 🛡️ CloudSentinel
 
-AI agent-দের জন্য **circuit breaker**। কোনো agent loop-এ আটকে গেলে, টাকা (token) উড়াতে থাকলে বা RAM খেয়ে ফেলতে থাকলে CloudSentinel নিজে থেকেই সেই container kill করে দেয়।
+**The circuit breaker and control tower for AI agent fleets.**
+CloudSentinel watches every agent through OpenTelemetry. When an agent loops, overspends or tries a
+dangerous tool call, it **pauses, heals or kills** it within seconds, from *outside* the agent so a
+broken agent can't bypass it. Then it shows you how much money that saved.
 
-## এটা কীভাবে কাজ করে (৩০ সেকেন্ডে)
+> AgentOps tools are the black-box recorder. CloudSentinel is the circuit breaker.
+
+Built for the **International AI Builders Congress 2026 · InfraSphere AI · AgentOps** challenge.
 
 ```
- ┌───────────── Docker ─────────────┐
- │  agent-alpha  agent-beta  agent-gamma │   ← Fojle: প্রতিটা "AI call" stdout-এ JSON লাইন হিসেবে লেখে
- └──────────────┬───────────────────┘
-                │ logs + memory
-                ▼
- ┌──────────── SENTINEL (Alif) ────────────┐
- │ collector → numbers (tokens/min, loop)  │
- │ detector  → OK / SUSPICIOUS / CRITICAL   │
- │   CRITICAL   → সাথে সাথে KILL (AI লাগে না)  │
- │   SUSPICIOUS → Claude-কে জিজ্ঞেস করে      │
- │                KILL / WARN / IGNORE      │
- └──────────────┬──────────────────────────┘
-                │ metrics, alerts, actions
-                ▼
-        DATABASE (Supabase / local SQLite)   ← Fojle
-                ▲              │
-   KILL command │              │ পড়ে
-                │              ▼
- ┌──────── DASHBOARD (Tamjid) ────────┐
- │ token flow chart, alerts, 🛑 KILL   │
- └────────────────────────────────────┘
+ agents (any framework) ──OTel GenAI spans──▶ collector :4318 ──▶ store ◀── brain: rules → semantic loop → Claude judge
+        ▲   │ tool gate · memory                                                    │ breaker FSM · policy-as-code
+        │   └──────────────▶ C2 API :8000 ◀── dashboard :8501 · MCP server (Claude) │
+        └──────────── pause / resume / kill (Docker · K8s executor) ◀───────────────┘
 ```
 
-দুই স্তরের নিরাপত্তা: **Claude** সন্দেহজনক কেসে বুদ্ধি খাটিয়ে সিদ্ধান্ত নেয়, আর **hard limit** এমন একটা backstop যেটা Claude-এর API down থাকলেও কাজ করে।
+| What | How |
+|---|---|
+| **Observe** | `cloudsentinel` SDK (3 lines) emits OTel GenAI spans (`invoke_agent`, `chat`, `execute_tool`). Any OTel-instrumented agent works |
+| **Decide** | Hard limits (budget, tokens/min, calls/s, memory) → semantic-loop and tool-cycle detection (no LLM) → **Claude judge** for gray zones, with a fail-safe fallback |
+| **Act** | A real breaker state machine: healthy → suspicious → **paused** → probation → healthy (or killed). `docker pause` keeps state for forensics |
+| **Command & Control** | REST API + **MCP server**: pause/resume/kill, **edit agent memory**, **approve/deny/rewrite tool calls**, budgets. Every action is audited |
+| **Prove** | ROI engine: **$ saved per intervention**, plus a runaway-agent benchmark (`python -m eval.harness`) |
 
-## চালানো (Docker বা API key ছাড়াই)
+## Quick start (no Docker, no API key, works offline)
 
 ```bash
+git clone https://github.com/abdullahalyf/Cloud-Sentinel.git && cd Cloud-Sentinel
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python scripts/check_setup.py      # সব ঠিক আছে কিনা দেখায়
-python -m sentinel --fake          # Terminal 1: ৩টা নকল agent, ২০ সেকেন্ড পর beta rogue হবে
-streamlit run dashboard/app.py     # Terminal 2: dashboard → http://localhost:8501
+cp .env.example .env                                     # Windows: copy .env.example .env
+python scripts/check_setup.py
+python -m brain --fake              # terminal 1: brain + C2 API + 4 simulated agents (beta goes rogue after 20 s)
+streamlit run dashboard/app.py      # terminal 2: http://localhost:8501
 ```
+About 20 s later, **beta** starts a paraphrase loop and gets **paused**. Open the memory editor, fix
+`order_4471`, press **Resume**, and beta goes to probation and then back to healthy. Press *Simulate incident*
+on **gamma** (token bomb → killed by hard rules) and **delta** (a 50,000 BDT refund held for approval).
 
-আসল Docker দিয়ে চালাতে:
+Add `ANTHROPIC_API_KEY` to `.env` to switch the judge from the fallback rules to Claude.
+
+## Full stack in Docker
+
 ```bash
-docker compose up -d --build       # ৩টা agent container
-python -m sentinel                 # sentinel
-python scripts/command.py rogue beta
-docker compose up -d --force-recreate   # demo শেষে আবার সব চালু করতে
+docker compose up -d --build                         # collector, brain, dashboard + 4 agent containers
+python scripts/demo.py rogue beta paraphrase_loop    # or: token_bomb gamma · bad_tool_call delta
+python scripts/demo.py fix beta && python scripts/demo.py resume beta
+python scripts/demo.py reset
 ```
 
-## Team
-| কে | কী | Folder |
-|---|---|---|
-| Taseen | Leader: review, merge, extra features | সব |
-| Alif | Core engine + Claude brain + Docker | `sentinel/`, `shared/` |
-| Tamjid | Dashboard + Kill Switch | `dashboard/` |
-| Fojle | Rogue agent + Database | `agents/`, `db/`, `shared/store.py` |
-| Orin | Presentation + QA | `presentation/`, `docs/QA.md` |
+## Operate it from Claude (MCP)
+```json
+{"mcpServers": {"cloudsentinel": {"command": "python", "args": ["-m", "brain.mcp_server"],
+  "cwd": "/path/to/Cloud-Sentinel", "env": {"CS_API_URL": "http://localhost:8000"}}}}
+```
+Then ask: *"Which agent is costing us the most? Pause it and explain why."*
 
-👉 প্রথমবার? পড়ো **[docs/TEAM.md](docs/TEAM.md)** (setup + Git), তারপর **[docs/TASKS.md](docs/TASKS.md)** থেকে নিজের অংশটা।
-👉 AI tool (Codex / AntiGravity / Puku) ব্যবহার করলে তাকে সবার আগে **[AGENTS.md](AGENTS.md)** পড়তে বলবে।
+## Instrument your own agent
+```python
+import cloudsentinel as cs                     # pip install -e telemetry/sdk
+cs.init(agent_id="my-agent")
+with cs.task("answer ticket") as t:
+    with cs.llm_call(model="claude-haiku-5-5", prompt=prompt) as call:
+        resp = client.messages.create(...)
+        call.record(resp.usage.input_tokens, resp.usage.output_tokens)
+    cs.tool("issue_refund", {"amount": 500}, fn=issue_refund, value_usd=4.1, fail_closed=True)
+    t.success()
+```
+
+## Repo map
+| Folder | What | Owner |
+|---|---|---|
+| `brain/` | engine, detectors, breaker, policy, Claude judge, C2 API, MCP server | Alif |
+| `telemetry/` | SDK, OTLP collector, simulators, DB schema | Fojle |
+| `infra/` | Docker/K8s executors, Dockerfiles, CI | Taseen |
+| `dashboard/` | Streamlit control tower | Tamjid |
+| `eval/` | ROI engine, benchmark, QA, pitch | Orin |
+| `shared/` | **contracts**, config, store, pricing, mocks | Alif + Taseen |
+
+Docs: [Decision](docs/DECISION.md) · [Architecture](docs/ARCHITECTURE.md) · [Contracts](docs/CONTRACTS.md) ·
+[Plan](docs/PLAN.md) · [Tasks](docs/tasks/) · [Research](docs/research/) · [Branching](docs/BRANCHING.md) ·
+[বাংলা সারাংশ](docs/SUMMARY_BN.md) · AI-tool rules: [AGENTS.md](AGENTS.md), [.agents/rules](.agents/rules/cloudsentinel.md)
+
+## Tests
+```bash
+python -m pytest -q        # unit + end-to-end (fake fleet on a virtual clock) + API/mock parity
+python -m eval.harness     # runaway-agent benchmark
+```

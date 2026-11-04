@@ -205,11 +205,13 @@ def build_report(spans: list[dict], actions: list[dict], tool_calls: list[dict],
 ```
 Returns `RoiReport`:
 ```
-{"total_spend_usd", "spend_by_agent": {id: usd}, "saved_usd", "saved_by_action": [{action_id, agent_id, action, usd}],
- "tasks_succeeded", "cost_per_successful_task_usd", "interventions": int, "formula": str}
+{"total_spend_usd", "spend_by_agent": {id: usd}, "saved_usd", "saved_by_action": [{action_id, agent_id, action, actor, usd}],
+ "interventions": int, "tool_calls_held": int, "tasks_succeeded", "cost_per_successful_task_usd",
+ "horizon_minutes", "formula": str}
 ```
-Formula (shown on the dashboard verbatim): for each KILL/PAUSE, `saved = usd_per_min_at_action × min(horizon, minutes_until_budget_exhausted)`;
-for each TOOL_DENY/TOOL_REWRITE with `value_usd`, `saved = value_usd − final_value_usd`.
+Formula (shown on the dashboard verbatim): for each KILL/PAUSE, `saved = usd_per_min_at_action × ROI_HORIZON_MINUTES`
+(baseline = "no CloudSentinel": the agent keeps burning until a human notices, default 60 min);
+for each TOOL_DENY/TIMEOUT, `saved = value_usd`; for TOOL_REWRITE, `saved = value_usd × (1 − new_amount/old_amount)`.
 The brain fills `actions.usd_saved_estimate` with the same formula at action time.
 
 ---
@@ -245,7 +247,10 @@ with cs.task("refund order 4471") as t:                  # invoke_agent span
     t.success()                                          # or t.failure("reason")
 ```
 `cs.tool` raises `cs.ToolDenied` when the decision is deny/timeout; on `rewrite` it calls `fn(**final_args)`.
-If the API is unreachable the SDK **fails open for telemetry, fails closed for tools that policy marks `approval`**.
+If the API is unreachable the SDK **fails open** (telemetry is best-effort, tools run) unless the call passes
+`cs.tool(..., fail_closed=True)` — use that for money-moving tools.
+The gate also **denies every tool call from an agent the breaker has paused or killed** (second enforcement layer
+for agents whose container cannot be frozen, e.g. external OTel agents).
 
 ---
 

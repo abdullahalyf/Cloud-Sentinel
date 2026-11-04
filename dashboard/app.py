@@ -1,91 +1,140 @@
 """
-CloudSentinel Command Center (Streamlit).   Owner: Tamjid.
+CloudSentinel control tower (Streamlit).   Owner: Tamjid.
 
     streamlit run dashboard/app.py
 
-This is a WORKING BASELINE so everyone can see data from day one. Tamjid makes it great:
-design, nicer charts, "money saved" counter, sounds/animations on kill, etc.
-
-Rules for this file:
-  • Read data ONLY through get_store()  (never call Supabase/SQLite directly)
-  • The kill switch ONLY inserts a CommandRow — the dashboard never touches Docker.
-    The sentinel executes the command within ~1 second.
+WORKING BASELINE so every C2 feature is usable from day one. Tamjid makes it great
+(docs/tasks/tamjid.md). Rules: talk to the system ONLY through dashboard/api_client.py.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # so `shared` is importable
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # so `api_client` imports when run by streamlit
 
 import pandas as pd
 import streamlit as st
 
-from shared.contracts import CommandRow
-from shared.store import get_store
+import api_client as api
 
-COST_PER_1K_TOKENS_USD = 0.01   # demo number for the "money saved" counter
+STATE_ICON = {"healthy": "🟢", "suspicious": "🟠", "paused": "🟡", "probation": "🔵", "killed": "💀"}
 
 st.set_page_config(page_title="CloudSentinel", page_icon="🛡️", layout="wide")
-store = get_store()
-
-st.title("🛡️ CloudSentinel — Command Center")
-st.caption("Circuit breaker for AI agents. Watching token spend, loops and memory in real time.")
+st.title("🛡️ CloudSentinel: control tower")
+st.caption("Circuit breaker for AI agents: observe · decide · pause / heal / kill · prove the savings")
 
 
-@st.fragment(run_every="2s")
-def live_panel() -> None:
-    metrics = pd.DataFrame(store.recent_metrics(minutes=5))
-    actions = pd.DataFrame(store.recent_actions(limit=50))
+def approvals() -> None:
+    pending = api.tool_calls(status="pending")
+    for call in pending:
+        with st.container(border=True):
+            st.warning(f"✋ **{call['agent_id']}** wants to run `{call['tool_name']}` "
+                       f"(${call['value_usd']:.2f} at stake): {call['reason']}")
+            st.json(call["args"])
+            c1, c2, c3 = st.columns(3)
+            if c1.button("✅ Approve", key=f"ok-{call['id']}"):
+                api.decide(call["id"], "allow", reason="approved on dashboard")
+            if c2.button("⛔ Deny", key=f"deny-{call['id']}"):
+                api.decide(call["id"], "deny", reason="denied on dashboard")
+            new_args = c3.text_input("Rewrite args (JSON)", json.dumps(call["args"]), key=f"rw-{call['id']}")
+            if c3.button("✏️ Rewrite", key=f"rwb-{call['id']}"):
+                try:
+                    api.decide(call["id"], "rewrite", json.loads(new_args), reason="rewritten on dashboard")
+                except json.JSONDecodeError:
+                    st.error("Invalid JSON")
 
-    if metrics.empty:
-        st.info("No data yet. Start the sentinel:  `python -m sentinel --fake`  (or with Docker).")
+
+def agent_cards(agents: list[dict]) -> None:
+    cols = st.columns(max(len(agents), 1))
+    for col, a in zip(cols, agents):
+        with col, st.container(border=True):
+            st.markdown(f"### {STATE_ICON.get(a['state'], '⚪')} {a['agent_id']}")
+            st.caption(a["state"].upper())
+            st.write(f"**${a['usd_per_min']:.4f}**/min · {a['tokens_per_min']:,} tok/min")
+            st.progress(min(a["spend_usd"] / max(a["budget_usd"], 1e-9), 1.0),
+                        text=f"\\${a['spend_usd']:.3f} / \\${a['budget_usd']:.2f}")  # \$ = no LaTeX
+            st.write(f"Loop score **{a['loop_score']:.2f}** · repeats ×{a['exact_repeats']} · mem {a['memory_pct']:.0f}%")
+            b1, b2 = st.columns(2)
+            if a["state"] in ("healthy", "suspicious", "probation"):
+                if b1.button("⏸ Pause", key=f"p-{a['agent_id']}"):
+                    api.command(a["agent_id"], "PAUSE", "paused from dashboard")
+                if b2.button("🛑 Kill", key=f"k-{a['agent_id']}", type="primary"):
+                    api.command(a["agent_id"], "KILL", "emergency kill switch")
+                if st.button("😈 Simulate incident", key=f"r-{a['agent_id']}"):
+                    kind = {"beta": "paraphrase_loop", "gamma": "token_bomb", "delta": "bad_tool_call"}.get(a["agent_id"], "loop")
+                    api.command(a["agent_id"], "GO_ROGUE", "demo", {"kind": kind})
+            elif a["state"] == "paused":
+                if b1.button("▶️ Resume", key=f"res-{a['agent_id']}"):
+                    api.command(a["agent_id"], "RESUME", "resumed from dashboard")
+                if b2.button("🛑 Kill", key=f"k2-{a['agent_id']}", type="primary"):
+                    api.command(a["agent_id"], "KILL", "killed while paused")
+            elif a["state"] == "killed" and b1.button("🔄 Restart", key=f"rs-{a['agent_id']}"):
+                api.command(a["agent_id"], "RESTART", "restarted from dashboard")
+
+
+def memory_editor(agents: list[dict]) -> None:
+    ids = [a["agent_id"] for a in agents]
+    if not ids:
         return
+    agent_id = st.selectbox("Agent", ids, index=ids.index("beta") if "beta" in ids else 0)
+    mem = api.memory(agent_id)
+    content = json.dumps(mem["content"] if mem else {}, indent=2)
+    st.caption(f"version {mem['version']} · last edited by {mem['edited_by']}" if mem else "no memory yet")
+    text = st.text_area("Memory (JSON)", content, height=150, key=f"mem-{agent_id}-{mem['version'] if mem else 0}")
+    reason = st.text_input("Reason", "fixed a wrong belief", key=f"why-{agent_id}")
+    if st.button("💾 Save memory"):
+        try:
+            api.save_memory(agent_id, json.loads(text), reason, mem["version"] if mem else None)
+            st.success("Saved. The agent reads it on its next step.")
+        except json.JSONDecodeError:
+            st.error("Invalid JSON")
+        except api.ApiError as exc:
+            st.error(exc.detail)
 
-    metrics["created_at"] = pd.to_datetime(metrics["created_at"], utc=True, format="ISO8601")
-    latest = metrics.sort_values("created_at").groupby("agent").tail(1).set_index("agent")
 
-    # ── top numbers ──
-    killed = actions[actions["action"] == "KILL"] if not actions.empty else actions
-    saved_tokens = int(killed["tokens_saved_estimate"].sum()) if not killed.empty else 0
+@st.fragment(run_every="1s")
+def live() -> None:
+    try:
+        health = api.health()
+        agents = api.fleet()
+    except api.ApiError as exc:
+        st.error(f"{exc.detail}. Start the brain: `python -m brain --fake` (or the mock: `python -m shared.mocks.mock_api`).")
+        return
+    roi = api.roi()
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Agents running", int((latest["status"] != "killed").sum()))
-    c2.metric("Agents killed", len(killed))
-    c3.metric("Tokens/min (all)", f"{int(latest.loc[latest['status'] != 'killed', 'tokens_per_min'].sum()):,}")
-    c4.metric("Est. saved (1h)", f"${saved_tokens / 1000 * COST_PER_1K_TOKENS_USD:,.2f}")
+    c1.metric("💰 Saved (est.)", f"${roi['saved_usd']:,.2f}")
+    c2.metric("Spend", f"${roi['total_spend_usd']:,.3f}")
+    c3.metric("Interventions", roi["interventions"])
+    c4.metric("Mode / judge", f"{health['mode']} / {health['judge']}")
+    approvals()
+    agent_cards(agents)
 
-    # ── token flow chart ──
-    st.subheader("Token flow (tokens / minute)")
-    chart = metrics.pivot_table(index="created_at", columns="agent", values="tokens_per_min", aggfunc="last")
-    st.line_chart(chart)
+    verdicts = api.verdicts(limit=1)
+    if verdicts:
+        v = verdicts[0]
+        st.info(f"🧠 **{v['source']}** on **{v['agent_id']}**: {v['action']} ({v['confidence']:.0%}, {v['pattern']}): "
+                f"{v['reason']}" + (f"\n\n💡 Suggested fix: {v['suggested_fix']}" if v.get("suggested_fix") else ""))
 
-    # ── per-agent cards with the kill switch ──
-    st.subheader("Agents")
-    cols = st.columns(max(len(latest), 1))
-    for col, (agent, row) in zip(cols, latest.iterrows()):
-        with col:
-            icon = {"running": "🟢", "warned": "🟠", "killed": "💀"}.get(row["status"], "⚪")
-            st.markdown(f"### {icon} {agent}")
-            st.write(f"**{row['tokens_per_min']:,}** tokens/min · **{row['calls_per_sec']}** calls/s")
-            st.write(f"Memory **{row['memory_pct']:.0f}%** · same prompt ×{row['loop_repeats']}")
-            st.progress(min(row["total_tokens"] / max(row["token_budget"], 1), 1.0),
-                        text=f"Budget {row['total_tokens']:,} / {row['token_budget']:,}")
-            if row["status"] != "killed":
-                if st.button("🛑 EMERGENCY KILL", key=f"kill-{agent}", type="primary"):
-                    store.insert_command(CommandRow(agent, "KILL", "dashboard", "Emergency kill switch"))
-                    st.toast(f"Kill command sent to {agent}")
-                if st.button("😈 Simulate rogue", key=f"rogue-{agent}"):
-                    store.insert_command(CommandRow(agent, "GO_ROGUE", "dashboard", "demo"))
-                    st.toast(f"{agent} will go rogue")
+    rows = api.metrics(minutes=5)
+    if rows:
+        df = pd.DataFrame(rows)
+        # one row per agent per tick → round to the second so all agents share a time axis
+        df["created_at"] = pd.to_datetime(df["created_at"], utc=True, format="ISO8601").dt.floor("2s")
+        st.subheader("Token flow ($/min)")
+        st.line_chart(df.pivot_table(index="created_at", columns="agent_id", values="usd_per_min", aggfunc="last"))
 
-    # ── activity log ──
     left, right = st.columns(2)
-    with left:
-        st.subheader("Actions")
-        st.dataframe(actions, hide_index=True, width="stretch")
-    with right:
-        st.subheader("Alerts")
-        st.dataframe(pd.DataFrame(store.recent_alerts(limit=30)), hide_index=True, width="stretch")
+    left.subheader("Actions")
+    left.dataframe(pd.DataFrame(api.actions(limit=20)), hide_index=True, width="stretch")
+    right.subheader("Alerts")
+    right.dataframe(pd.DataFrame(api.alerts(limit=20)), hide_index=True, width="stretch")
 
 
-live_panel()
+live()
+with st.expander("🧬 Memory editor (heal an agent)", expanded=True):
+    try:
+        memory_editor(api.fleet())
+    except api.ApiError as exc:
+        st.caption(exc.detail)

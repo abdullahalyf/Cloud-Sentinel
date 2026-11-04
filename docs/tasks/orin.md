@@ -87,8 +87,8 @@ no waiting) and checks whether each failure is caught. One scenario (`paraphrase
 > *Read AGENTS.md and eval/harness.py. Following exactly the pattern of the existing
 > "paraphrase_loop" scenario, add 3 more scenarios to SCENARIOS: "healthy" (no rogue; expected:
 > no intervention), "exact_loop" (rogue kind "loop"; expected: intervention), "token_bomb" (rogue
-> kind "token_bomb"; expected: intervention). Add one pytest test in eval/tests/test_harness.py that
-> runs all scenarios and asserts each result's "passed" is True. Only edit eval/.*
+> kind "token_bomb"; expected: intervention). eval/tests/test_harness.py already runs every scenario in
+> SCENARIOS and asserts it passed — make sure it still passes. Only edit eval/.*
 
 ✅ **Done when:** `python -m eval.harness` prints a table with 4 rows, all ✅.
 

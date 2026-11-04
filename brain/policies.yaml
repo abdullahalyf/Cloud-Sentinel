@@ -1,0 +1,18 @@
+# CloudSentinel policies (CONTRACTS §11). Owner: Alif. Readable "policy as code" for judges.
+defaults:
+  budget_usd: 0.50          # session budget per agent (USD)
+  on_trip: pause            # confident judge verdict → pause (heal possible) | kill
+  on_hard_limit: kill       # hard limit broken → kill | pause
+
+agents:
+  gamma: { budget_usd: 1.00 }   # analyst gets a bigger budget
+  delta: { budget_usd: 0.20 }   # refund agent: small budget, money-moving tools
+
+tools:                      # first match wins; `match` is a glob on the tool name
+  - { match: "delete_*",     action: deny,     reason: "destructive tools are never allowed" }
+  - { match: "drop_*",       action: deny,     reason: "destructive tools are never allowed" }
+  - { match: "issue_refund", action: approval, when: { arg: amount, op: gt, value: 5000 },
+      reason: "refunds over 5,000 BDT need a human" }
+  - { match: "send_email",   action: approval, when: { arg: recipients, op: gt, value: 50 },
+      reason: "bulk email needs a human" }
+  - { match: "*",            action: allow }

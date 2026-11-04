@@ -88,7 +88,8 @@ Alif wrote it. Your job is to prove it works with tests.
 **Task 3.2: see real OTel data arrive.**
 ```bash
 python -m telemetry.collector          # terminal 1
-python telemetry/simulators/agent.py   # terminal 2 (AGENT_ID=demo, sends spans to :4318)
+CS_AGENT_ID=demo python telemetry/simulators/agent.py   # terminal 2 (sends spans to :4318)
+# Windows PowerShell: $env:CS_AGENT_ID="demo"; python telemetry/simulators/agent.py
 ```
 ✅ **Done when:** terminal 1 prints lines like `stored 3 spans from demo`.
 
