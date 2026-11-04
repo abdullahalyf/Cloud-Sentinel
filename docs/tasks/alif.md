@@ -332,3 +332,4 @@ an optional Claude polish when a key is present. Add MCP tool `explain_agent`. *
 
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)
+- 2026-11-04 (lead): 1 unreproduced failure in 17 local full runs (name lost). Reproduce in A10 with 30 reruns + `-rf`; suspects are the wall-clock parity test for /nodes and the threaded LangGraph adapter tests. Make it deterministic (fake clock / joins), never skip it.
