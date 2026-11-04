@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -15,6 +17,7 @@ from brain.detectors import Finding
 from brain.state import Snapshot
 from shared.config import Settings
 from shared.contracts import JUDGE_ACTIONS, PATTERNS
+from shared.pricing import cost_usd
 
 log = logging.getLogger("brain.judge")
 
@@ -38,6 +41,10 @@ class Verdict:
     source: str          # claude | gemini | fallback
     suggested_fix: str = ""
     latency_ms: float = 0.0
+    # usage of the LLM call (brain-internal, not stored; used by brain/judge_bench.py)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 SYSTEM_PROMPT = """You are the judgment engine of CloudSentinel, a circuit breaker that protects a \
@@ -79,19 +86,29 @@ VERDICT_SCHEMA = {
 }
 
 
+MAX_MEMORY_CHARS = 1500
+_TAG = re.compile(r"<\s*/?\s*agent_", re.IGNORECASE)
+
+
+def scrub(text: str) -> str:
+    """Agent text must not be able to close our <agent_*> data tags and smuggle in 'instructions'."""
+    return _TAG.sub("[tag]", text)
+
+
 def build_user_message(ctx: JudgeContext, cfg: Settings) -> str:
     limits = {k: getattr(cfg, k) for k in ("soft_tokens_per_min", "hard_tokens_per_min", "soft_calls_per_sec",
                                            "hard_calls_per_sec", "soft_memory_pct", "hard_memory_pct",
                                            "loop_repeat_threshold", "loop_score_threshold")}
-    logs = "\n".join(json.dumps(p, ensure_ascii=False) for p in ctx.prompts)
-    tools = "\n".join(json.dumps(t, ensure_ascii=False) for t in ctx.tools)
+    logs = scrub("\n".join(json.dumps(p, ensure_ascii=False, default=str) for p in ctx.prompts))
+    tools = scrub("\n".join(json.dumps(t, ensure_ascii=False, default=str) for t in ctx.tools))
+    memory = scrub(json.dumps(ctx.memory, ensure_ascii=False, default=str)[:MAX_MEMORY_CHARS])
     history = json.dumps([{k: h.get(k) for k in ("action", "confidence", "pattern", "reason")}
                           for h in ctx.history], ensure_ascii=False)
     return (f"Agent: {ctx.snapshot.agent_id}\n\nMetrics:\n{json.dumps(ctx.snapshot.to_dict(), indent=1)}\n\n"
             f"Limits:\n{json.dumps(limits)}\n\nWhy the rules flagged it:\n- " + "\n- ".join(ctx.finding.reasons)
             + f"\n\nYour previous verdicts for this agent (newest first): {history}\n\n"
             f"<agent_logs>\n{logs}\n</agent_logs>\n\n<agent_tool_calls>\n{tools}\n</agent_tool_calls>\n\n"
-            f"<agent_memory>\n{json.dumps(ctx.memory, ensure_ascii=False)[:1500]}\n</agent_memory>")
+            f"<agent_memory>\n{memory}\n</agent_memory>")
 
 
 def _memory_fix(memory: dict) -> str:
@@ -129,9 +146,10 @@ def parse_verdict(data: dict, source: str) -> Verdict:
     action = str(data.get("action", "WARN")).upper()
     action = action if action in JUDGE_ACTIONS else "WARN"
     try:
-        confidence = min(max(float(data.get("confidence", 0.5)), 0.0), 1.0)
+        confidence = float(data.get("confidence", 0.5))
     except (TypeError, ValueError):
         confidence = 0.5
+    confidence = min(max(confidence, 0.0), 1.0) if math.isfinite(confidence) else 0.5
     pattern = data.get("pattern", "other")
     pattern = pattern if pattern in PATTERNS else "other"
     return Verdict(action, confidence, pattern, str(data.get("reason", ""))[:300], source,
@@ -184,8 +202,21 @@ class Judge:
         )
         if response.stop_reason == "refusal":
             raise RuntimeError("judge request was refused")
-        text = next(b.text for b in response.content if b.type == "text")
-        return parse_verdict(json.loads(text), "claude")
+        if response.stop_reason == "max_tokens":
+            raise RuntimeError("judge reply was cut off (max_tokens)")
+        text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), None)
+        if not text:
+            raise RuntimeError("judge reply had no text block")
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise RuntimeError("judge reply was not a JSON object")
+        v = parse_verdict(data, "claude")
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            v.input_tokens = int(getattr(usage, "input_tokens", 0) or 0)
+            v.output_tokens = int(getattr(usage, "output_tokens", 0) or 0)
+            v.cost_usd = cost_usd(self.cfg.claude_model, v.input_tokens, v.output_tokens)
+        return v
 
     def _gemini(self, ctx: JudgeContext) -> Verdict:
         response = self._client.models.generate_content(
@@ -193,4 +224,7 @@ class Judge:
             contents=build_user_message(ctx, self.cfg),
             config={"system_instruction": SYSTEM_PROMPT, "response_mime_type": "application/json"},
         )
-        return parse_verdict(json.loads(response.text), "gemini")
+        data = json.loads(response.text)
+        if not isinstance(data, dict):
+            raise RuntimeError("judge reply was not a JSON object")
+        return parse_verdict(data, "gemini")

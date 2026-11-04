@@ -81,7 +81,14 @@ class Engine:
                 return
             for s in spans:
                 self.cursor = max(self.cursor, int(s["id"]))
-                self._window(s["agent_id"]).add(s)
+                agent_id = str(s.get("agent_id") or "").strip()
+                if not agent_id:
+                    log.warning("skipping span %s without agent_id", s.get("id"))
+                    continue
+                try:
+                    self._window(agent_id).add(s)
+                except Exception:  # one malformed span must never block the others
+                    log.exception("skipping malformed span %s from %s", s.get("id"), agent_id)
             if len(spans) < 2000:
                 return
 
@@ -139,7 +146,11 @@ class Engine:
         if fut is None or not fut.done():
             return
         self.pending.pop(agent_id)
-        v: Verdict = fut.result()
+        try:
+            v: Verdict = fut.result()
+        except Exception as exc:  # Judge.judge already falls back; this is the last safety net
+            log.error("judge crashed for %s: %s", agent_id, exc)
+            return
         log.warning("Verdict %s: %s (%.0f%%, %s) — %s [%s]", agent_id, v.action, v.confidence * 100, v.pattern,
                     v.reason, v.source)
         self.store.insert_verdict(VerdictRow(agent_id, v.source, v.action, v.confidence, v.pattern, v.reason,
@@ -206,6 +217,9 @@ class Engine:
             self.store.insert_action(ActionRow(agent_id, "SET_BUDGET", actor,
                                                cmd.get("reason") or f"budget set to ${self.budgets[agent_id]:.2f}"))
             return "done", f"budget ${self.budgets[agent_id]:.2f}"
+        if not self._known(agent_id):
+            # a typo must not create a ghost agent on the dashboard
+            return "failed", f"unknown agent {agent_id}"
         br = self._breaker(agent_id)
         snap = self._window(agent_id).snapshot(now, self.budget(agent_id))
         effect = br.on_command(command, actor, cmd.get("reason") or "", now)
@@ -213,6 +227,14 @@ class Engine:
             return "failed", f"cannot {command} an agent that is {br.state}"
         self._apply(agent_id, effect, snap)
         return "done", f"{agent_id} is now {br.state}"
+
+    def _known(self, agent_id: str) -> bool:
+        """An agent exists if we saw its spans, the runtime lists it, or the store has a row for it."""
+        if agent_id in self.windows or agent_id in self.breakers:
+            return True
+        if any(r.agent_id == agent_id for r in (self._safe(self.executor.list_agents) or [])):
+            return True
+        return self.store.get_agent(agent_id) is not None
 
     def _expire_tool_calls(self, now: float) -> None:
         from datetime import datetime
