@@ -66,3 +66,47 @@ docker compose up -d --build              # everything in Docker (collector, bra
 python scripts/demo.py rogue beta paraphrase_loop   # make an agent misbehave
 python scripts/demo.py reset              # reset after a demo
 ```
+
+## Alif's agent loop (Codex in VS Code: autonomous, no human checks)
+Alif's work in `brain/` and `shared/` is done by an AI agent end to end. If you are that agent (the user says "continue
+Alif's backlog", "run the loop" or "next task"), follow these steps exactly. You need no memory of earlier sessions.
+Everything you need is in the repo.
+
+0. **Read first:** this file, `docs/HANDOFF.md`, `docs/tasks/alif.md`, `docs/CONTRACTS.md`.
+1. **Sync:** `git checkout main && git pull`. If `git status` isn't clean, stash the changes with a note and continue.
+2. **Pick the next task** in `docs/tasks/alif.md`, in this order:
+   a. **A0** if any `docs/tasks/*.md` has an unchecked `- [ ]` line under "## Contract requests".
+   b. **A10** if the last nightly run failed (`gh run list --workflow nightly.yml -L 1`) or there's an open `nightly` issue.
+   c. Any task marked `[~]` (resume it on its branch: `git checkout <branch> && git merge origin/main`).
+   d. Otherwise the first `[ ]` task, top to bottom (🔴 MUST before 🟡 SHOULD before 🟢 STRETCH). Skip `[!]` tasks.
+3. **Claim it:** create the branch named in the task (`alif/<id>-<slug>`, or `contract/<slug>` for `shared/` changes). Mark the box
+   `[~] (branch, date)`, then commit and push. That way an interrupted session can be resumed.
+4. **Build it:**
+   - Write the task's acceptance tests first (`brain/tests/` or `shared/tests/`), then the code.
+   - Only edit the files the task owns. Settings only through `shared.config`. Must work offline.
+   - A task that needs a contract change follows `docs/tasks/alif.md` "Definition of done", point 4.
+5. **Verify yourself:** `python -m pytest -q` + `python -m eval.harness` (all ✅) + the task's own commands. Fix until green.
+   If you can't get it green after 3 serious attempts, mark the task `[!]` with the error and the next idea, push the branch, and go to step 2.
+6. **Log:** in the same branch:
+   - Mark the task `[x] (date, PR link)`. Add the link after the PR exists, in a final commit.
+   - Append exactly 3 Bangla lines to `docs/SUMMARY_BN.md`:
+     ```
+     ### <YYYY-MM-DD> · <task id> <short title>
+     - করা হয়েছে: <what was done, one line>
+     - এরপর: <the next task id and title>
+     - কেউ আটকে আছে?: না  |  হ্যাঁ: <name>, <why, and what they should do>
+     ```
+7. **Merge:**
+   - `git push -u origin <branch>`, then `gh pr create --base main --fill`.
+   - `gh pr checks --watch`. When every check is green, `gh pr merge --squash --delete-branch`.
+   - If CI is red, fix it on the branch and go back to step 5. Never merge red. Never push to `main` directly. Never force-push `main`.
+8. **Others' folders:** never edit their code. If their code breaks the build or looks risky, add a dated note under "## Notes"
+   in their `docs/tasks/<name>.md` (the command, the last 15 lines of the error, the file you suspect).
+9. **Needs a human** (a key, an account, a GitHub setting, a paid service): never ask Alif. Add a line under
+   "## Requests from Alif's agent" in `docs/tasks/taseen.md`, mark the task `[!]`, and continue with the next task.
+10. **Repeat** from step 1 until the session ends. Before the session ends, make sure nothing is left uncommitted: push your branch,
+    even if the work is unfinished, and leave the box at `[~]`.
+
+Allowed paths for `alif/` branches: `brain/`, `docs/tasks/alif.md`, `docs/SUMMARY_BN.md`, `docs/research/`, and the
+"Notes"/"Contract requests" sections of other task files. `contract/` branches may also edit `shared/`, `docs/CONTRACTS.md`,
+`docs/ARCHITECTURE.md`, `telemetry/db/schema.sql`, `.env.example`. CI's folder guard enforces this.

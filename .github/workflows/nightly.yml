@@ -1,0 +1,44 @@
+name: nightly
+# Every night at 01:00 BST (19:00 UTC): full suite + E2E/chaos + benchmarks on main.
+# On failure it opens (or comments on) an issue labelled "nightly". Alif's agent reads those (docs/tasks/alif.md A10).
+on:
+  schedule: [{ cron: "0 19 * * *" }]
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt -e "telemetry/sdk[langgraph]"
+      - name: Unit + contract tests
+        run: python -m pytest -q
+      - name: E2E + chaos + perf (exit code 5 = no tests yet, which is OK)
+        run: python -m pytest -q -m "e2e or chaos or perf" || [ $? -eq 5 ]
+      - name: Live tests (only when the ANTHROPIC_API_KEY secret is set)
+        if: env.ANTHROPIC_API_KEY != ''
+        run: python -m pytest -q -m live || [ $? -eq 5 ]
+      - name: Runaway benchmark
+        run: python -m eval.harness
+      - name: Judge benchmark (fallback; Claude too when the key is set)
+        run: |
+          python -m brain.judge_bench --judge fallback
+          if [ -n "$ANTHROPIC_API_KEY" ]; then python -m brain.judge_bench --judge claude --runs 1; fi
+      - name: Brain nightly report (once Alif's agent has built brain/nightly.py)
+        run: if [ -f brain/nightly.py ]; then python -m brain.nightly; fi
+      - name: Open an issue on failure
+        if: failure()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh label create nightly --color B60205 --description "nightly run failed" 2>/dev/null || true
+          url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          n=$(gh issue list -l nightly --state open --json number -q '.[0].number')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "Failed again: $url"; else
+            gh issue create -l nightly --title "Nightly run failed $(date -u +%F)" --body "Run: $url (Alif's agent: task A10)"; fi
