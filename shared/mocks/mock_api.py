@@ -373,8 +373,14 @@ def roi() -> dict:
               "usd": a["usd_saved_estimate"]} for a in ACTIONS if a["usd_saved_estimate"]]
     return {"total_spend_usd": round((time.time() - T0) * 0.002, 4), "spend_by_agent": {a: 0.01 for a in AGENTS},
             "saved_usd": round(sum(s["usd"] for s in saved), 4), "saved_by_action": saved,
-            "interventions": len(saved), "tool_calls_held": 1, "tasks_succeeded": 42,
-            "cost_per_successful_task_usd": 0.0021, "horizon_minutes": 60.0, "formula": ROI_FORMULA}
+            "interventions": len(saved), "tool_calls_held": 1, "tasks_total": 51, "tasks_succeeded": 42,
+            "cost_per_successful_task_usd": 0.0021, "wasted_usd": 0.0109, "tasks_by_agent": {
+                a: {"tasks": n, "succeeded": ok, "failed": n - ok, "abandoned": 0, "success_rate": round(ok / n, 3),
+                    "spend_usd": spend, "wasted_usd": round(spend * (n - ok) / n, 4), "unattributed_usd": 0.0,
+                    "cost_per_success_usd": round(spend / ok, 4) if ok else 0.0}
+                for a, n, ok, spend in [("alpha", 12, 12, 0.0216), ("beta", 14, 6, 0.0198), ("gamma", 12, 12, 0.0222),
+                                        ("delta", 13, 12, 0.0251)]},
+            "horizon_minutes": 60.0, "formula": ROI_FORMULA}
 
 
 if __name__ == "__main__":

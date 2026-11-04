@@ -45,24 +45,36 @@ terminal, `streamlit run dashboard/app.py`.
 
 ---
 
-## Day 2 (Fri 6 Nov): ROI: cost per successful task
+## Day 2 (Fri 6 Nov): ROI: cost → per-task success (example prompt P5)
 
-`eval/roi.py` already computes total spend and $ saved. You add a new number.
+**Already built (4 Nov, lead session), so you own it from today:** `eval/roi.py` now attributes every span's cost to
+its task and reports success per agent (CONTRACTS §8, "Cost → per-task success"):
+- `task_costs(spans)`: a task = one `invoke_agent` span. All spans with the same `trace_id` (chat, tool,
+  graph_node) are its cost. Spend from tasks that haven't finished (a LangGraph graph stuck in a loop) is kept as
+  `unattributed`, never dropped.
+- `tasks_by_agent(spans)` → per agent: tasks, succeeded, failed, abandoned, success_rate, spend_usd,
+  **wasted_usd** (failed + abandoned + unattributed), cost_per_success_usd.
+- `cost_per_successful_task(spans)`: fully loaded, all spend ÷ all successful tasks.
+- `build_report()` fills `tasks_total`, `tasks_succeeded`, `cost_per_successful_task_usd`, `wasted_usd`,
+  `tasks_by_agent`.
 
-**Task 2.1**
+**Task 2.1: check it by hand, then explain it.** Run `python -m brain --fake`, wait for beta's loop, then open
+`http://localhost:8000/v1/roi`. beta's `success_rate` should drop and its `wasted_usd` grow, while alpha stays
+at 1.0. Then:
 > Prompt for Codex:
 > *Read AGENTS.md, docs/CONTRACTS.md section 8 and eval/roi.py. Add a function
-> cost_per_successful_task(spans: list[dict]) -> float. A task is a span with operation
-> "invoke_agent". It succeeded if task_status == "success". Return total cost_usd of ALL spans
-> divided by the number of succeeded tasks, rounded to 4 decimals; return 0.0 if no task
-> succeeded. Then make build_report() use it for the key "cost_per_successful_task_usd" and set
-> "tasks_succeeded". Add 3 tests in eval/tests/test_roi.py (normal case, zero tasks, a failed task
-> is not counted). Only edit files in eval/.*
+> explain_agent(agent_id: str, stats: dict) -> str that turns one entry of tasks_by_agent into one English
+> sentence, e.g. "beta: 14 tasks, 6 succeeded (43%); $0.0198 spent, $0.0113 wasted on failed work; $0.0033 per
+> successful task". If succeeded is 0, say "no successful task yet" instead of a cost per task. Use it to add a
+> "sentence" key to every agent in tasks_by_agent inside build_report(). Add 3 tests in
+> eval/tests/test_roi.py (normal, zero successes, only unattributed spend). Only edit files in eval/.*
 
-✅ **Done when:** `python -m pytest eval -q` passes, and `http://localhost:8000/v1/roi` (with
-`python -m brain --fake` running) shows `cost_per_successful_task_usd`.
+✅ **Done when:** `python -m pytest eval -q` passes, and `/v1/roi` shows a sentence per agent.
 
----
+**Task 2.2: put it in the benchmark.** In `eval/harness.py`, add two columns to the results: the subject
+agent's `success_rate` and `wasted_usd` (from `tasks_by_agent(store.spans_after(0, limit=100_000))`, because the
+harness runs on a virtual clock, so don't use `recent_spans`). The pitch line is: "with CloudSentinel the looping
+agent wasted $X; without it, it would have wasted $X + saved".
 
 ## Day 3 (Sat 7 Nov): explain the money
 

@@ -219,13 +219,20 @@ def build_report(spans: list[dict], actions: list[dict], tool_calls: list[dict],
 Returns `RoiReport`:
 ```
 {"total_spend_usd", "spend_by_agent": {id: usd}, "saved_usd", "saved_by_action": [{action_id, agent_id, action, actor, usd}],
- "interventions": int, "tool_calls_held": int, "tasks_succeeded", "cost_per_successful_task_usd",
- "horizon_minutes", "formula": str}
+ "interventions": int, "tool_calls_held": int, "tasks_total", "tasks_succeeded", "cost_per_successful_task_usd",
+ "wasted_usd", "tasks_by_agent": {id: TaskStats}, "horizon_minutes", "formula": str}
+TaskStats = {tasks, succeeded, failed, abandoned, success_rate, spend_usd, wasted_usd, unattributed_usd, cost_per_success_usd}
 ```
 Formula (shown on the dashboard verbatim): for each KILL/PAUSE, `saved = usd_per_min_at_action × ROI_HORIZON_MINUTES`
 (baseline = "no CloudSentinel": the agent keeps burning until a human notices, default 60 min);
 for each TOOL_DENY/TIMEOUT, `saved = value_usd`; for TOOL_REWRITE, `saved = value_usd × (1 − new_amount/old_amount)`.
 The brain fills `actions.usd_saved_estimate` with the same formula at action time.
+
+**Cost → per-task success** (added 4 Nov): a task is one `invoke_agent` span. Every span with the same
+`trace_id` (its chat, tool and graph_node children) is that task's cost. `success_rate` = succeeded / tasks;
+`cost_per_success_usd` = the agent's spend / its successful tasks; `wasted_usd` = spend on failed or abandoned tasks
+plus `unattributed_usd` (spans whose task hasn't finished, e.g. a graph stuck in a loop). Report-level
+`cost_per_successful_task_usd` is fully loaded: all spend ÷ all successful tasks.
 
 ---
 
