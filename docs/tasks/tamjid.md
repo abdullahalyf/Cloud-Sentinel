@@ -95,3 +95,19 @@ empty-state message when the API is down ("Start the brain: python -m brain --fa
 
 ## Day 8 (Thu 12 Nov): bug fixes only (issues labelled `dashboard`)
 ## Buffer: take the screenshots for the deck (1080p, dark mode) and send them to Orin.
+
+---
+
+## ⚠️ Notes from the lead review (Wed 4 Nov), read before Day 1
+1. **The mock API got more realistic** (see `shared/mocks/README.md`):
+   - Pause/Kill/Resume buttons now visibly change that agent's state for 20 s.
+   - Any `issue_refund` over 5,000 comes back `pending`.
+   - Memory keeps every version (the history works).
+   - `WS /v1/stream` exists.
+   - `POST /v1/mock/reset` brings back the seeded data: the pending refund and beta's bad memory.
+2. Client errors from both APIs are now **400 with a plain `detail` string** (the real API used to send
+   FastAPI's 422 list). `api_client.ApiError.detail` can go straight to the screen.
+3. **Mock state is shared between tests** (module globals). If a dashboard test changes the mock, call
+   `from shared.mocks import mock_api; mock_api.seed()` at the start of the test, or it may pass alone and
+   fail in the full run.
+4. Rewrite in the approvals card **must send `final_args`**. A rewrite without it is now rejected with 400.

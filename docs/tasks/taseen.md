@@ -91,3 +91,18 @@ On a laptop that has never run the project, follow README.md exactly and time it
 Fill in the 8 sections (hackathon.md §4). Use `docs/PROMPTS.md` (prompt library), `docs/TOOLING.md`,
 `docs/PROVENANCE.md`, and the MCP disclosure (CONTRACTS §7). **Submit the draft on Fri 13**, then re-submit
 with the video on Sat/Sun. Final submit by **Sun 15, 18:00 BST**.
+
+---
+
+## ⚠️ Notes from the lead review (Wed 4 Nov), read before Day 1
+1. **Network and API key changes have not reached the cloud session.** Settings were updated, but the
+   running container still blocks `cloudcampbd.com` and has no `ANTHROPIC_API_KEY`. A **new** session picks up
+   environment changes. Until then, `docs/DECISION.md` §6 (Winning Signal) and the deadline check are still open,
+   so please copy them from the platform by hand on Day 1.
+2. **The Docker socket is root on the host.** `docker-compose.yml` mounts `/var/run/docker.sock` into `brain`.
+   For the ethics/security slide, and before any shared machine or AWS, put a socket proxy in front
+   (e.g. `tecnativa/docker-socket-proxy` with only `CONTAINERS=1 POST=1`) so the brain can only list, pause,
+   unpause, kill and start.
+3. **If `docker pause` fails**, the brain still marks the agent paused, writes a critical `executor_failed` alert,
+   and the tool gate denies all its tools. Check on Day 2 that the alert shows on the dashboard.
+4. PR #16 (bootstrap) is squash-merged into `main`. Branch protection wasn't on yet, so please turn it on first thing.
