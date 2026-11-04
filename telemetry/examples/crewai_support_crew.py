@@ -27,7 +27,7 @@ os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")   # no CrewAI phone-ho
 os.environ.setdefault("CREWAI_TRACING_ENABLED", "false")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sdk"))
 import cloudsentinel as cs  # noqa: E402
-from cloudsentinel.adapters.crewai import instrument  # noqa: E402
+from cloudsentinel.adapters.crewai import flush, instrument  # noqa: E402
 from crewai import Agent, Crew, Process, Task  # noqa: E402
 from crewai.events.types.llm_events import LLMCallType  # noqa: E402
 from crewai.llms.base_llm import BaseLLM, llm_call_context  # noqa: E402
@@ -115,7 +115,7 @@ def main() -> None:
             print(f"[{cs._s.agent_id}] ticket {n}: {out.raw}", flush=True)
         except Exception as exc:  # a blocked/killed crew raises: log and continue with the next ticket
             print(f"[{cs._s.agent_id}] ticket {n} failed: {exc}", flush=True)
-        cs.flush()
+        flush()   # wait for CrewAI's event handlers, then export
         time.sleep(3.0)
 
 

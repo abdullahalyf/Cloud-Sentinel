@@ -228,6 +228,9 @@ First add a **Contract request** for 2 settings: `CS_EXPORT_CLOUDWATCH` (bool) a
 - SDK 0.3: `cs.node()`, `cs.gate()`, `cs.wait_if_paused()`, `cs.start_span()/end_span()`, `cs.preview_delta()`.
 - The `graph_node` span plus the column `spans.detail` (CONTRACTS §4/§5).
 - `examples/langgraph_refund_agent.py`, `crewai_support_crew.py`, and `collector/phoenix.py` (Arize Phoenix export).
+- ⚠️ **CrewAI runs event handlers on a thread pool** (4 Nov fix): always call `cloudsentinel.adapters.crewai.flush()` after
+  `crew.kickoff()`, or the last spans (the crew's `invoke_agent`) may be missing. The listener also accepts a "done" event that
+  arrives before its "start". Keep both when you change the adapter (tests: `test_done_before_start_is_still_recorded`, `test_drain_…`).
 - ⚠️ **CrewAI pins `mcp<2`, but the brain needs `mcp>=2`.** Use a separate venv for CrewAI (`docs/HANDOFF.md` §4). CI tests it in the job `adapters`.
 
 ## Notes from the lead review (Wed 4 Nov)

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples"))
 import crewai_support_crew as demo  # noqa: E402
 
 import cloudsentinel as cs  # noqa: E402
+from cloudsentinel.adapters import crewai as adapter  # noqa: E402
 
 
 @pytest.fixture
@@ -21,6 +22,7 @@ def crew(captured, mock_api, monkeypatch):
 
 def test_crew_run_becomes_task_nodes_chats_and_tools(crew, captured):
     crew.kickoff(inputs={"ticket": "Order 4471 arrived broken, please refund 800 BDT"})
+    adapter.flush()   # CrewAI runs event handlers on a thread pool: wait for them
     rows = captured()
     task = [r for r in rows if r.operation == "invoke_agent"]
     nodes = sorted((json.loads(r.detail) for r in rows if r.operation == "graph_node"), key=lambda d: d["step"])
@@ -37,7 +39,32 @@ def test_crew_run_becomes_task_nodes_chats_and_tools(crew, captured):
 
 def test_big_refund_is_blocked_by_the_gate_and_recorded(crew, captured, mock_api):
     crew.kickoff(inputs={"ticket": "Order 4471 arrived broken, please refund 50000 BDT"})
+    adapter.flush()
     blocked = [r for r in captured() if r.operation == "execute_tool" and r.tool_name == "issue_refund"]
     assert blocked and blocked[0].status == "error" and blocked[0].error_type == "tool_timeout"
     held = mock_api.get("/v1/tool-calls?status=pending").json()["items"]
     assert any(c["args"].get("amount") == 50000 and c["agent_id"] == "test-agent" for c in held)
+
+
+def test_done_before_start_is_still_recorded(captured):
+    """The thread pool can run a 'completed' handler before its 'started' one; the span must not be lost."""
+    listener = adapter.CloudSentinelListener.__new__(adapter.CloudSentinelListener)
+    listener._spans, listener._crew, listener._step, listener._decisions, listener._early = {}, None, 0, {}, {}
+    import threading
+    listener._lock = threading.Lock()
+    listener._close("llm|x", None, {cs.INPUT_TOKENS: 7, cs.OUTPUT_TOKENS: 3})          # done arrives first
+    listener._open("llm|x", "chat sim", "chat", {cs.REQUEST_MODEL: "sim"})            # then the start
+    chats = [r for r in captured() if r.operation == "chat"]
+    assert len(chats) == 1 and chats[0].input_tokens == 7 and not listener._spans and not listener._early
+
+
+def test_drain_records_a_completion_whose_start_never_came(captured):
+    listener = adapter.CloudSentinelListener.__new__(adapter.CloudSentinelListener)
+    listener._spans, listener._crew, listener._step, listener._decisions, listener._early = {}, None, 0, {}, {}
+    import threading
+    listener._lock = threading.Lock()
+    listener._close("llm|y", None, {cs.INPUT_TOKENS: 5, cs.OUTPUT_TOKENS: 2},
+                    start_late=lambda: listener._open("llm|y", "chat sim", "chat", {cs.REQUEST_MODEL: "sim"}))
+    listener.drain()
+    chats = [r for r in captured() if r.operation == "chat"]
+    assert len(chats) == 1 and chats[0].output_tokens == 2 and not listener._early and not listener._spans
