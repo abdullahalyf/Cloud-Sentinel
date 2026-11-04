@@ -167,6 +167,21 @@ libraries we use (licences from `requirements.txt`).
 
 ---
 
+## 🆕 Added in your folder on Wed 4 Nov (lead session), you own these now
+- `telemetry/sdk/cloudsentinel/adapters/langgraph.py`: `CloudSentinelCallback` (task / node + state delta + next
+  node / chat + tokens / tool spans, pause check before every node) and `guard(tool)` (tool gate).
+- `telemetry/sdk/cloudsentinel/adapters/crewai.py`: `instrument()` (event-bus listener plus CrewAI's blocking
+  `before_tool_call` / `before_llm_call` hooks for the gate and the pause check).
+- SDK 0.3: `cs.node()`, `cs.gate()`, `cs.wait_if_paused()`, `cs.start_span()/end_span()`, `cs.preview_delta()`.
+- New span type `graph_node` and the column `spans.detail` (CONTRACTS §4/§5). **Run the new `schema.sql` on Day 1**:
+  it already has `detail`, plus an `alter table … add column if not exists` for older databases.
+- `telemetry/examples/langgraph_refund_agent.py`, `crewai_support_crew.py`, and `telemetry/collector/phoenix.py`
+  (optional Arize Phoenix export, `CS_EXPORT_PHOENIX=true`).
+- Tests: `telemetry/tests/test_adapter_langgraph.py`, `test_adapter_crewai.py`, `test_sdk_nodes.py`, `test_phoenix.py`.
+- ⚠️ **CrewAI pins `mcp<2`, but the brain needs `mcp>=2`.** Installing crewai into the main venv downgrades `mcp`
+  and breaks `brain.mcp_server`. Use a separate venv for CrewAI agents. CI tests it in its own job (`adapters`).
+- `SupabaseStore.insert_spans` (your Day 2) must also write `detail`. It comes from `SpanRow.to_row()`, so nothing special is needed.
+
 ## ⚠️ Notes from the lead review (Wed 4 Nov), read before Day 1
 1. **The refund can slip through if the API is down.** In `telemetry/simulators/agent.py` the `bad_tool_call`
    branch calls `cs.tool("issue_refund", ...)` **without `fail_closed=True`**. The SDK fails open, so if the

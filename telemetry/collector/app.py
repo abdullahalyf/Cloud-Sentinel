@@ -14,7 +14,8 @@ from telemetry.collector.normalize import normalize_otlp_json, normalize_otlp_pr
 log = logging.getLogger("telemetry.collector")
 
 
-def create_app(store) -> FastAPI:
+def create_app(store, phoenix=None) -> FastAPI:
+    """phoenix: optional telemetry.collector.phoenix.PhoenixExporter (CS_EXPORT_PHOENIX=true)."""
     app = FastAPI(title="CloudSentinel OTLP collector")
 
     @app.get("/health")
@@ -30,6 +31,8 @@ def create_app(store) -> FastAPI:
         except Exception as exc:
             raise HTTPException(400, f"cannot parse OTLP payload: {exc}")
         store.insert_spans(rows)
+        if phoenix is not None and rows:
+            phoenix.submit(body, ctype)   # background, never blocks or fails the agent
         if rows:
             log.info("stored %d spans from %s", len(rows), ", ".join(sorted({r.agent_id for r in rows})))
         if "json" in ctype:

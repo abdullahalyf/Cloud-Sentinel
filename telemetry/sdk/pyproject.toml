@@ -1,13 +1,17 @@
 [project]
 name = "cloudsentinel"
-version = "0.2.0"
+version = "0.3.0"
 description = "CloudSentinel agent SDK: OpenTelemetry GenAI spans, tool gate and external memory"
 requires-python = ">=3.10"
 dependencies = ["opentelemetry-sdk>=1.30", "opentelemetry-exporter-otlp-proto-http>=1.30"]
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=1.0", "langchain-core>=1.0"]   # cloudsentinel.adapters.langgraph
+crewai = ["crewai>=1.0"]                                 # cloudsentinel.adapters.crewai (own venv: pins mcp<2)
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["cloudsentinel"]
+packages = ["cloudsentinel", "cloudsentinel.adapters"]

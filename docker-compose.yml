@@ -3,6 +3,7 @@
 #   Demo:   python scripts/demo.py rogue beta paraphrase_loop
 #   Reset:  python scripts/demo.py reset   (or: docker compose up -d --force-recreate)
 #   Stop:   docker compose down
+#   Phoenix (optional): CS_EXPORT_PHOENIX=true docker compose --profile phoenix up -d   → http://localhost:6006
 #
 # The brain controls the agent containers through the Docker socket (pause/unpause/kill/start).
 # Every agent MUST have the label cloudsentinel.monitor=true or the brain ignores it.
@@ -25,6 +26,14 @@ services:
     <<: *app
     command: ["python", "-m", "telemetry.collector"]
     ports: ["4318:4318"]
+    environment:   # optional copy of every span to Arize Phoenix (off unless CS_EXPORT_PHOENIX=true)
+      CS_EXPORT_PHOENIX: "${CS_EXPORT_PHOENIX:-false}"
+      PHOENIX_COLLECTOR_ENDPOINT: "${PHOENIX_COLLECTOR_ENDPOINT:-http://phoenix:6006}"
+
+  phoenix:         # only started with --profile phoenix
+    image: arizephoenix/phoenix:version-21.0.0   # the version our export was verified against (4 Nov)
+    profiles: [phoenix]
+    ports: ["6006:6006"]
 
   brain:
     <<: *app

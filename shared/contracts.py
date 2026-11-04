@@ -100,9 +100,15 @@ class Attr:
     CS_TOOL_ARGS = "cloudsentinel.tool.args"
     CS_TOOL_DECISION = "cloudsentinel.tool.decision"
     CS_TOOL_VALUE_USD = "cloudsentinel.tool.value_usd"
+    # graph_node spans (LangGraph node / CrewAI step) — CloudSentinel extension, see CONTRACTS §4
+    CS_NODE = "cloudsentinel.node.name"
+    CS_NODE_STEP = "cloudsentinel.node.step"
+    CS_NODE_FRAMEWORK = "cloudsentinel.node.framework"
+    CS_NODE_STATE_DELTA = "cloudsentinel.node.state_delta"   # JSON {key: short preview} of what the node changed
+    CS_NODE_NEXT = "cloudsentinel.node.next"                 # where the graph routed next (if known)
 
 
-OPERATIONS = ("invoke_agent", "chat", "execute_tool")
+OPERATIONS = ("invoke_agent", "chat", "execute_tool", "graph_node")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,7 +123,7 @@ class _Row:
 class SpanRow(_Row):
     """One normalized OTel span. Table: spans"""
     agent_id: str
-    operation: str                 # invoke_agent | chat | execute_tool
+    operation: str                 # invoke_agent | chat | execute_tool | graph_node
     name: str
     trace_id: str = ""
     span_id: str = ""
@@ -138,6 +144,7 @@ class SpanRow(_Row):
     start_ts: float = field(default_factory=time.time)
     end_ts: float = 0.0
     duration_ms: float = 0.0
+    detail: str = "{}"             # JSON text; graph_node: {"node","step","framework","changed":{key: preview}}
     created_at: str = field(default_factory=utc_now_iso)
 
     @property
@@ -147,6 +154,7 @@ class SpanRow(_Row):
     def to_row(self) -> dict:
         d = asdict(self)
         d["tool_args"] = _dump(self.tool_args)
+        d["detail"] = _dump(self.detail)
         return d
 
 

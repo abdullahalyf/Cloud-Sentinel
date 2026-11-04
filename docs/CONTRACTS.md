@@ -74,6 +74,10 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `PROBATION_SECONDS` | 30 | brain | |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
+| `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
+| `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006` | collector | Phoenix base URL; spans go to `…/v1/traces` |
+| `PHOENIX_API_KEY` | "" | collector | sent as `Authorization: Bearer …` (Phoenix Cloud) |
+| `PHOENIX_PROJECT_NAME` | `cloudsentinel` | collector | Phoenix project (resource `openinference.project.name`) |
 
 ---
 
@@ -97,8 +101,11 @@ Transport: **OTLP/HTTP** `POST {OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`, body
 | `invoke_agent {agent}` | `invoke_agent` | `gen_ai.agent.name`, `gen_ai.agent.id`, `cloudsentinel.task.id` | `cloudsentinel.task.status` = `success`·`failure`·`abandoned` (set before end) |
 | `chat {model}` | `chat` | `gen_ai.provider.name` (`anthropic`·`openai`·`gemini`·`sim`), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | `cloudsentinel.prompt.preview` (≤200 chars), `cloudsentinel.prompt.hash` |
 | `execute_tool {tool}` | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id` | `cloudsentinel.tool.args` (JSON ≤500 chars), `cloudsentinel.tool.decision` (`allow`·`deny`·`rewrite`·`timeout`), `cloudsentinel.tool.value_usd` |
+| `graph_node {node}` *(added 4 Nov, additive)* | `graph_node` | `cloudsentinel.node.name` | `cloudsentinel.node.step` (int), `cloudsentinel.node.framework` (`langgraph`·`crewai`·`custom`), `cloudsentinel.node.state_delta` (JSON `{key: preview ≤60 chars}`, ≤8 keys), `cloudsentinel.node.next` (where the graph routed) |
 
-Errors: span status `ERROR` + attribute `error.type`. `chat`/`execute_tool` spans are children of `invoke_agent`.
+Errors: span status `ERROR` + attribute `error.type`. `chat`/`execute_tool` spans are children of `invoke_agent`,
+or of the `graph_node` they ran in. `graph_node` is a CloudSentinel extension (OTel GenAI has no "graph node" yet):
+one span per LangGraph node run or CrewAI task, emitted by `cloudsentinel.adapters.langgraph` / `.crewai` or `cs.node()`.
 Agent id resolution in the collector: `cloudsentinel.agent.id` → `gen_ai.agent.id` → `service.name` → `"unknown"`.
 
 **Normalized row** `SpanRow` (collector → `spans` table): see §5.
@@ -113,7 +120,7 @@ Every table has `id` (auto increment). Columns marked JSON are TEXT containing J
 | Table | Columns | Written by | Read by |
 |---|---|---|---|
 | `agents` (PK `agent_id`, upsert) | agent_id, display_name, runtime, runtime_id, state, budget_usd, spend_usd, total_tokens, last_seen_ts, updated_at | brain | api |
-| `spans` | trace_id, span_id, parent_span_id, agent_id, operation, name, provider, model, input_tokens, output_tokens, cost_usd, tool_name, tool_args (JSON), prompt_preview, prompt_hash, task_id, task_status, status (`ok`·`error`), error_type, start_ts, end_ts, duration_ms, created_at | collector / fake fleet | brain, api, eval |
+| `spans` | trace_id, span_id, parent_span_id, agent_id, operation, name, provider, model, input_tokens, output_tokens, cost_usd, tool_name, tool_args (JSON), prompt_preview, prompt_hash, task_id, task_status, status (`ok`·`error`), error_type, start_ts, end_ts, duration_ms, detail (JSON; `graph_node`: `{node, step, framework, changed, next}`, else `{}`), created_at | collector / fake fleet | brain, api, eval |
 | `agent_metrics` | agent_id, state, tokens_per_min, usd_per_min, calls_per_sec, total_tokens, spend_usd, budget_usd, exact_repeats, loop_score, tool_cycle (0/1), memory_mb, memory_pct, created_at | brain | api, eval |
 | `alerts` | agent_id, severity (`info`·`warning`·`critical`), rule, message, created_at | brain | api |
 | `verdicts` | agent_id, source (`claude`·`gemini`·`fallback`), action (`KILL`·`PAUSE`·`WARN`·`IGNORE`), confidence, pattern, reason, suggested_fix, latency_ms, created_at | brain | api, eval |
@@ -155,6 +162,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/health` | → `{"ok": true, "mode": "fake"|"docker"|"k8s"|"mock", "judge": "claude"|"gemini"|"fallback", "contract": 2}` | all |
 | `GET /v1/fleet` | → `{"agents": [AgentView]}` | dashboard, mcp |
 | `GET /v1/agents/{id}` | → `{"agent": AgentView, "spans": [SpanRow ≤50], "verdicts": [VerdictRow ≤10], "memory": MemoryRow|null}` | dashboard, mcp |
+| `GET /v1/agents/{id}/nodes?minutes=10&limit=100` *(added 4 Nov)* | → `NodeFeed` (below) | dashboard |
 | `GET /v1/metrics?minutes=5&agent_id=` | → `{"metrics": [MetricRow]}` | dashboard |
 | `GET /v1/graph?minutes=2` | → `{"nodes": [{"id","kind": "agent"|"tool"|"model","label"}], "edges": [{"source","target","count","in_cycle"}]}` | dashboard |
 | `GET /v1/verdicts?limit=20` · `GET /v1/actions?limit=50` · `GET /v1/alerts?limit=50` | → `{"items": [...]}` | dashboard, mcp |
@@ -172,6 +180,15 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 **`AgentView`** = `agents` row + latest metric:
 `{agent_id, display_name, runtime, state, budget_usd, spend_usd, total_tokens, tokens_per_min, usd_per_min,
 calls_per_sec, exact_repeats, loop_score, tool_cycle, memory_pct, last_verdict: VerdictRow|null, updated_at}`
+
+**`NodeFeed`** (LangGraph/CrewAI flow, oldest → newest):
+`{"items": [{ts, node, step, framework, changed: {key: preview}, next, status, duration_ms, trace_id}],
+"edges": [{source, target, count}], "last_node": str|null, "next_node": str|null}`. `edges` count transitions
+between consecutive nodes of the same run (`trace_id`), so a loop shows as A→B and B→A with growing counts.
+
+Agents **without a container** (a LangGraph/CrewAI process, any external OTel agent) are still controllable:
+PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
+the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
 
 `SET_BUDGET` params: `{"budget_usd": float}`. `GO_ROGUE` params: `{"kind": "loop"|"paraphrase_loop"|"token_bomb"|"memory_leak"|"bad_tool_call"}`.
 
@@ -206,13 +223,20 @@ def build_report(spans: list[dict], actions: list[dict], tool_calls: list[dict],
 Returns `RoiReport`:
 ```
 {"total_spend_usd", "spend_by_agent": {id: usd}, "saved_usd", "saved_by_action": [{action_id, agent_id, action, actor, usd}],
- "interventions": int, "tool_calls_held": int, "tasks_succeeded", "cost_per_successful_task_usd",
- "horizon_minutes", "formula": str}
+ "interventions": int, "tool_calls_held": int, "tasks_total", "tasks_succeeded", "cost_per_successful_task_usd",
+ "wasted_usd", "tasks_by_agent": {id: TaskStats}, "horizon_minutes", "formula": str}
+TaskStats = {tasks, succeeded, failed, abandoned, success_rate, spend_usd, wasted_usd, unattributed_usd, cost_per_success_usd}
 ```
 Formula (shown on the dashboard verbatim): for each KILL/PAUSE, `saved = usd_per_min_at_action × ROI_HORIZON_MINUTES`
 (baseline = "no CloudSentinel": the agent keeps burning until a human notices, default 60 min);
 for each TOOL_DENY/TIMEOUT, `saved = value_usd`; for TOOL_REWRITE, `saved = value_usd × (1 − new_amount/old_amount)`.
 The brain fills `actions.usd_saved_estimate` with the same formula at action time.
+
+**Cost → per-task success** (added 4 Nov): a task is one `invoke_agent` span. Every span with the same
+`trace_id` (its chat, tool and graph_node children) is that task's cost. `success_rate` = succeeded / tasks;
+`cost_per_success_usd` = the agent's spend / its successful tasks; `wasted_usd` = spend on failed or abandoned tasks
+plus `unattributed_usd` (spans whose task hasn't finished, e.g. a graph stuck in a loop). Report-level
+`cost_per_successful_task_usd` is fully loaded: all spend ÷ all successful tasks.
 
 ---
 

@@ -94,6 +94,10 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
         return {"agent": view, "spans": store.recent_spans(minutes=10, agent_id=agent_id)[-50:],
                 "verdicts": store.recent_verdicts(limit=10, agent_id=agent_id), "memory": store.get_memory(agent_id)}
 
+    @app.get("/v1/agents/{agent_id}/nodes", dependencies=[Depends(auth)])
+    def nodes(agent_id: str, minutes: float = 10, limit: int = 100) -> dict:
+        return service.node_feed(store, agent_id, clamp_minutes(minutes), clamp_limit(limit, 500))
+
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
         return {"metrics": store.recent_metrics(minutes=clamp_minutes(minutes), agent_id=agent_id)}

@@ -9,7 +9,12 @@ cloudsentinel — the agent SDK (CONTRACTS §10).   Owner: Fojle.
             ...                                          # call your LLM
             call.record(input_tokens=..., output_tokens=...)
         cs.tool("issue_refund", {"amount": 500}, fn=issue_refund, value_usd=4.1)
+        with cs.node("lookup_order", step=1) as n:     # graph_node span (framework adapters do this for you)
+            n.changed({"order_status": "refunded"})
         t.success()
+
+Framework adapters (LangGraph, CrewAI) live in telemetry/adapters/ and are built on node(), gate(),
+start_span()/end_span() and wait_if_paused() below.
 
 Telemetry = OpenTelemetry GenAI spans exported over OTLP/HTTP (works with any OTel backend).
 Control  = HTTP calls to the CloudSentinel C2 API (tool gate + external memory).
@@ -42,10 +47,18 @@ CS_TASK_ID, CS_TASK_STATUS = "cloudsentinel.task.id", "cloudsentinel.task.status
 CS_PROMPT_PREVIEW, CS_PROMPT_HASH = "cloudsentinel.prompt.preview", "cloudsentinel.prompt.hash"
 CS_TOOL_ARGS, CS_TOOL_DECISION, CS_TOOL_VALUE_USD = ("cloudsentinel.tool.args", "cloudsentinel.tool.decision",
                                                     "cloudsentinel.tool.value_usd")
+CS_NODE, CS_NODE_STEP = "cloudsentinel.node.name", "cloudsentinel.node.step"
+CS_NODE_FRAMEWORK, CS_NODE_STATE_DELTA = "cloudsentinel.node.framework", "cloudsentinel.node.state_delta"
+CS_NODE_NEXT = "cloudsentinel.node.next"
+MAX_DELTA_KEYS, MAX_PREVIEW = 8, 60
 
 
 class ToolDenied(Exception):
     """The tool call was denied by policy or a human (or timed out waiting for approval)."""
+
+
+class AgentKilled(Exception):
+    """CloudSentinel killed this agent: stop working (raised by wait_if_paused)."""
 
 
 class _State:
@@ -160,6 +173,68 @@ def llm_call(model: str, provider: str = "anthropic", prompt: str = "") -> Itera
         yield _Call(span)
 
 
+def preview_delta(update: Any) -> dict:
+    """What a node changed, as {key: short text} (≤8 keys, ≤60 chars each), safe to put on a span."""
+    if not isinstance(update, dict):
+        update = {"value": update} if update is not None else {}
+    out = {}
+    for key in list(update)[:MAX_DELTA_KEYS]:
+        value = update[key]
+        if isinstance(value, list):
+            text = f"{len(value)} items" + (f", last: {value[-1]!s:.40}" if value else "")
+        else:
+            text = str(getattr(value, "content", value))
+        out[str(key)[:40]] = text if len(text) <= MAX_PREVIEW else text[:MAX_PREVIEW - 1] + "…"
+    if len(update) > MAX_DELTA_KEYS:
+        out["…"] = f"+{len(update) - MAX_DELTA_KEYS} more keys"
+    return out
+
+
+class _Node:
+    def __init__(self, span):
+        self.span = span
+
+    def changed(self, update: Any) -> None:
+        """Record the state change this node made (e.g. the dict a LangGraph node returns)."""
+        self.span.set_attribute(CS_NODE_STATE_DELTA, json.dumps(preview_delta(update), ensure_ascii=False))
+
+
+@contextlib.contextmanager
+def node(name: str, step: Optional[int] = None, framework: str = "custom") -> Iterator[_Node]:
+    """One step of a graph/crew (LangGraph node, CrewAI task) → a `graph_node` span."""
+    span = start_span(f"graph_node {name}", "graph_node", {CS_NODE: name, CS_NODE_FRAMEWORK: framework,
+                                                           **({CS_NODE_STEP: int(step)} if step is not None else {})})
+    from opentelemetry import trace
+
+    with trace.use_span(span, end_on_exit=True):
+        yield _Node(span)
+
+
+def start_span(name: str, operation: str, attributes: Optional[dict] = None, parent: Any = None) -> Any:
+    """Open a span that you close later with end_span() (for callback-style framework hooks)."""
+    from opentelemetry import trace
+
+    ctx = trace.set_span_in_context(parent) if parent is not None else None
+    span = _tracer().start_span(name, context=ctx)
+    span.set_attribute(OPERATION, operation)
+    span.set_attribute(CS_AGENT_ID, _s.agent_id)
+    for key, value in (attributes or {}).items():
+        if value is not None:
+            span.set_attribute(key, value)
+    return span
+
+
+def end_span(span: Any, error: Optional[BaseException | str] = None) -> None:
+    if span is None:
+        return
+    if error is not None:
+        from opentelemetry.trace import Status, StatusCode
+
+        span.set_attribute(ERROR_TYPE, (type(error).__name__ if isinstance(error, BaseException) else str(error))[:100])
+        span.set_status(Status(StatusCode.ERROR))
+    span.end()
+
+
 # ── C2 API client (stdlib only) ─────────────────────────────────────────────
 def _api(method: str, path: str, body: Optional[dict] = None, timeout: float = 5.0) -> tuple[int, Any]:
     data = json.dumps(body).encode() if body is not None else None
@@ -193,6 +268,30 @@ def tool(name: str, args: dict, fn: Callable[..., Any], value_usd: Optional[floa
             span.set_attribute(ERROR_TYPE, f"tool_{decision}")
             raise ToolDenied(f"{name} was {decision}")
         return fn(**(final_args if decision == "rewrite" else args))
+
+
+def gate(name: str, args: dict, value_usd: Optional[float] = None, fail_closed: bool = False) -> tuple[str, dict]:
+    """Ask CloudSentinel before running a tool, without running it. Returns (decision, final_args).
+    decision: allow | deny | rewrite | timeout. Blocks while a human decides (pending)."""
+    return _gate(name, args, value_usd, fail_closed)
+
+
+def wait_if_paused(poll_seconds: float = 1.0, max_wait: Optional[float] = None) -> None:
+    """Cooperative pause for agents without a container (local process, notebook):
+    blocks while CloudSentinel has this agent paused, raises AgentKilled if it was killed.
+    Fails open (returns at once) if the API is unreachable."""
+    started = time.time()
+    while True:
+        try:
+            status, body = _api("GET", f"/v1/agents/{_s.agent_id}", timeout=2.0)
+        except (urllib.error.URLError, OSError):
+            return
+        state = ((body or {}).get("agent") or {}).get("state") if status == 200 else None
+        if state == "killed":
+            raise AgentKilled(f"{_s.agent_id} was killed by CloudSentinel")
+        if state != "paused" or (max_wait is not None and time.time() - started > max_wait):
+            return
+        time.sleep(poll_seconds)
 
 
 def _gate(name: str, args: dict, value_usd: Optional[float], fail_closed: bool) -> tuple[str, dict]:
@@ -246,4 +345,5 @@ class _Memory:
 
 memory = _Memory()
 
-__all__ = ["init", "flush", "task", "llm_call", "tool", "memory", "ToolDenied"]
+__all__ = ["init", "flush", "task", "llm_call", "tool", "memory", "node", "gate", "wait_if_paused", "preview_delta",
+           "start_span", "end_span", "ToolDenied", "AgentKilled"]

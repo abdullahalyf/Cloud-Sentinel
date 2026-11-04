@@ -103,3 +103,26 @@ def test_mock_pause_command_changes_state():
     mock.post("/v1/agents/alpha/commands", json={"command": "PAUSE", "requested_by": "dashboard"})
     state = next(a["state"] for a in mock.get("/v1/fleet").json()["agents"] if a["agent_id"] == "alpha")
     assert state == "paused"
+
+
+def test_node_feed_same_shape_on_mock_and_real(sim, cfg):
+    """GET /v1/agents/{id}/nodes: real API reads graph_node spans; the mock fakes a LangGraph agent."""
+    import json as _json
+
+    from shared.contracts import SpanRow
+
+    import time as _time
+
+    t = _time.time() - 10   # recent_spans() filters on wall-clock time
+    path = [("classify", "lookup_order"), ("lookup_order", "retry"), ("retry", "lookup_order"), ("lookup_order", "retry")]
+    sim.store.insert_spans([SpanRow("lg", "graph_node", f"graph_node {n}", trace_id="r1", start_ts=t + i,
+                                    detail=_json.dumps({"node": n, "step": i, "framework": "langgraph",
+                                                        "changed": {"k": "v"}, "next": nxt}))
+                            for i, (n, nxt) in enumerate(path)])
+    real = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")).get("/v1/agents/lg/nodes").json()
+    mock = TestClient(mock_app).get("/v1/agents/delta/nodes").json()
+    assert set(real) == set(mock) == {"items", "edges", "last_node", "next_node"}
+    assert set(real["items"][0]) == set(mock["items"][0]) and set(real["edges"][0]) == set(mock["edges"][0])
+    assert [i["node"] for i in real["items"]] == ["classify", "lookup_order", "retry", "lookup_order"]
+    assert {"source": "retry", "target": "lookup_order", "count": 1} in real["edges"] and len(real["edges"]) == 3
+    assert real["last_node"] == "lookup_order" and real["next_node"] == "retry"

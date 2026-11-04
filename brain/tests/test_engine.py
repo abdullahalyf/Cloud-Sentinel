@@ -75,3 +75,23 @@ def test_engine_survives_executor_errors(sim):
     sim.fleet.list_agents = broken
     sim.run(3)  # must not raise
     assert sim.store.recent_metrics(minutes=1)
+
+
+def test_new_evidence_skips_the_judge_cooldown(sim):
+    """A WARN on weak evidence must not block a second opinion when a stronger rule appears."""
+    from brain.detectors import Finding, Level
+
+    asked = []
+    sim.engine.judge.judge = lambda ctx: (asked.append(set(ctx.finding.rules)),
+                                          __import__("brain.judge", fromlist=["x"]).fallback_verdict(ctx, sim.engine.cfg))[1]
+    sim.run(2)
+    win, snap = sim.engine._window("alpha"), sim.engine._window("alpha").snapshot(sim.now, 0.5)
+    weak, strong = Finding(), Finding()
+    weak.add(Level.SUSPICIOUS, "token_spike", "tokens high")
+    strong.add(Level.SUSPICIOUS, "token_spike", "tokens high")
+    strong.add(Level.SUSPICIOUS, "loop_semantic", "same intent")
+    sim.engine._ask_judge("alpha", win, snap, weak, sim.now)
+    sim.engine.pending.clear()
+    sim.engine._ask_judge("alpha", win, snap, weak, sim.now + 1)      # same evidence, inside cooldown → skipped
+    sim.engine._ask_judge("alpha", win, snap, strong, sim.now + 2)    # new rule → asked again
+    assert asked == [{"token_spike"}, {"token_spike", "loop_semantic"}]

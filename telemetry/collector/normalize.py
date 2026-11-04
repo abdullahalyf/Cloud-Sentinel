@@ -75,7 +75,22 @@ def normalize_span(span: dict, resource: dict[str, Any]) -> SpanRow:
         task_id=str(a.get(Attr.CS_TASK_ID) or ""), task_status=str(a.get(Attr.CS_TASK_STATUS) or ""),
         status="error" if status_code in ERROR_CODES else "ok", error_type=str(a.get(Attr.ERROR_TYPE) or ""),
         start_ts=start, end_ts=end, duration_ms=round((end - start) * 1000, 2) if end else 0.0,
+        detail=_node_detail(a) if _operation(a, name) == "graph_node" else "{}",
     )
+
+
+def _node_detail(a: dict) -> str:
+    """graph_node attributes → the spans.detail JSON column (CONTRACTS §4/§5)."""
+    try:
+        changed = json.loads(a.get(Attr.CS_NODE_STATE_DELTA) or "{}")
+    except (TypeError, ValueError):
+        changed = {"value": str(a.get(Attr.CS_NODE_STATE_DELTA))[:60]}
+    step = a.get(Attr.CS_NODE_STEP)
+    return json.dumps({"node": str(a.get(Attr.CS_NODE) or ""), "step": int(step) if step is not None else None,
+                       "framework": str(a.get(Attr.CS_NODE_FRAMEWORK) or ""),
+                       "next": str(a.get(Attr.CS_NODE_NEXT) or ""),
+                       "changed": changed if isinstance(changed, dict) else {"value": str(changed)[:60]}},
+                      ensure_ascii=False)
 
 
 def normalize_otlp_json(payload: dict) -> list[SpanRow]:
