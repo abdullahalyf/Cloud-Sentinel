@@ -60,7 +60,12 @@ the monitor while burning money fast).
 - IGNORE: a legitimate burst of real work (varied prompts about different items, tasks progressing).
 
 Weigh both costs: a wrong stop interrupts real work; a missed stop burns money. The same intent \
-repeated many times with failing tool calls is the strongest sign of a loop.
+repeated many times with failing tool calls is the strongest sign of a loop. A tool called in a \
+cycle whose last calls all failed is a loop even while the loop score is still low: that is the \
+earliest moment to stop it.
+
+confidence (0-1): how sure you are. The breaker only acts on PAUSE/KILL when confidence is at least \
+act_when_confidence_at_least (see Limits), so below that your PAUSE counts as a WARN.
 
 If the agent's memory contains a belief that explains the loop (for example "retry until success" \
 for something that keeps failing), put a one-sentence memory change that would let the agent move \
@@ -99,6 +104,7 @@ def build_user_message(ctx: JudgeContext, cfg: Settings) -> str:
     limits = {k: getattr(cfg, k) for k in ("soft_tokens_per_min", "hard_tokens_per_min", "soft_calls_per_sec",
                                            "hard_calls_per_sec", "soft_memory_pct", "hard_memory_pct",
                                            "loop_repeat_threshold", "loop_score_threshold")}
+    limits["act_when_confidence_at_least"] = cfg.brain_kill_confidence
     logs = scrub("\n".join(json.dumps(p, ensure_ascii=False, default=str) for p in ctx.prompts))
     tools = scrub("\n".join(json.dumps(t, ensure_ascii=False, default=str) for t in ctx.tools))
     memory = scrub(json.dumps(ctx.memory, ensure_ascii=False, default=str)[:MAX_MEMORY_CHARS])
@@ -134,6 +140,12 @@ def fallback_verdict(ctx: JudgeContext, cfg: Settings, note: str = "") -> Verdic
     if "injection" in rules:
         return Verdict("PAUSE", 0.7, "prompt_injection",
                        prefix + "Agent output contains instructions aimed at the monitor.", "fallback", fix)
+    failing = [t for t in ctx.tools[-3:] if str(t.get("status")) == "error"]
+    if "tool_cycle" in rules and len(failing) == 3:
+        # the earliest loop signal: same tool pattern, and the last 3 calls all failed (tuned with judge_bench)
+        return Verdict("PAUSE", 0.7, "infinite_loop",
+                       prefix + f"Calls {failing[-1].get('tool')} in a cycle and the last 3 calls all failed: "
+                                "retrying something that keeps failing.", "fallback", fix)
     if "memory_high" in rules:
         return Verdict("PAUSE", 0.7, "memory_leak",
                        prefix + f"Memory at {s.memory_pct:.0f}% and climbing: heading for a crash.", "fallback")
