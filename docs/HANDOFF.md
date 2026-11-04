@@ -40,9 +40,10 @@ decides gray cases → the agent is paused, healed or killed from outside → th
 6. **Branch protection is off** until Taseen H2. Alif's agent merges its own PRs, so CI is the only gate. Taseen reads its PRs daily.
 7. **The mock and the real brain both use port 8000.** Never run both.
 8. Semantic-loop false positives on busy healthy agents (risk R12): the `legit_burst` checks in A1/A2 and O7 guard this.
-9. **One flaky test, not identified:** on 4 Nov one local `python -m pytest -q` run had 1 failure that didn't come back in 16 reruns (CI green).
-    Suspects: the timing-based tests (`shared/tests/test_api_parity.py` node feed uses the wall clock; the LangGraph adapter tests use real threads).
-    Alif's agent: reproduce with `for i in $(seq 30); do python -m pytest -q -rf | grep FAILED; done` in A10.
+9. **Flaky CrewAI test: found and fixed on 4 Nov.** CrewAI 1.15 runs event handlers on a 10-thread pool, so `kickoff()` could
+   return before the "crew completed" handler ran, and a "done" event could be handled before its "start". It failed once on `main` CI.
+   The adapter now keeps early completions, and `cloudsentinel.adapters.crewai.flush()` waits for the bus. **Call `flush()` after every
+   `kickoff()`.** Two regression tests cover it, and 15/15 reruns are green.
 10. Running SQLite from several processes (A8 sharding) needs WAL plus busy_timeout. Don't point two brains at one DB file before A8.
 
 ## 4. Local setup on a normal laptop

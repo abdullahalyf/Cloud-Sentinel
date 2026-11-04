@@ -16,6 +16,10 @@ What you get (CONTRACTS §4), from CrewAI's event bus and its blocking hooks:
                         (deny → blocked, rewrite → arguments changed in place, approval → waits for a human)
   before every LLM    → cs.wait_if_paused(): a paused agent waits, a killed one is blocked
 
+CrewAI runs event handlers on a thread pool, so (1) `kickoff()` can return before the last handlers ran: call
+`flush()` from this module after a kickoff (it waits for CrewAI's event bus, then exports); (2) a "done" event can
+be handled before its "start": the listener keeps early completions and applies them when the start arrives.
+
 Install CrewAI in the AGENT's environment (its own venv/container): `pip install "cloudsentinel[crewai]"`.
 Note: crewai 1.x pins mcp<2 while the CloudSentinel brain needs mcp>=2, so don't install it next to the brain.
 """
@@ -27,7 +31,7 @@ import threading
 import uuid
 from typing import Any, Callable, Iterable, Optional, Union
 
-from crewai.events import BaseEventListener
+from crewai.events import BaseEventListener, crewai_event_bus
 from crewai.events.types.crew_events import CrewKickoffCompletedEvent, CrewKickoffFailedEvent, CrewKickoffStartedEvent
 from crewai.events.types.llm_events import LLMCallCompletedEvent, LLMCallFailedEvent, LLMCallStartedEvent
 from crewai.events.types.task_events import TaskCompletedEvent, TaskFailedEvent, TaskStartedEvent
@@ -52,21 +56,45 @@ class CloudSentinelListener(BaseEventListener):
         self._crew: Optional[Any] = None
         self._step = 0
         self._decisions: dict[str, str] = {}   # tool name → last gate decision (set by the hook)
+        self._early: dict[str, tuple[Optional[dict], Any, Callable[[], None]]] = {}  # done before start
         self._lock = threading.Lock()
         super().__init__()
 
     # small helpers
     def _open(self, key: str, name: str, op: str, attrs: dict, parent: Any = None) -> None:
+        span = cs.start_span(name, op, attrs, parent=parent if parent is not None else self._crew)
         with self._lock:
-            self._spans[key] = cs.start_span(name, op, attrs, parent=parent if parent is not None else self._crew)
+            early = self._early.pop(key, None)
+            if early is None:
+                self._spans[key] = span
+        if early is not None:  # its "done" event was handled first: close it right away
+            self._end(span, early[0], early[1])
 
-    def _close(self, key: str, error: Any = None, attrs: Optional[dict] = None) -> None:
+    @staticmethod
+    def _end(span: Any, attrs: Optional[dict], error: Any) -> None:
+        for k, v in (attrs or {}).items():
+            span.set_attribute(k, v)
+        cs.end_span(span, error)
+
+    def _close(self, key: str, error: Any = None, attrs: Optional[dict] = None,
+               start_late: Optional[Callable[[], None]] = None) -> None:
         with self._lock:
             span = self._spans.pop(key, None)
-        if span is not None:
-            for k, v in (attrs or {}).items():
-                span.set_attribute(k, v)
-            cs.end_span(span, error)
+            if span is None:  # the start hasn't been handled yet (thread pool): keep the result for it
+                self._early[key] = (attrs, error, start_late or (lambda: None))
+                return
+        self._end(span, attrs, error)
+
+    def drain(self) -> None:
+        """Completions whose start never arrived (e.g. a custom LLM without llm_call_context): record them anyway."""
+        with self._lock:
+            keys = list(self._early)
+        for key in keys:
+            entry = self._early.get(key)
+            if entry is not None:
+                entry[2]()                  # opens the span from the done event; _open applies the stored result
+            with self._lock:
+                self._early.pop(key, None)  # never retry a start that failed
 
     def _task_span(self, task_id: Any) -> Any:
         return self._spans.get(_key("task", task_id)) if task_id else None
@@ -131,13 +159,8 @@ class CloudSentinelListener(BaseEventListener):
             attrs = {cs.INPUT_TOKENS: int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
                      cs.OUTPUT_TOKENS: int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)}
             key = _key("llm", e.call_id)
-            if key not in self._spans:
-                # call ids didn't match (custom LLM without llm_call_context): close the oldest open LLM span,
-                # or record a span for this completion on its own so the tokens are never lost
-                key = next((k for k in list(self._spans) if k.startswith("llm|")), None) or key
-                if key not in self._spans:
-                    llm_start(None, e)
-            self._close(key, getattr(e, "error", None) if isinstance(e, LLMCallFailedEvent) else None, attrs)
+            self._close(key, getattr(e, "error", None) if isinstance(e, LLMCallFailedEvent) else None, attrs,
+                        start_late=lambda: llm_start(None, e))
 
         # tools
         @safe
@@ -151,12 +174,11 @@ class CloudSentinelListener(BaseEventListener):
         @safe
         def tool_done(e: Any) -> None:
             key = _key("tool", e.started_event_id)
-            if key not in self._spans:  # finished without a start event we saw: record it anyway
-                tool_start(None, ToolUsageStartedEvent.model_construct(**{
-                    k: getattr(e, k, None) for k in ("tool_name", "tool_args", "task_id", "agent_role")},
-                    event_id=e.started_event_id))
             failed = isinstance(e, ToolUsageErrorEvent) or getattr(e, "failure", False)
-            self._close(key, getattr(e, "error", None) or ("tool failed" if failed else None))
+            self._close(key, getattr(e, "error", None) or ("tool failed" if failed else None),
+                        start_late=lambda: tool_start(None, ToolUsageStartedEvent.model_construct(**{
+                            k: getattr(e, k, None) for k in ("tool_name", "tool_args", "task_id", "agent_role")},
+                            event_id=e.started_event_id)))
 
         for event, handler in [(CrewKickoffStartedEvent, crew_start), (CrewKickoffCompletedEvent, crew_done),
                                (CrewKickoffFailedEvent, crew_done), (TaskStartedEvent, task_start),
@@ -217,4 +239,15 @@ def instrument(value_usd: Optional[ValueMap] = None, fail_closed: Iterable[str] 
     return listener
 
 
-__all__ = ["instrument", "CloudSentinelListener"]
+def flush(timeout: float = 10.0) -> None:
+    """Call after crew.kickoff(): wait until CrewAI's event handlers ran, then export the spans."""
+    try:
+        crewai_event_bus.flush(timeout=timeout)
+    except Exception:  # never break the caller over telemetry
+        log.exception("crewai event bus flush failed")
+    if _listener is not None:
+        _listener.drain()
+    cs.flush()
+
+
+__all__ = ["instrument", "flush", "CloudSentinelListener"]
