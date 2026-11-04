@@ -233,6 +233,9 @@ First add a **Contract request** for 2 settings: `CS_EXPORT_CLOUDWATCH` (bool) a
   arrives before its "start". Keep both when you change the adapter (tests: `test_done_before_start_is_still_recorded`, `test_drain_…`).
 - ⚠️ **CrewAI pins `mcp<2`, but the brain needs `mcp>=2`.** Use a separate venv for CrewAI (`docs/HANDOFF.md` §4). CI tests it in the job `adapters`.
 
+## Notes
+- 2026-11-04 (Alif's agent, A0): your 3 contract requests are on main. `ROGUE_KINDS` has the 4 new kinds (implement them in `telemetry/simulators/agent.py`; `FakeFleet` keeps them healthy). `schema_migrations` is in `schema.sql` and `LocalStore`; `SupabaseStore` needs no new method, only your `telemetry/db/migrate.py` reads/writes it. Settings: `settings.export_cloudwatch`, `settings.cloudwatch_file`.
+
 ## Notes from the lead review (Wed 4 Nov)
 1. The `bad_tool_call` refund can slip through if the brain is down, because the SDK fails open. That's F11 S1.
 2. Clock skew hides agents from the 60 s loop window. That's F11 S2.
@@ -241,6 +244,6 @@ First add a **Contract request** for 2 settings: `CS_EXPORT_CLOUDWATCH` (bool) a
 
 ## Contract requests
 (Alif's agent reads this list (task A0) and adds what you need on a `contract/` branch. Write: what, why, which task.)
-- [ ] `ROGUE_KINDS` += `prompt_injection`, `tool_storm`, `memory_poisoning`, `slow_budget_leak` (F6)
-- [ ] table `schema_migrations(version text primary key, applied_at timestamptz default now())` (F9)
-- [ ] settings `CS_EXPORT_CLOUDWATCH` (bool, default false) and `CS_CLOUDWATCH_FILE` (default `data/cloudwatch.jsonl`) (F10)
+- [x] (A0, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22) `ROGUE_KINDS` += `prompt_injection`, `tool_storm`, `memory_poisoning`, `slow_budget_leak` (F6)
+- [x] (A0, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22) table `schema_migrations(version text primary key, applied_at timestamptz default now())` (F9)
+- [x] (A0, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22) settings `CS_EXPORT_CLOUDWATCH` (bool, default false) and `CS_CLOUDWATCH_FILE` (default `data/cloudwatch.jsonl`) (F10)

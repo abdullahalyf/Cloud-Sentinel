@@ -73,7 +73,9 @@ PATTERNS = ("infinite_loop", "semantic_loop", "token_spike", "memory_leak", "bad
 ToolDecision = Literal["pending", "allow", "deny", "rewrite", "timeout"]
 TOOL_DECISIONS = ("pending", "allow", "deny", "rewrite", "timeout")
 
-ROGUE_KINDS = ("loop", "paraphrase_loop", "token_bomb", "memory_leak", "bad_tool_call")
+ROGUE_KINDS = ("loop", "paraphrase_loop", "token_bomb", "memory_leak", "bad_tool_call",
+               # added 5 Nov (Fojle F6): the simulator implements these; FakeFleet treats them as healthy
+               "prompt_injection", "tool_storm", "memory_poisoning", "slow_budget_leak")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

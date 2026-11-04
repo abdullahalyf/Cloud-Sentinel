@@ -86,6 +86,9 @@ class Settings:
     phoenix_endpoint: str = "http://localhost:6006"
     phoenix_api_key: str = ""
     phoenix_project: str = "cloudsentinel"
+    # ── Optional CloudWatch EMF export (collector writes JSON lines to a file; added 5 Nov, Fojle F10) ──
+    export_cloudwatch: bool = False
+    cloudwatch_file: str = "data/cloudwatch.jsonl"
 
     @property
     def use_supabase(self) -> bool:
@@ -141,6 +144,8 @@ def load_settings() -> Settings:
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),
         phoenix_project=_str("PHOENIX_PROJECT_NAME", "cloudsentinel"),
+        export_cloudwatch=_bool("CS_EXPORT_CLOUDWATCH", False),
+        cloudwatch_file=_str("CS_CLOUDWATCH_FILE", "data/cloudwatch.jsonl"),
     )
 
 

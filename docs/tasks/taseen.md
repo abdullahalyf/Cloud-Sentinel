@@ -240,5 +240,8 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
 (Write here if you need a new setting, field or endpoint. Alif's agent implements it on a `contract/` branch: task A0.)
 - T9 public mode: none needed. `CS_API_TOKEN` already exists.
 
+## Contract changes (for review)
+- 2026-11-04 · A0 (https://github.com/abdullahalyf/Cloud-Sentinel/pull/22): `ROGUE_KINDS` += 4 kinds; table `schema_migrations`; settings `CS_EXPORT_CLOUDWATCH`, `CS_CLOUDWATCH_FILE`. All additive, defaults off.
+
 ## Requests from Alif's agent
 (Alif's agent writes here when it needs a human: a key, an account, a GitHub setting. Do these first each morning.)

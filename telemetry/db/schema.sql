@@ -137,5 +137,11 @@ create table if not exists tool_calls (
 );
 create index if not exists tool_calls_decision on tool_calls (decision, id);
 
+-- Added 5 Nov (Fojle F9): which telemetry/db/migrations/*.sql files were applied (telemetry/db/migrate.py)
+create table if not exists schema_migrations (
+    version    text primary key,
+    applied_at timestamptz not null default now()
+);
+
 -- Hackathon note: the service-role key is used from trusted laptops only.
 -- Never put it in a publicly deployed dashboard (the dashboard talks to the API, not the DB).
