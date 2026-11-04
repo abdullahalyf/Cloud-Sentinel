@@ -76,6 +76,32 @@ Every task: branch → prompt → `python -m pytest -q` → check it by hand →
 
 ✅ **Done when:** the refund approval from the `bad_tool_call` simulator can be approved, denied and rewritten.
 
+### Task 5.2: live LangGraph / CrewAI flow (example prompt P1: "recursive-loop token-flow dashboard")
+The API now has `GET /v1/agents/{id}/nodes` (CONTRACTS §6): every node a LangGraph graph (or task a
+CrewAI crew) ran, with the state it changed and where it went next, plus transition counts. The mock
+serves it for **delta** (a healthy refund graph) and **beta** (a `lookup_order ↔ retry` loop while
+beta is suspicious/paused), so you can build this today without any framework installed.
+> Prompt for Antigravity:
+> *Read AGENTS.md and docs/CONTRACTS.md section 6 (the /nodes endpoint). Only edit dashboard/.
+> (1) In dashboard/api_client.py add nodes(agent_id, minutes=10, limit=100) that calls
+> GET /v1/agents/{agent_id}/nodes and returns the JSON dict. (2) In the agent detail view, add a
+> "🕸 Graph flow" panel, shown only when nodes()["items"] is not empty. It refreshes every second
+> (inside the existing @st.fragment). (a) A plotly network of the nodes: one box per distinct node
+> name, arrows from edges[] with width by count and the count as a label; any edge that is part of a
+> cycle (A→B and B→A both present) is red and thick; the box named last_node is highlighted, with a
+> dashed arrow to next_node. Use a fixed left-to-right layout in the order nodes first appear.
+> (b) Under it, a "state transitions" table of the last 15 items, newest first: time (HH:MM:SS),
+> step, node, changed (each key: value on its own line), next, status (red if "error"). (c) A small
+> caption with the framework name (items[0]["framework"]) and "loop: lookup_order ↔ retry ×N" when a
+> cycle exists. Add a test in dashboard/tests/ that runs nodes() against the mock (see
+> test_api_client.py for how) and checks the keys.*
+
+✅ **Done when:** with the mock, delta shows `classify → lookup_order → decide → refund` with live counts.
+When beta is suspicious, its `lookup_order ↔ retry` arrows turn red and the counter climbs. With the
+real system (`python -m brain --fake` + `python -m telemetry.collector` +
+`python telemetry/examples/langgraph_refund_agent.py --rogue-after 20`), agent `lg-refund` shows the same
+loop live, and it stops climbing the moment CloudSentinel pauses it.
+
 ## Day 6 (Tue 10 Nov): agent graph + ROI panel
 > Prompt for Antigravity:
 > *Only edit dashboard/. (1) Agent graph: from api_client.graph(), draw nodes (agents = circles,
@@ -83,7 +109,9 @@ Every task: branch → prompt → `python -m pytest -q` → check it by hand →
 > with a fixed circular layout is fine). Edges with in_cycle=true are red and thicker. (2) ROI panel
 > at the top: a huge "$ saved" number from api_client.roi()["saved_usd"], total spend, interventions,
 > cost per successful task, and an expander showing roi["formula"] and each saved_by_action
-> sentence.*
+> sentence. (3) Under it, a per-agent table from roi()["tasks_by_agent"]: agent, tasks, succeeded,
+> failed, success rate %, spend $, cost per successful task $, wasted $ (spend on failed tasks) —
+> sort by wasted $ so the agent burning money without results is on top.*
 
 ✅ **Done when:** during the paraphrase loop, the beta → tool edge is red.
 

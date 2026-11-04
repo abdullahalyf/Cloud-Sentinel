@@ -38,8 +38,10 @@ class Engine:
         self.breakers: dict[str, Breaker] = {}
         self.budgets: dict[str, float] = {}
         self.last_judged: dict[str, float] = {}
+        self.last_rules: dict[str, set] = {}   # rules the judge saw last time, per agent
         self.pending: dict[str, Future] = {}
         self.cursor = 0
+        self.runtime_ids: Optional[set] = None
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
 
     # ── main loop ────────────────────────────────────────────────────────────
@@ -60,7 +62,9 @@ class Engine:
         now = time.time() if now is None else now
         self._safe(self._run_commands, now)
         self._safe(self._ingest)
-        runtime = {r.agent_id: r for r in (self._safe(self.executor.list_agents) or [])}
+        listed = self._safe(self.executor.list_agents)
+        runtime = {r.agent_id: r for r in (listed or [])}
+        self.runtime_ids = set(runtime) if listed is not None else None   # None = runtime unknown this tick
         for agent_id in sorted(set(self.windows) | set(runtime)):
             self._safe(self._watch, agent_id, runtime.get(agent_id), now)
         self._safe(self._expire_tool_calls, now)
@@ -126,9 +130,13 @@ class Engine:
         self._record(agent_id, br, snap, rt)
 
     def _ask_judge(self, agent_id: str, win: AgentWindow, snap: Snapshot, finding: Finding, now: float) -> None:
-        if agent_id in self.pending or now - self.last_judged.get(agent_id, -1e9) < self.cfg.brain_cooldown_seconds:
+        if agent_id in self.pending:
             return
-        self.last_judged[agent_id] = now
+        # new evidence (a rule the judge hasn't seen yet, e.g. loop_semantic after a token_spike WARN) skips the cooldown
+        new_evidence = bool(set(finding.rules) - self.last_rules.get(agent_id, set()))
+        if not new_evidence and now - self.last_judged.get(agent_id, -1e9) < self.cfg.brain_cooldown_seconds:
+            return
+        self.last_judged[agent_id], self.last_rules[agent_id] = now, set(finding.rules)
         log.warning("%s suspicious: %s → asking the judge", agent_id, finding.text)
         self._alert(agent_id, finding, critical=False)
         memory = (self.store.get_memory(agent_id) or {}).get("content", {})
@@ -170,7 +178,12 @@ class Engine:
             self.store.insert_action(ActionRow(agent_id, "WARN", e.actor, e.reason))
             return
         result = "dry run"
-        if not self.dry_run:
+        no_container = self.runtime_ids is not None and agent_id not in self.runtime_ids
+        if no_container and not self.dry_run:
+            # e.g. a LangGraph/CrewAI process or any external OTel agent: the SDK enforces the state
+            # (tool gate denies everything, wait_if_paused() blocks between nodes / LLM calls)
+            result = "no container: enforced by the SDK (tool gate + pause check)"
+        elif not self.dry_run:
             fn = {"PAUSE": self.executor.pause, "KILL": self.executor.kill, "RESUME": self.executor.resume,
                   "RESTART": self.executor.restart}[e.action]
             res = fn(agent_id)
@@ -181,6 +194,7 @@ class Engine:
         if e.action in ("RESUME", "RESTART"):
             self._window(agent_id).reset_activity()
             self.pending.pop(agent_id, None)
+            self.last_rules.pop(agent_id, None)
         log.critical("%s %s by %s — %s (%s)", e.action, agent_id, e.actor, e.reason, result)
         self.store.insert_action(ActionRow(agent_id, e.action, e.actor, e.reason, saved_usd, saved_tok))
 

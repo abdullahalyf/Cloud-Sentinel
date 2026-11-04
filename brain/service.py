@@ -202,6 +202,28 @@ def graph(store, minutes: float, loop_threshold: float) -> dict:
             "edges": [{"source": a, "target": t, "count": n, "in_cycle": a in looping} for (a, t), n in edges.items()]}
 
 
+def node_feed(store, agent_id: str, minutes: float, limit: int) -> dict:
+    """LangGraph/CrewAI node events for one agent (CONTRACTS §6 /nodes): what ran, what it changed, where it went.
+    edges count transitions between consecutive nodes of the same run, so the dashboard can draw the live graph."""
+    spans = [s for s in store.recent_spans(minutes=minutes, agent_id=agent_id) if s.get("operation") == "graph_node"]
+    spans.sort(key=lambda s: (float(s.get("start_ts") or 0), int(s.get("id") or 0)))
+    items = []
+    for s in spans:
+        d = load_json(s.get("detail"))
+        items.append({"ts": s.get("start_ts"), "node": d.get("node") or str(s.get("name", "")).split(" ", 1)[-1],
+                      "step": d.get("step"), "framework": d.get("framework", ""), "changed": d.get("changed") or {},
+                      "next": d.get("next", ""), "status": s.get("status", "ok"), "duration_ms": s.get("duration_ms"),
+                      "trace_id": s.get("trace_id", "")})
+    edges: dict[tuple[str, str], int] = defaultdict(int)
+    for prev, cur in zip(items, items[1:]):
+        if prev["trace_id"] == cur["trace_id"]:
+            edges[(prev["node"], cur["node"])] += 1
+    last = items[-1] if items else None
+    return {"items": items[-limit:],
+            "edges": [{"source": a, "target": b, "count": n} for (a, b), n in sorted(edges.items())],
+            "last_node": last["node"] if last else None, "next_node": (last["next"] or None) if last else None}
+
+
 def roi(store, horizon_minutes: float) -> dict:
     from eval.roi import build_report
 
@@ -214,4 +236,4 @@ def dumps(obj) -> str:
 
 
 __all__ = ["ApiError", "post_command", "save_memory", "request_tool_call", "decide_tool_call",
-           "fleet_view", "graph", "roi", "load_json", "dumps"]
+           "fleet_view", "graph", "node_feed", "roi", "load_json", "dumps"]

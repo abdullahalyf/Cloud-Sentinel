@@ -131,6 +131,47 @@ def agent(agent_id: str) -> dict:
             "memory": _latest_memory(agent_id)}
 
 
+HEALTHY_PATH = ["classify", "lookup_order", "decide", "refund"]
+
+
+def _node_events(agent: str, now: float, seconds: int = 60) -> list[dict]:
+    """Fake LangGraph node events, one per second: delta runs the refund graph, beta loops while rogue."""
+    if agent not in ("beta", "delta"):
+        return []
+    items = []
+    for i in range(seconds, 0, -1):
+        t = int(now) - i
+        looping = agent == "beta" and _state("beta") in ("suspicious", "paused") and i < 25
+        if looping:
+            node = ["lookup_order", "retry"][t % 2]
+            nxt = "retry" if node == "lookup_order" else "lookup_order"
+            changed = {"status": "error: orders API returned 500", "attempts": str(t % 97)} if node == "lookup_order" \
+                else {"answer": f"retrying ({t % 97})"}
+            run, status = "loop-4471", "error" if node == "lookup_order" else "ok"
+        else:
+            k = t % len(HEALTHY_PATH)
+            node, nxt = HEALTHY_PATH[k], (HEALTHY_PATH + ["__end__"])[k + 1]
+            changed = {"classify": {"intent": "refund"}, "lookup_order": {"status": "shipped"},
+                       "decide": {"amount": "800"}, "refund": {"answer": "refunded 800 BDT"}}[node]
+            run, status = f"run-{t // len(HEALTHY_PATH)}", "ok"
+        items.append({"ts": float(t), "node": node, "step": t % 100, "framework": "langgraph", "changed": changed,
+                      "next": nxt, "status": status, "duration_ms": 120.0, "trace_id": run})
+    return items
+
+
+@app.get("/v1/agents/{agent_id}/nodes")
+def nodes(agent_id: str, minutes: float = 10, limit: int = 100) -> dict:
+    items = _node_events(agent_id, time.time())
+    edges: dict[tuple[str, str], int] = {}
+    for prev, cur in zip(items, items[1:]):
+        if prev["trace_id"] == cur["trace_id"]:
+            edges[(prev["node"], cur["node"])] = edges.get((prev["node"], cur["node"]), 0) + 1
+    last = items[-1] if items else None
+    return {"items": items[-max(1, limit):],
+            "edges": [{"source": a, "target": b, "count": n} for (a, b), n in sorted(edges.items())],
+            "last_node": last["node"] if last else None, "next_node": last["next"] if last else None}
+
+
 @app.get("/v1/metrics")
 def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
     now, rows = time.time(), []

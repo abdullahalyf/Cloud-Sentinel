@@ -34,6 +34,8 @@ from crewai.llms.base_llm import BaseLLM, llm_call_context  # noqa: E402
 from crewai.tools import tool  # noqa: E402
 
 BDT_PER_USD = 122
+TICKETS = ["Order {order} arrived broken, please refund {amount} BDT", "My parcel {order} never came. I want {amount} BDT back",
+           "Wrong size delivered for #{order}; refund {amount} BDT please", "Refund {amount} BDT for order {order}, item damaged"]
 
 
 class ScriptedLLM(BaseLLM):
@@ -51,9 +53,11 @@ class ScriptedLLM(BaseLLM):
         role = str(getattr(from_agent, "role", "") or ("Refunds" if "You are Refunds" in text else ""))
         acted = any(m.get("role") == "assistant" and "Action: issue_refund" in str(m.get("content", "")) for m in msgs)
         if "Refund" in role and not acted and "issue_refund" in text:
-            amount = 50_000 if "50000" in text else 800
+            amount = next((a for a in (50000, 1200, 800, 300) if f"{a} BDT" in text), 800)
+            order = next((int(w.strip("#;,.")) for w in text.split() if w.strip("#;,.").isdigit()
+                          and 4000 <= int(w.strip("#;,.")) < 5000), 4471)
             reply = ('Thought: The customer is owed a refund, I will issue it.\nAction: issue_refund\n'
-                     f'Action Input: {{"order_id": 4471, "amount": {amount}}}')
+                     f'Action Input: {{"order_id": {order}, "amount": {amount}}}')
         else:
             reply = "Thought: I now know the final answer\nFinal Answer: " + (
                 "Refund handled as the tool allowed." if "Refund" in role else "Ticket is a refund request.")
@@ -103,8 +107,9 @@ def main() -> None:
     n = 0
     while not args.tickets or n < args.tickets:
         n += 1
-        amount = 50000 if n % 3 == 0 else 800
-        ticket = f"Order 4471 arrived broken, please refund {amount} BDT"
+        amount = 50000 if n % 3 == 0 else random.choice([300, 800, 1200])
+        order = 4471 if amount == 50000 else random.randint(4400, 4600)   # real tickets differ (see brain/loops.py)
+        ticket = random.choice(TICKETS).format(order=order, amount=amount)
         try:
             out = crew.kickoff(inputs={"ticket": ticket})
             print(f"[{cs._s.agent_id}] ticket {n}: {out.raw}", flush=True)

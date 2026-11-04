@@ -47,7 +47,8 @@ BAD_BELIEF = {f"order_{BAD_ORDER}": "orders API returned 500 - retry until succe
 RETRY_WORDS = ["Retry: fetch order {o} status", "Get the status of order #{o} again", "Look up where order {o} stands",
                "Try again: query the orders API for {o}", "Re-check order #{o} and report its state",
                "Once more: pull the current status for order {o}", "See if order {o} has shipped yet"]
-STEP_DELAY = float(os.getenv("STEP_DELAY", "0.4"))   # seconds per loop iteration (keeps the demo watchable)
+STEP_DELAY = float(os.getenv("STEP_DELAY", "0.5"))   # seconds per loop iteration (keeps the demo watchable)
+TASK_GAP = float(os.getenv("TASK_GAP", "4"))         # seconds between healthy tasks (~0.5 LLM calls/s, under the soft limit)
 
 
 # ── a chat model: offline simulator, or Claude ──────────────────────────────
@@ -62,8 +63,8 @@ class SimChat(BaseChatModel):
     def _generate(self, messages: list[BaseMessage], stop: Optional[list[str]] = None, run_manager: Any = None,
                   **kw: Any) -> ChatResult:
         prompt = str(messages[-1].content)
-        tin = 300 + 4 * len(prompt)
-        tout = random.randint(60, 180)
+        tin = 250 + len(prompt) // 4        # ~4 characters per token, plus a system prompt
+        tout = random.randint(40, 120)
         msg = AIMessage(content=f"[sim] ok: {prompt[:60]}",
                         usage_metadata={"input_tokens": tin, "output_tokens": tout, "total_tokens": tin + tout})
         return ChatResult(generations=[ChatGeneration(message=msg)])
@@ -193,9 +194,10 @@ def main() -> None:
 
     cs.init(agent_id=os.getenv("CS_AGENT_ID", "lg-refund"), runtime=os.getenv("CS_RUNTIME", "local"))
     app = build_graph(ClaudeChat() if args.claude else SimChat())
-    started, done = time.time(), 0
+    started, done, healed = time.time(), 0, False
     while not args.tasks or done < args.tasks:
-        rogue_now = FLAG_FILE.exists() or (args.rogue_after > 0 and time.time() - started > args.rogue_after)
+        timer = args.rogue_after > 0 and time.time() - started > args.rogue_after and not healed
+        rogue_now = FLAG_FILE.exists() or timer   # after a heal, only a new GO_ROGUE flag makes it rogue again
         if rogue_now and not ROGUE["on"]:
             ROGUE["on"] = True
             cs.memory.set({**cs.memory.get(), **BAD_BELIEF}, reason="orders API failed: retry until success")
@@ -208,11 +210,11 @@ def main() -> None:
             break
         print(f"[{cs._s.agent_id}] order {order}: {result.get('answer', result.get('status'))}", flush=True)
         if order == BAD_ORDER and "retry" not in str(cs.memory.get().get(f"order_{BAD_ORDER}", "")).lower():
-            ROGUE["on"] = False   # healed: memory was fixed, back to normal work
+            ROGUE["on"], healed = False, True   # healed: memory was fixed, back to normal work
             FLAG_FILE.unlink(missing_ok=True)
         done += 1
         cs.flush()
-        time.sleep(2.0)
+        time.sleep(TASK_GAP)
     cs.flush()
 
 

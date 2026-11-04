@@ -33,6 +33,9 @@ def tokens(text: str) -> frozenset[str]:
     return frozenset(out)
 
 
+MIN_ID_DIGITS = 4   # order/ticket ids (4471). Shorter numbers (amounts like "300 BDT") don't decide "different work"
+
+
 def similarity(a: frozenset[str], b: frozenset[str]) -> float:
     """
     Jaccard similarity of two word sets. Prompts about DIFFERENT ids (order 1234 vs order 5678)
@@ -40,8 +43,8 @@ def similarity(a: frozenset[str], b: frozenset[str]) -> float:
     """
     if not a or not b:
         return 0.0
-    ids_a = {w for w in a if w.isdigit()}
-    ids_b = {w for w in b if w.isdigit()}
+    ids_a = {w for w in a if w.isdigit() and len(w) >= MIN_ID_DIGITS}
+    ids_b = {w for w in b if w.isdigit() and len(w) >= MIN_ID_DIGITS}
     if ids_a and ids_b and not ids_a & ids_b:
         return 0.0
     return len(a & b) / len(a | b)
