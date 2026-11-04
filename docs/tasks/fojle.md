@@ -244,6 +244,6 @@ First add a **Contract request** for 2 settings: `CS_EXPORT_CLOUDWATCH` (bool) a
 
 ## Contract requests
 (Alif's agent reads this list (task A0) and adds what you need on a `contract/` branch. Write: what, why, which task.)
-- [x] (A0, PR_LINK) `ROGUE_KINDS` += `prompt_injection`, `tool_storm`, `memory_poisoning`, `slow_budget_leak` (F6)
-- [x] (A0, PR_LINK) table `schema_migrations(version text primary key, applied_at timestamptz default now())` (F9)
-- [x] (A0, PR_LINK) settings `CS_EXPORT_CLOUDWATCH` (bool, default false) and `CS_CLOUDWATCH_FILE` (default `data/cloudwatch.jsonl`) (F10)
+- [x] (A0, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22) `ROGUE_KINDS` += `prompt_injection`, `tool_storm`, `memory_poisoning`, `slow_budget_leak` (F6)
+- [x] (A0, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22) table `schema_migrations(version text primary key, applied_at timestamptz default now())` (F9)
+- [x] (A0, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22) settings `CS_EXPORT_CLOUDWATCH` (bool, default false) and `CS_CLOUDWATCH_FILE` (default `data/cloudwatch.jsonl`) (F10)

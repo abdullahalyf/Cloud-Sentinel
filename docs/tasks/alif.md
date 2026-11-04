@@ -44,7 +44,7 @@ task `[!]`, and move on to the next task.
 **Acceptance (the agent writes and runs):** `shared/tests/test_contracts.py` and `shared/tests/test_api_parity.py` cover each new field,
 setting or endpoint, and a LocalStore DB created before the change still opens (migration test).
 **Open requests right now:** none (Fojle's 3 done in A0 run 1).
-- [x] A0 run for 5 Nov (2026-11-04, PR_LINK)
+- [x] A0 run for 5 Nov (2026-11-04, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22)
 
 ### A10 · Nightly integration check · 🔴 MUST · recurring (every session if the last nightly run failed or the last check was > 24 h ago)
 > Prompt:
