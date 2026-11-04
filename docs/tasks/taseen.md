@@ -62,7 +62,7 @@ lands here. Check the section **"Requests from Alif's agent"** at the bottom of 
 > git diff --name-only origin/main...HEAD, and fails if a branch starting with fojle/ changes files outside
 > telemetry/ and shared/store.py; orin/ → eval/; tamjid/ → dashboard/; alif/ → brain/, docs/tasks/alif.md,
 > docs/SUMMARY_BN.md, docs/research/; contract/ → shared/, docs/CONTRACTS.md, docs/ARCHITECTURE.md,
-> telemetry/db/schema.sql, shared/mocks/; taseen/ → anything. Any branch may also edit the "Notes" and
+> telemetry/db/schema.sql, shared/mocks/, .env.example; taseen/ → anything. Any branch may also edit the "Notes" and
 > "Contract requests" sections of docs/tasks/*.md, so allow docs/tasks/*.md for every prefix.*
 
 ✅ **Done when:**
