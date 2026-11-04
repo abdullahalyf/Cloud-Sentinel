@@ -23,7 +23,6 @@ from shared.config import settings
 
 SAFE = ToolAnnotations(read_only_hint=True, destructive_hint=False)
 DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
-CHANGE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
 
 mcp = MCPServer("cloudsentinel", instructions=(
     "CloudSentinel is a circuit breaker for AI agents. Use list_agents first. Prefer pause_agent over "
@@ -81,13 +80,13 @@ def explain_agent(agent_id: str) -> str:
     return text
 
 
-@mcp.tool(annotations=CHANGE)
+@mcp.tool(annotations=DESTRUCTIVE)
 def pause_agent(agent_id: str, reason: str) -> dict:
     """Pause (quarantine) an agent. Its container is frozen with state intact; resume_agent undoes it."""
     return _command(agent_id, "PAUSE", reason)
 
 
-@mcp.tool(annotations=CHANGE)
+@mcp.tool(annotations=DESTRUCTIVE)
 def resume_agent(agent_id: str, reason: str) -> dict:
     """Resume a paused agent. It runs on probation (stricter limits) for a while."""
     return _command(agent_id, "RESUME", reason)
@@ -99,7 +98,7 @@ def kill_agent(agent_id: str, reason: str) -> dict:
     return _command(agent_id, "KILL", reason)
 
 
-@mcp.tool(annotations=CHANGE)
+@mcp.tool(annotations=DESTRUCTIVE)
 def set_budget(agent_id: str, budget_usd: float, reason: str = "") -> dict:
     """Set an agent's session budget in USD. Exceeding it trips the breaker."""
     return _command(agent_id, "SET_BUDGET", reason or f"budget set to ${budget_usd}", {"budget_usd": budget_usd})
@@ -111,7 +110,7 @@ def get_memory(agent_id: str) -> dict:
     return _api("GET", f"/v1/agents/{agent_id}/memory")
 
 
-@mcp.tool(annotations=CHANGE)
+@mcp.tool(annotations=DESTRUCTIVE)
 def edit_memory(agent_id: str, content: dict, reason: str) -> dict:
     """Replace an agent's memory with `content` (a JSON object). The agent reads it on its next step."""
     return _api("PUT", f"/v1/agents/{agent_id}/memory",

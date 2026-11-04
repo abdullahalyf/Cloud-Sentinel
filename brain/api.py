@@ -9,7 +9,9 @@ import asyncio
 import logging
 from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from brain import service
@@ -58,6 +60,13 @@ def clamp_minutes(minutes: float, top: float = 24 * 60) -> float:
 def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> FastAPI:
     app = FastAPI(title="CloudSentinel C2 API", version=f"contract-{CONTRACT_VERSION}",
                   description="Command & Control for AI agent fleets: observe, pause, heal, kill.")
+
+    @app.exception_handler(RequestValidationError)
+    async def bad_request(_: Request, exc: RequestValidationError) -> JSONResponse:
+        """CONTRACTS §6: client errors are 400 with a readable {"detail": "..."} (not FastAPI's 422 list)."""
+        first = exc.errors()[0] if exc.errors() else {}
+        where = ".".join(str(x) for x in first.get("loc", ()) if x != "body")
+        return JSONResponse({"detail": f"{where}: {first.get('msg', 'invalid request')}"}, status_code=400)
 
     def auth(x_cs_token: str = Header(default="")) -> None:
         if cfg.api_token and x_cs_token != cfg.api_token:
