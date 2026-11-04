@@ -37,3 +37,8 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 ৩. প্রতিটা contract-এর জন্য mock আছে (`shared/mocks/README.md`)। mock API এখন আসল API-র মতোই error দেয়, তাই কেউ কারও জন্য আটকে থাকবে না।
 ৪. Loop এখন ১৩ সেকেন্ডের বদলে **৩ সেকেন্ডে** ধরা পড়ে। কিন্তু আসল Claude judge এখনো চালানো যায়নি, কারণ cloud session-এ key আর cloudcampbd.com কোনোটাই পৌঁছায়নি।
 ৫. **Alif, পরের কাজ:** `.env`-এ key বসিয়ে `python -m brain.judge_bench --judge claude --runs 3 --write` চালাও, `docs/research/judge-eval.md`-এর checklist মেলাও (legit_burst-এ যেন PAUSE না আসে, p50 < ৩ সেকেন্ড), তারপর `alif/judge-eval` branch-এ commit করো।
+
+## আপডেট: ৪ নভেম্বর রাত (২): merge + যা এখনো আটকে আছে
+- LangGraph/CrewAI adapter, live graph feed, per-task ROI আর Phoenix export এখন `main`-এ (PR #18, squash merge)। কাল সবাই `main` থেকে শুরু করবে।
+- ⛔ **আটকে আছে ১:** cloudcampbd.com এই cloud session থেকে এখনো খোলে না (DNS/proxy 403)। তাই Winning Signal আর আসল deadline মেলানো যায়নি। **Taseen:** platform থেকে হাতে কপি করে `docs/DECISION.md` §6-এ বসাও, অথবা নতুন session খোলো যেখানে domain-টা allowed।
+- ⛔ **আটকে আছে ২:** এই container-এ `ANTHROPIC_API_KEY` নেই, তাই আসল Claude judge চালানো যায়নি। **Taseen:** key-টা cloud environment-এর secret আর GitHub Actions secret (`ANTHROPIC_API_KEY`) হিসেবে বসাও। তারপর Alif-এর agent নিজেই `alif.md`-এর A1 task চালাবে।
