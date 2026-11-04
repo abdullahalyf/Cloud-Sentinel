@@ -13,6 +13,9 @@ execute_tool → TOOL, invoke_agent → AGENT, graph_node → CHAIN), model, tok
 prompt preview. So Phoenix shows CloudSentinel agents as LLM/agent traces, while CloudSentinel keeps
 doing the control part (pause, heal, kill) that Phoenix doesn't do.
 If Phoenix is down, spans are dropped for Phoenix only: CloudSentinel itself is never affected.
+
+Verified 4 Nov against a real Arize Phoenix 21.0.0 (`phoenix serve`): a LangGraph agent's spans arrived in
+project "cloudsentinel" as AGENT / CHAIN (graph nodes) / LLM (with model + token counts) / TOOL spans.
 """
 from __future__ import annotations
 
