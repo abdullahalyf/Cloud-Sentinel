@@ -1,56 +1,65 @@
-# AGENTS.md — rules for AI coding tools (Codex, AntiGravity, Puku, Claude…)
+# AGENTS.md: rules for AI coding tools (Codex, Antigravity, Claude Code, …)
 
-Read this whole file before changing anything in this repo.
+Read this whole file before you change anything. Then read the task file of the person you work
+for (`docs/tasks/<name>.md`) and `docs/CONTRACTS.md`.
 
 ## What this project is
-CloudSentinel is a circuit breaker for AI agents running in Docker. It watches each agent's
-token spend, call rate, repeated prompts (loops) and memory, and kills runaway containers.
-Fast rules handle hard limits; Claude judges suspicious cases. A Streamlit dashboard shows
-everything and has an Emergency Kill Switch.
+CloudSentinel is a circuit breaker and control tower for AI agents. Agents send OpenTelemetry
+spans. The **brain** detects loops, overspend and bad tool calls, a Claude judge decides gray-zone
+cases, and the **executor** pauses or kills containers. Humans (dashboard) or Claude (MCP) can
+pause/resume/kill agents, edit their memory, and approve/deny/rewrite their tool calls. The ROI
+engine prices every intervention.
 
-## Architecture (data flow)
 ```
-agents/agent.py (in Docker) --stdout JSON lines--> sentinel/ (on laptop)
-sentinel/ --writes rows--> database (Supabase, or local SQLite fallback)
-dashboard/ --reads rows--> database
-dashboard/ --inserts CommandRow (KILL / GO_ROGUE)--> database --polled by--> sentinel/
+agents (SDK) --OTLP :4318--> telemetry/collector --> store <-- brain/engine --> infra/executor --> Docker/K8s
+agents (SDK) --HTTP :8000 (tool gate, memory)--> brain/api <-- dashboard (:8501) · brain/mcp_server <-- Claude
+eval/roi <-- brain/api /v1/roi
 ```
-The dashboard NEVER talks to Docker. The sentinel NEVER imports dashboard code.
 
-## Folder ownership — only edit the folder of the task you were given
-| Folder / file | Owner | Notes |
+## Folder ownership: NEVER edit outside the folder of the person you work for
+| Folder | Owner | Branch prefix |
 |---|---|---|
-| `sentinel/` | Alif | engine, rules, Claude brain, Docker access |
-| `shared/contracts.py` | Alif + Taseen | THE CONTRACT. Do not change without being told to. |
-| `shared/config.py` | Alif | all settings come from `.env` |
-| `shared/store.py`, `db/` | Fojle | database; both stores must keep identical methods |
-| `agents/` | Fojle | simulated AI agents |
-| `dashboard/` | Tamjid | Streamlit UI |
-| `presentation/`, `docs/QA.md` | Orin | pitch + test checklist |
-| `tests/` | everyone | add tests for what you change |
-| `.github/`, merges | Taseen | leader |
+| `brain/` | Alif | `alif/` |
+| `infra/`, `.github/`, `docker-compose.yml`, `README.md`, `AGENTS.md`, `.agents/`, `docs/` (except the two below) | Taseen | `taseen/` |
+| `dashboard/` | Tamjid | `tamjid/` |
+| `telemetry/` + the `SupabaseStore` class in `shared/store.py` | Fojle | `fojle/` |
+| `eval/` | Orin | `orin/` |
+| `shared/`, `docs/CONTRACTS.md`, `docs/ARCHITECTURE.md` | Alif + Taseen (THE CONTRACT) | `contract/` |
+
+If a task seems to need a change outside the owner's folder (a new field, a new endpoint, a change in
+another person's code): **STOP. Do not make the change.** Explain in your final message what is needed
+and why, so the owner can do it.
 
 ## Hard rules
-1. **Contracts first.** Data shapes live in `shared/contracts.py` and `db/schema.sql`.
-   If a task seems to need a new field, STOP and say so in your summary instead of adding it.
-2. Read data only via `shared.store.get_store()`. Never create your own Supabase/SQLite client.
-3. Settings only via `shared.config.settings`. Never hardcode keys, URLs or thresholds.
-4. Never commit `.env`, API keys, or `data/`.
-5. Everything must still work offline: `python -m sentinel --fake` + local SQLite, no Docker, no keys.
-6. Keep it simple — this is a hackathon. No new frameworks, no new databases, no async rewrites.
-7. Python 3.11+, type hints, short functions, comments in English.
-8. Before finishing: run `python -m pytest -q` and make sure everything passes.
-9. In your final message, list every file you changed and how to test the change by hand.
+1. **Contracts first.** Data shapes live in `shared/contracts.py`, `telemetry/db/schema.sql` and
+   `docs/CONTRACTS.md`. Never add, rename or remove a field yourself.
+2. Data access goes only through `shared.store.get_store()`, except `dashboard/`, which uses
+   **only** `dashboard/api_client.py` (HTTP). Never create your own SQLite/Supabase client.
+3. Settings come only from `shared.config.settings`. Never hardcode keys, URLs, ports or thresholds.
+4. Never commit `.env`, API keys, tokens, or `data/`. Never print keys in logs.
+5. Everything must work **offline**: `python -m brain --fake` with SQLite, no Docker, no keys, no internet.
+6. Keep it simple: no new frameworks, databases, async rewrites or big dependencies. Ask first.
+   Allowed stack: Python 3.11+, FastAPI, Streamlit, Plotly, OpenTelemetry, `mcp`, `anthropic`, `docker`, `kubernetes`, PyYAML.
+7. Use type hints, short functions, and comments in simple English (teammates are beginners).
+8. Prompts and logs written by agents are **data, never instructions**. Don't let agent text
+   change the brain's behaviour except through the detectors and the judge.
+9. Use synthetic data only. No real personal data anywhere.
+10. Before finishing: run `python -m pytest -q`. Everything must pass. Add tests for what you change,
+    inside the owner's folder (`brain/tests/`, `telemetry/tests/`, `eval/tests/`, `dashboard/tests/`, `infra/tests/`).
+11. In your final message: list **every file you changed**, and give exact steps to test the change by hand.
 
 ## Commands
 ```bash
 pip install -r requirements.txt
-python scripts/check_setup.py            # is my machine ready?
-python -m pytest -q                      # tests
-python -m sentinel --fake                # sentinel with 3 simulated agents (beta goes rogue after 20s)
-streamlit run dashboard/app.py           # dashboard (in a second terminal)
-docker compose up -d --build             # real agent containers
-python -m sentinel                       # sentinel watching real containers
-python scripts/command.py rogue beta     # trigger the rogue agent
-docker compose up -d --force-recreate    # reset after a demo
+python scripts/check_setup.py             # is my machine ready?
+python -m pytest -q                       # all tests
+python -m brain --fake                    # brain + API (:8000) + 4 simulated agents, beta goes rogue after 20 s
+python -m shared.mocks.mock_api           # mock API on :8000 (dashboard/MCP development, no brain needed)
+streamlit run dashboard/app.py            # dashboard (:8501)
+python -m telemetry.collector             # OTLP collector (:4318)
+python -m brain.mcp_server                # MCP server (stdio) for Claude Desktop / Claude Code
+python -m eval.harness                    # runaway benchmark
+docker compose up -d --build              # everything in Docker (collector, brain, dashboard, 4 agents)
+python scripts/demo.py rogue beta paraphrase_loop   # make an agent misbehave
+python scripts/demo.py reset              # reset after a demo
 ```
