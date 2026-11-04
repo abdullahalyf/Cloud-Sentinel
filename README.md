@@ -69,6 +69,25 @@ with cs.task("answer ticket") as t:
     t.success()
 ```
 
+### LangGraph and CrewAI: one line each
+```python
+from cloudsentinel.adapters.langgraph import CloudSentinelCallback, guard     # pip install -e "telemetry/sdk[langgraph]"
+app.invoke(state, config={"callbacks": [CloudSentinelCallback()]})            # task, node + state delta, chat, tool spans
+tools = [guard(issue_refund, value_usd=lambda a: a["amount"] / 122, fail_closed=True)]   # tool gate
+
+from cloudsentinel.adapters.crewai import instrument                         # pip install -e "telemetry/sdk[crewai]"
+instrument(value_usd={"issue_refund": lambda a: a["amount"] / 122}, fail_closed=("issue_refund",))
+```
+Demo agents (run offline): `telemetry/examples/langgraph_refund_agent.py --rogue-after 20` (a recursive
+`lookup_order ↔ retry` loop that CloudSentinel pauses between nodes, then heals with a memory edit) and
+`telemetry/examples/crewai_support_crew.py` (a 50,000 BDT refund held by the tool gate). Their live node flow
+is served by `GET /v1/agents/{id}/nodes`. CrewAI pins `mcp<2`, so install it in the agent's own venv, not next to the brain.
+
+### Also send everything to Arize Phoenix
+`CS_EXPORT_PHOENIX=true python -m telemetry.collector` (or `CS_EXPORT_PHOENIX=true docker compose --profile phoenix up -d`).
+The collector forwards every batch to Phoenix (`PHOENIX_COLLECTOR_ENDPOINT`, default `http://localhost:6006`) with
+OpenInference attributes added, so Phoenix shows the traces, and CloudSentinel does the stopping.
+
 ## Repo map
 | Folder | What | Owner |
 |---|---|---|

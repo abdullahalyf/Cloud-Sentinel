@@ -11,7 +11,7 @@
 
 Pitch tagline: **"AgentOps tools are the black-box recorder. CloudSentinel is the circuit breaker."**
 
-## 2. Chosen scope: 4 of the 5 example prompts, combined into one loop
+## 2. Chosen scope: all 5 example prompts, combined into one loop
 
 ```
    OBSERVE                 DECIDE                         ACT                       PROVE
@@ -24,11 +24,26 @@ Pitch tagline: **"AgentOps tools are the black-box recorder. CloudSentinel is th
 
 | Prompt | In? | Our version |
 |---|---|---|
-| P1 Token-flow dashboard showing loops | ✅ core | Live $/min and tokens/min per agent, an **agent → tool → model graph where cycles turn red**, and a loop-score timeline |
+| P1 Token-flow dashboard showing loops | ✅ core | Live $/min and tokens/min per agent, an **agent → tool → model graph where cycles turn red**, a loop-score timeline, and a **live LangGraph/CrewAI node flow** where a recursive loop is visible as it happens |
 | P2 Circuit breaker | ✅ core | A 3-layer detector (hard rules → semantic-loop similarity → Claude judge) feeding a real breaker FSM: `healthy → suspicious → paused → probation → healthy`, or `→ killed` |
 | P3 Command & Control API | ✅ core | A REST API **and** an MCP server: pause/resume/kill, **edit memory**, **approve/deny/rewrite tool calls**, set budgets. Every action is audited |
-| P4 OTel telemetry library | ✅ core | `cloudsentinel` SDK (3 lines) emitting GenAI semconv spans, plus our own OTLP/HTTP collector. Any OTel-instrumented agent works |
-| P5 ROI attribution engine | ✅ core (small) | Cost per agent, task and successful task, and **$ saved per intervention** with a transparent formula |
+| P4 OTel telemetry library | ✅ core | `cloudsentinel` SDK (3 lines) emitting GenAI semconv spans, **one-line LangGraph and CrewAI adapters**, our own OTLP/HTTP collector, and optional export to **Arize Phoenix**. Any OTel-instrumented agent works |
+| P5 ROI attribution engine | ✅ core | Cost attributed to every task, **success rate, cost per successful task and $ wasted per agent**, and **$ saved per intervention** with a transparent formula |
+
+### 2b. Pitch table: the 5 example prompts → what the judges see
+
+Coverage audited on 4 Nov against `docs/research/hackathon.md` §3. The gaps found that day are closed and marked ★.
+
+| # | Example prompt | Our feature | Live proof in the demo | Where it's verified | What competitors miss | Status |
+|---|---|---|---|---|---|---|
+| P1 | Recursive-loop token-flow dashboard | Live $/min + tokens/min per agent, agent→tool→model graph with **red cycles**, ★ **live node flow** for LangGraph/CrewAI (`GET /v1/agents/{id}/nodes`: node, state delta, next node, transition counts) | beta's `orders_api` edge turns red; `lg-refund`'s `lookup_order ↔ retry` counter climbs, then **stops** the moment it is paused | `brain/service.py:node_feed`, mock + parity test, `docs/tasks/tamjid.md` Task 5.2 | LangSmith/Phoenix draw the trace **after** the run; nobody stops the loop while you watch | API ✅ (live-tested) · dashboard panel = Tamjid Day 5 |
+| P2 | Circuit breaker | Hard rules → semantic-loop + failing-tool-cycle detection (no LLM) → Claude judge for gray zones → breaker FSM `healthy → suspicious → paused → probation → healthy / killed` | beta (and the LangGraph agent) paused in **3–8 s**, gamma killed by hard limits in < 2 s | `python -m eval.harness`, `brain/tests/`, live run 4 Nov (`docs/research/judge-eval.md`) | OSS breakers (AgentBudget, breaker) run **inside** the agent and can only kill | ✅ (Claude judge numbers pending the key) |
+| P3 | Command & Control API (edit memory, override tool calls) | REST + **MCP server** (12 tools): pause/resume/kill, **edit memory** (versioned, conflict-safe), **approve / deny / rewrite** tool calls, budgets; ★ works for agents **without a container** too (SDK gate + `wait_if_paused`) | Fix `order_4471` in memory → Resume → healthy; 50,000 BDT refund held → rewrite to 500 → approve; "pause the most expensive agent" from Claude Desktop | `brain/tests/test_mcp.py`, `test_api_parity.py`, live CrewAI deny ($409.84 saved) | Observability tools have no write path into a running agent | ✅ |
+| P4 | OTel telemetry library | `cloudsentinel` SDK on OTel GenAI semconv; ★ **LangGraph** callback + `guard()` and ★ **CrewAI** `instrument()` (tool gate via CrewAI's blocking hooks); OTLP collector; ★ optional **Arize Phoenix** export with OpenInference attributes | Two real framework agents (`telemetry/examples/`) monitored with one line each; the same spans in Phoenix | `telemetry/tests/test_adapter_*.py` (real frameworks), `test_phoenix.py` | Vendor SDKs lock you to their backend; we speak plain OTLP and feed Phoenix too | ✅ |
+| P5 | ROI attribution engine | $ saved per intervention (horizon formula) + ★ cost attributed **per task**: success rate, cost per successful task, **$ wasted** per agent (failed + unfinished work) | ROI panel: "$ saved tonight", and beta at 0% success with all its spend marked as waste | `eval/roi.py`, `eval/tests/test_roi.py` | Cost dashboards show spend, not **spend per successful outcome** or what an intervention saved | ✅ API · panel = Tamjid Day 6 |
+
+One sentence for the pitch: *"Each of the five example prompts is one stage of the same loop: we **see** it (P4, P1),
+**stop** it (P2), **fix** it (P3) and **prove** what it saved (P5)."*
 
 **Why combine them instead of doing one well?** Because the combination *is* the innovation.
 Each piece exists on its own somewhere. No product closes the observe → decide → act → prove loop.

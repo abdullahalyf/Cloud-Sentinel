@@ -74,6 +74,10 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `PROBATION_SECONDS` | 30 | brain | |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
+| `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
+| `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006` | collector | Phoenix base URL; spans go to `…/v1/traces` |
+| `PHOENIX_API_KEY` | "" | collector | sent as `Authorization: Bearer …` (Phoenix Cloud) |
+| `PHOENIX_PROJECT_NAME` | `cloudsentinel` | collector | Phoenix project (resource `openinference.project.name`) |
 
 ---
 

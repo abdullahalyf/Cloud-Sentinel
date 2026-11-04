@@ -81,6 +81,11 @@ class Settings:
     probation_seconds: float
     tool_approval_timeout_seconds: float
     roi_horizon_minutes: float
+    # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
+    export_phoenix: bool = False
+    phoenix_endpoint: str = "http://localhost:6006"
+    phoenix_api_key: str = ""
+    phoenix_project: str = "cloudsentinel"
 
     @property
     def use_supabase(self) -> bool:
@@ -132,6 +137,10 @@ def load_settings() -> Settings:
         probation_seconds=_float("PROBATION_SECONDS", 30.0),
         tool_approval_timeout_seconds=_float("TOOL_APPROVAL_TIMEOUT_SECONDS", 120.0),
         roi_horizon_minutes=_float("ROI_HORIZON_MINUTES", 60.0),
+        export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
+        phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
+        phoenix_api_key=_str("PHOENIX_API_KEY"),
+        phoenix_project=_str("PHOENIX_PROJECT_NAME", "cloudsentinel"),
     )
 
 
