@@ -79,6 +79,8 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `PHOENIX_COLLECTOR_ENDPOINT` | `http://localhost:6006` | collector | Phoenix base URL; spans go to `…/v1/traces` |
 | `PHOENIX_API_KEY` | "" | collector | sent as `Authorization: Bearer …` (Phoenix Cloud) |
 | `PHOENIX_PROJECT_NAME` | `cloudsentinel` | collector | Phoenix project (resource `openinference.project.name`) |
+| `CS_EXPORT_CLOUDWATCH` *(added 5 Nov)* | `false` | collector | also write every stored span as a CloudWatch EMF JSON line |
+| `CS_CLOUDWATCH_FILE` *(added 5 Nov)* | `data/cloudwatch.jsonl` | collector | where the EMF lines go |
 
 ---
 
@@ -129,6 +131,7 @@ Every table has `id` (auto increment). Columns marked JSON are TEXT containing J
 | `commands` | agent_id, command (`KILL`·`PAUSE`·`RESUME`·`RESTART`·`GO_ROGUE`·`SET_BUDGET`), params (JSON), requested_by (`dashboard`·`mcp`·`terminal`·`eval`), reason, status (`pending`·`done`·`failed`), result, created_at | api | brain |
 | `agent_memory` (append-only versions) | agent_id, version, content (JSON object), edited_by (`agent`·`human`·`mcp`), reason, created_at | api | api (SDK via API) |
 | `tool_calls` | agent_id, tool_name, args (JSON), decision (`pending`·`allow`·`deny`·`rewrite`·`timeout`), final_args (JSON), decided_by (`policy`·`human`·`mcp`·`timeout`), reason, value_usd, created_at, decided_at | api | api, brain, eval |
+| `schema_migrations` *(added 5 Nov)* | version (PK, migration file name), applied_at | `telemetry/db/migrate.py` | migrate.py |
 
 **Enums** (in `shared/contracts.py`):
 - `AgentState`: `healthy` · `suspicious` · `paused` · `probation` · `killed`
@@ -191,7 +194,7 @@ Agents **without a container** (a LangGraph/CrewAI process, any external OTel ag
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
 
-`SET_BUDGET` params: `{"budget_usd": float}`. `GO_ROGUE` params: `{"kind": "loop"|"paraphrase_loop"|"token_bomb"|"memory_leak"|"bad_tool_call"}`.
+`SET_BUDGET` params: `{"budget_usd": float}`. `GO_ROGUE` params: `{"kind": "loop"|"paraphrase_loop"|"token_bomb"|"memory_leak"|"bad_tool_call"|"prompt_injection"|"tool_storm"|"memory_poisoning"|"slow_budget_leak"}` (the last 4 added 5 Nov; implemented by the telemetry simulator, FakeFleet keeps them healthy).
 
 ---
 

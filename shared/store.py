@@ -118,6 +118,8 @@ class LocalStore:
         id integer primary key autoincrement, agent_id text, tool_name text, args text,
         decision text, final_args text, decided_by text, reason text, value_usd real,
         created_at text, decided_at text);
+    create table if not exists schema_migrations (
+        version text primary key, applied_at text);
     """
 
     def __init__(self, path: str):

@@ -49,3 +49,8 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 ৩. Alif-এর কাজ এখন পুরোটাই autonomous Codex agent করবে (`AGENTS.md` → "Alif's agent loop", `docs/tasks/alif.md` A0–A15)। প্রতিটা কাজের পর এখানে ৩ লাইন লিখবে।
 ৪. প্রতি রাত ১টায় (BST) nightly CI পুরো test, E2E/chaos আর benchmark চালাবে। কিছু ভাঙলে `nightly` label দিয়ে issue খুলবে।
 ৫. নতুন session বা নতুন মানুষ শুরু করবে `docs/HANDOFF.md` থেকে। group chat-এর জন্য ছোট brief আছে `docs/TEAM_BRIEF_BN.md`-এ।
+
+### 2026-11-04 · A0 Contract-request inbox
+- করা হয়েছে: Fojle-র ৩টা contract request main-এ: ৪টা নতুন ROGUE_KINDS, `schema_migrations` table, CloudWatch-এর ২টা setting (সব additive, test সহ)।
+- এরপর: A10 Nightly integration check (`brain/nightly.py`)।
+- কেউ আটকে আছে?: না। Fojle এখন F6, F9, F10 শুরু করতে পারবে।
