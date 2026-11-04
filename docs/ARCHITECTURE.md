@@ -158,15 +158,39 @@ while the executor works at the container level, so it stops even an agent that 
 | AI judge | Claude (`claude-haiku-5-5` by default, `CLAUDE_MODEL` to change) with JSON-schema structured output. Gemini optional; deterministic fallback | Fast and cheap enough to call every 10 s per suspicious agent |
 | Store | SQLite (WAL) offline, Supabase (Postgres) online. Same `Store` protocol | Offline demo safety, plus shared cloud data for the team |
 | Runtime | Docker (demo) via the Docker SDK. Kubernetes (kind) via the `kubernetes` client (stretch) | `docker pause` = instant quarantine with memory intact |
-| Dashboard | Streamlit + Plotly (`st.fragment(run_every=1s)`) | Tamjid already knows it, and it refreshes live |
+| Dashboard | **React 18 + Vite + TypeScript** in `dashboard/web/` (see §7a). Streamlit + Plotly (`dashboard/app.py`) stays as the fallback | The judges see the dashboard first, so it has to look like a real product |
 | Policy | YAML (`brain/policies.yaml`) | Readable "policy as code" for judges |
 | CI | GitHub Actions: `pytest`, a contract check, a Docker build | — |
+
+### 7a. Why React + Vite for the dashboard (decided Wed 4 Nov)
+The dashboard is what judges see first. Streamlit got us a working panel in a day, but it can't give us what the pitch
+needs: custom graph layouts (the LangGraph loop arrows), a time scrubber for incident replay, keyboard shortcuts in the
+approvals inbox, stable layouts that don't flash every refresh, and a design system with real tokens.
+- **React 18 + TypeScript:** the most common UI stack, so AI tools (Antigravity) write it well. TypeScript lets the
+  CONTRACTS §6 shapes live as types in `src/api/types.ts`, so a contract drift becomes a compile error.
+- **Vite:** instant dev server, and its built-in proxy sends `/v1` (HTTP + WebSocket) to the API on :8000, so we need **no
+  CORS change in the brain** and no backend change at all. The production build is static files served by nginx, which
+  proxies `/v1` to `brain:8000` (compose service `web`).
+- **Libraries (small, chosen once):**
+  - TanStack Query: polling, caching and retries
+  - `@xyflow/react`: node graphs, with stable positions and custom edges
+  - Apache ECharts: time series, burn-down and action markers
+  - `lucide-react`: one consistent icon set, no emoji
+  - Vitest + Testing Library: unit tests
+  - Playwright: E2E tests and the daily screenshot review
+- **Rejected:**
+  - Next.js: needs a server and adds routing magic we don't need.
+  - Streamlit custom components: too slow to iterate on.
+  - Tailwind UI kits: they push everyone toward the same generic look. We use CSS variables from `docs/DESIGN.md` instead.
+- **Same rule as before:** the web dashboard talks only to the C2 API (`src/api/client.ts`). It works unchanged against the
+  mock (`python -m shared.mocks.mock_api`) and the real brain.
+- **Fallback:** if the web dashboard isn't on `main` by CP2, the Streamlit app is the demo (PLAN.md cut list #9).
 
 ## 8. Run modes
 
 | Mode | Command | Needs |
 |---|---|---|
-| **Offline fake** (dev and demo backup) | `python -m brain --fake` + `streamlit run dashboard/app.py` | nothing: no Docker, no keys, no network |
+| **Offline fake** (dev and demo backup) | `python -m brain --fake` + `cd dashboard/web && npm run dev` (or `streamlit run dashboard/app.py`) | Node 20 for the web dashboard; no Docker, no keys, no network |
 | **Mock API only** (dashboard and MCP dev) | `python -m shared.mocks.mock_api` | nothing |
 | **Docker demo** | `docker compose up -d --build` | Docker |
 | **K8s** (stretch) | `make k8s-up` (see `infra/k8s/README.md`) | kind + kubectl |

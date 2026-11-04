@@ -36,6 +36,7 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | 8000 | C2 REST API + WebSocket (real) **or** mock API (never both) | `python -m brain` / `python -m shared.mocks.mock_api` |
 | 4318 | OTLP/HTTP collector (`POST /v1/traces`) | `python -m telemetry.collector` |
 | 8501 | Dashboard | `streamlit run dashboard/app.py` |
+| 5173 | Web dashboard (React + Vite dev server, proxies `/v1` → :8000). In compose: nginx on 5173 | `cd dashboard/web && npm run dev` |
 | 8765 | MCP server, Streamable HTTP at `/mcp` (stdio needs no port) | `python -m brain.mcp_server --http` |
 
 ---

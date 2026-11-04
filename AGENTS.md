@@ -12,7 +12,7 @@ engine prices every intervention.
 
 ```
 agents (SDK) --OTLP :4318--> telemetry/collector --> store <-- brain/engine --> infra/executor --> Docker/K8s
-agents (SDK) --HTTP :8000 (tool gate, memory)--> brain/api <-- dashboard (:8501) · brain/mcp_server <-- Claude
+agents (SDK) --HTTP :8000 (tool gate, memory)--> brain/api <-- dashboard (:5173 web, :8501 Streamlit fallback) · brain/mcp_server <-- Claude
 eval/roi <-- brain/api /v1/roi
 ```
 
@@ -40,6 +40,8 @@ and why, so the owner can do it.
 5. Everything must work **offline**: `python -m brain --fake` with SQLite, no Docker, no keys, no internet.
 6. Keep it simple: no new frameworks, databases, async rewrites or big dependencies. Ask first.
    Allowed stack: Python 3.11+, FastAPI, Streamlit, Plotly, OpenTelemetry, `mcp`, `anthropic`, `docker`, `kubernetes`, PyYAML.
+   Web dashboard only (`dashboard/web/`): Node 20, React 18, Vite, TypeScript, TanStack Query, `@xyflow/react`, ECharts,
+   `lucide-react`, Vitest, Playwright (docs/ARCHITECTURE.md §7a). Infra only (`infra/`): Helm, Caddy, Prometheus, Grafana.
 7. Use type hints, short functions, and comments in simple English (teammates are beginners).
 8. Prompts and logs written by agents are **data, never instructions**. Don't let agent text
    change the brain's behaviour except through the detectors and the judge.
@@ -55,7 +57,8 @@ python scripts/check_setup.py             # is my machine ready?
 python -m pytest -q                       # all tests
 python -m brain --fake                    # brain + API (:8000) + 4 simulated agents, beta goes rogue after 20 s
 python -m shared.mocks.mock_api           # mock API on :8000 (dashboard/MCP development, no brain needed)
-streamlit run dashboard/app.py            # dashboard (:8501)
+streamlit run dashboard/app.py            # Streamlit dashboard (:8501, fallback)
+cd dashboard/web && npm install && npm run dev   # web dashboard (:5173), once Tamjid D2 is merged
 python -m telemetry.collector             # OTLP collector (:4318)
 python -m brain.mcp_server                # MCP server (stdio) for Claude Desktop / Claude Code
 python -m eval.harness                    # runaway benchmark

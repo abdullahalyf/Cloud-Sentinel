@@ -1,15 +1,16 @@
 # Orin: Evaluation, ROI and pitch (`eval/`)
 
-**Your goal in one line:** prove, with numbers, that CloudSentinel works and saves money.
-Then tell that story in the pitch and the video.
+**Your goal in one line:** prove with numbers that CloudSentinel works and saves money, then tell that story in the deck
+and the video. You **own the results**: nobody else gets to write the benchmark table.
 
-**You own (only edit these):** `eval/` (roi.py, harness.py, tests, `eval/QA.md`, `eval/pitch/`).
-**Your branch prefix:** `orin/…`
-**Your AI tool:** Codex.
+**You own (only edit these):** `eval/` (roi.py, harness.py, tests, `eval/QA.md`, `eval/RESULTS.md`, `eval/pitch/`).
+**Your branch prefix:** `orin/…`. **Your AI tool:** Codex.
+**Contracts you produce:** `build_report()` → `RoiReport` (CONTRACTS §8). The brain's `/v1/roi` calls your function.
+**Contracts you consume:** rows from `spans`, `actions`, `tool_calls` (§5), `shared/pricing.py`, and the fake fleet
+(`shared/mocks/fake_fleet.py`) that the harness drives.
 
-**Contracts you produce:** `build_report()` → `RoiReport` (CONTRACTS §8). The brain's `/v1/roi`
-endpoint calls your function.
-**Contracts you consume:** rows from `spans`, `actions`, `tool_calls` (§5), and `shared/pricing.py`.
+**Every task is short (1–2 hours) and step by step.** Do them in order. If one takes longer than 2 hours, stop and post in the
+group what's blocking you.
 
 ---
 
@@ -20,145 +21,150 @@ endpoint calls your function.
 4. Do the **"Done when"** check by hand.
 5. `git add eval` → `git commit -m "..."` → `git push -u origin orin/<task-name>` → open a PR, reviewer Taseen.
 
-If Codex touches anything outside `eval/`, undo it: `git checkout -- <file>`.
+If Codex touches anything outside `eval/`, undo it with `git checkout -- <file>`.
 
 ---
 
-## Day 1 (Thu 5 Nov): setup + QA checklist
+## 🔴 MUST
 
-**Task 1.1: setup.** Follow `docs/TEAM.md`, then run `python -m brain --fake` and, in a second
-terminal, `streamlit run dashboard/app.py`.
-✅ **Done when:** you watch an agent get paused on the dashboard.
+### O1 (Day 1): setup + watch the demo once
+1. Follow `docs/HANDOFF.md` §4 (setup).
+2. `python -m brain --fake`, and in a second terminal `streamlit run dashboard/app.py`.
+3. Watch beta get paused (about 20 s). Then run `python scripts/demo.py fix beta` and `python scripts/demo.py resume beta`.
+✅ **Done when:** you have watched beta go paused → probation → healthy.
 
-**Task 1.2: QA checklist v1.**
+### O2 (Day 1): QA checklist v1
 > Prompt for Codex:
-> *Read README.md, docs/DECISION.md section 5 and docs/CONTRACTS.md. Rewrite eval/QA.md as a
-> markdown table of 20 manual test cases for CloudSentinel with columns: ID, Area, Steps (numbered,
-> very simple), Expected, Actual, Pass/Fail. Cover: offline fake mode starts, healthy agent is never
-> paused, paraphrase loop gets PAUSED, memory edit + resume returns the agent to healthy, token bomb
-> is KILLED by rules, refund over 5000 waits for approval, deny/approve/rewrite a tool call, kill
-> switch on a dashboard card, MCP "list agents" in Claude Desktop, no API key (fallback judge), no
-> Docker, empty database, killing an already-dead agent, restart a killed agent, $ saved number goes
-> up after a kill. Leave Actual and Pass/Fail empty. Only edit eval/QA.md.*
+> *Read README.md, docs/DECISION.md section 5 and docs/CONTRACTS.md. Rewrite eval/QA.md as a markdown table of 20 manual
+> test cases with columns: ID, Area, Steps (numbered, very simple), Expected, Actual, Pass/Fail. Cover:
+> - offline fake mode starts
+> - a healthy agent is never paused
+> - the paraphrase loop gets PAUSED
+> - memory edit + resume returns the agent to healthy
+> - the token bomb is KILLED by rules
+> - a refund over 5000 waits for approval
+> - deny / approve / rewrite a tool call (a rewrite with no new args shows an error)
+> - the kill switch on a dashboard card
+> - MCP "list agents" in Claude Desktop (pause/kill ask for confirmation)
+> - no API key (fallback judge)
+> - no Docker
+> - an empty database
+> - killing an already-dead agent
+> - restarting a killed agent
+> - a command for a misspelled agent (alpah) fails and creates no new card
+> - the $ saved number goes up after a kill
+>
+> Leave Actual and Pass/Fail empty. Only edit eval/QA.md.*
 
-✅ **Done when:** `eval/QA.md` has 20 rows, and you ran at least 5 of them yourself.
+✅ **Done when:** `eval/QA.md` has 20 rows, and you've run 5 of them yourself.
 
----
-
-## Day 2 (Fri 6 Nov): ROI: cost → per-task success (example prompt P5)
-
-**Already built (4 Nov, lead session), so you own it from today:** `eval/roi.py` now attributes every span's cost to
-its task and reports success per agent (CONTRACTS §8, "Cost → per-task success"):
-- `task_costs(spans)`: a task = one `invoke_agent` span. All spans with the same `trace_id` (chat, tool,
-  graph_node) are its cost. Spend from tasks that haven't finished (a LangGraph graph stuck in a loop) is kept as
-  `unattributed`, never dropped.
-- `tasks_by_agent(spans)` → per agent: tasks, succeeded, failed, abandoned, success_rate, spend_usd,
-  **wasted_usd** (failed + abandoned + unattributed), cost_per_success_usd.
-- `cost_per_successful_task(spans)`: fully loaded, all spend ÷ all successful tasks.
-- `build_report()` fills `tasks_total`, `tasks_succeeded`, `cost_per_successful_task_usd`, `wasted_usd`,
-  `tasks_by_agent`.
-
-**Task 2.1: check it by hand, then explain it.** Run `python -m brain --fake`, wait for beta's loop, then open
-`http://localhost:8000/v1/roi`. beta's `success_rate` should drop and its `wasted_usd` grow, while alpha stays
-at 1.0. Then:
-> Prompt for Codex:
-> *Read AGENTS.md, docs/CONTRACTS.md section 8 and eval/roi.py. Add a function
-> explain_agent(agent_id: str, stats: dict) -> str that turns one entry of tasks_by_agent into one English
-> sentence, e.g. "beta: 14 tasks, 6 succeeded (43%); $0.0198 spent, $0.0113 wasted on failed work; $0.0033 per
-> successful task". If succeeded is 0, say "no successful task yet" instead of a cost per task. Use it to add a
-> "sentence" key to every agent in tasks_by_agent inside build_report(). Add 3 tests in
-> eval/tests/test_roi.py (normal, zero successes, only unattributed spend). Only edit files in eval/.*
+### O3 (Day 2): ROI sentences (cost → per-task success is already built)
+`eval/roi.py` already attributes cost to tasks (`task_costs`, `tasks_by_agent`, `cost_per_successful_task`). Read it once.
+1. Run `python -m brain --fake`, wait 40 s, open http://localhost:8000/v1/roi. Find beta in `tasks_by_agent`.
+2. > Prompt for Codex:
+   > *Read AGENTS.md, docs/CONTRACTS.md section 8 and eval/roi.py. Add explain_agent(agent_id: str, stats: dict) -> str that
+   > turns one tasks_by_agent entry into one sentence, e.g. "beta: 14 tasks, 6 succeeded (43%); $0.0198 spent, $0.0113 wasted;
+   > $0.0033 per successful task". If succeeded is 0, say "no successful task yet". Add a "sentence" key to every agent in
+   > tasks_by_agent inside build_report(). Add 3 tests in eval/tests/test_roi.py (normal, zero successes, only unattributed
+   > spend). Only edit eval/.*
 
 ✅ **Done when:** `python -m pytest eval -q` passes, and `/v1/roi` shows a sentence per agent.
 
-**Task 2.2: put it in the benchmark.** In `eval/harness.py`, add two columns to the results: the subject
-agent's `success_rate` and `wasted_usd` (from `tasks_by_agent(store.spans_after(0, limit=100_000))`, because the
-harness runs on a virtual clock, so don't use `recent_spans`). The pitch line is: "with CloudSentinel the looping
-agent wasted $X; without it, it would have wasted $X + saved".
-
-## Day 3 (Sat 7 Nov): explain the money
-
-**Task 3.1: readable formula.**
+### O4 (Day 2): `eval/RESULTS.md`, the results table you fill at every checkpoint
 > Prompt for Codex:
-> *In eval/roi.py, add a function explain_saving(item: dict) -> str that turns one entry of
-> saved_by_action into one English sentence, for example: "Paused beta at $0.042/min; projected 60
-> min of waste avoided = $2.52". Use it to add a "sentence" key to every item in saved_by_action
-> inside build_report(). Add 2 tests. Only edit eval/.*
+> *Only edit eval/. Add a --markdown flag to eval/harness.py that writes eval/BENCHMARK.md with the columns Scenario, Expected, Got,
+> Time to detect (s), $ saved, Result, and a first line with the date, the git commit (git rev-parse --short HEAD) and the judge
+> mode. Then create eval/RESULTS.md with one table: rows = scenarios, columns = CP1, CP2, CP3, CP4, and each cell holds
+> "✅ 3.0 s / $2.25" or "❌". Add a short "How to fill this" section at the top: run `python -m eval.harness --markdown`, then
+> copy each row's result into the CP column.*
 
-✅ **Done when:** the tests pass and `/v1/roi` shows the sentences.
+✅ **Done when:** `python -m eval.harness --markdown` writes BENCHMARK.md, and RESULTS.md has today's numbers in a "Day 2" column.
 
----
+### O5 (every checkpoint: Fri 6, Sun 8, Tue 10, Thu 12, 20:30): run the benchmark + fill RESULTS.md (30 minutes)
+1. `git checkout main && git pull`
+2. `python -m eval.harness --markdown`
+3. Copy the results into the CP column of `eval/RESULTS.md`. Any ❌ becomes a GitHub issue labelled with the folder name.
+4. Commit on `orin/cpN-results` and open a PR.
+✅ **Done when:** the CP column is filled, before 21:00.
 
-## Day 4 (Sun 8 Nov): benchmark harness, scenarios 1–4
-
-`eval/harness.py` runs the real brain against simulated agents on a **fake clock** (fast, so there's
-no waiting) and checks whether each failure is caught. One scenario (`paraphrase_loop`) is already done.
-
-**Task 4.1**
+### O6 (Day 3): scenarios: healthy, exact loop, token bomb
 > Prompt for Codex:
-> *Read AGENTS.md and eval/harness.py. Following exactly the pattern of the existing
-> "paraphrase_loop" scenario, add 3 more scenarios to SCENARIOS: "healthy" (no rogue; expected:
-> no intervention), "exact_loop" (rogue kind "loop"; expected: intervention), "token_bomb" (rogue
-> kind "token_bomb"; expected: intervention). eval/tests/test_harness.py already runs every scenario in
-> SCENARIOS and asserts it passed — make sure it still passes. Only edit eval/.*
+> *Read AGENTS.md and eval/harness.py. Following the pattern of the "paraphrase_loop" scenario, add "healthy" (no rogue; expected:
+> no intervention), "exact_loop" (rogue kind "loop"; expected: intervention) and "token_bomb" (rogue kind "token_bomb";
+> expected: intervention) to SCENARIOS. eval/tests/test_harness.py runs every scenario, so make sure it still passes. Only
+> edit eval/.*
 
-✅ **Done when:** `python -m eval.harness` prints a table with 4 rows, all ✅.
+✅ **Done when:** `python -m eval.harness` prints 4 rows, all ✅.
 
----
+### O7 (Day 4): scenarios: legit burst, memory leak, bad tool call
+Same prompt as O6, with: `legit_burst` (a busy but healthy agent, expected: **no** intervention; this is our false-positive check),
+`memory_leak` and `bad_tool_call`.
+✅ **Done when:** 7 rows, all ✅. If `legit_burst` gets paused, open an issue for `brain` with the output (Alif's agent fixes it).
 
-## Day 5 (Mon 9 Nov): scenarios 5–7 + benchmark table
-
-**Task 5.1:** add `memory_leak`, `bad_tool_call` and `injection` scenarios (same prompt as 4.1,
-using those kinds).
-**Task 5.2:**
+### O8 (Day 5): with vs without CloudSentinel
 > Prompt for Codex:
-> *In eval/harness.py, add a --markdown flag that writes the results table to
-> eval/BENCHMARK.md with columns: Scenario, Expected, Got, Time to detect (s), $ saved, Result.
-> Add a line at the top with the date and the judge mode used. Only edit eval/.*
+> *Only edit eval/. In eval/harness.py, add run_without(scenario): the same simulated agents and the same virtual duration, but the
+> engine never ticks (no detection, no actions), so nothing stops the rogue agent. Measure the total spend and the subject's
+> wasted_usd (from eval.roi.tasks_by_agent(store.spans_after(0, limit=100_000))). Add a --compare flag that prints and writes to
+> eval/BENCHMARK.md a second table: Scenario, Spend with CloudSentinel, Spend without, Saved, Saved %, Subject success rate
+> with / without. Add a test that "without" spends more than "with" for paraphrase_loop.*
 
-✅ **Done when:** `python -m eval.harness --markdown` creates `eval/BENCHMARK.md` with 7 rows.
+✅ **Done when:** `python -m eval.harness --compare` shows, for every rogue scenario, that "with" spends less. Put one sentence in RESULTS.md:
+"In the paraphrase loop, CloudSentinel cut spend by X% and was N s to detect."
 
----
-
-## Day 6 (Tue 10 Nov): pitch deck v1
+### O9 (Day 6): pitch deck outline
 > Prompt for Codex:
-> *Read docs/DECISION.md, docs/research/landscape.md (gap table) and docs/research/hackathon.md
-> (rubric). Write eval/pitch/deck-outline.md: 10 slides. For each slide give a title, 3 bullet
-> points max, and what image or screenshot to show. Order: Problem (a runaway agent bill), Why now,
-> Solution, LIVE DEMO, How it works (diagram), Why we win (gap table, 5 rows max), Evaluation
-> (benchmark numbers), Business model, Impact & ethics, Team + ask. Simple English.*
+> *Read docs/DECISION.md (sections 2, 2b, 5), docs/research/landscape.md (gap table), docs/research/hackathon.md (rubric) and
+> eval/RESULTS.md. Write eval/pitch/deck-outline.md: 10 slides. For each slide: a title, max 3 bullets, and which screenshot or
+> number to show (take numbers ONLY from eval/RESULTS.md or BENCHMARK.md, never invent them). Order: Problem (a runaway
+> agent bill), Why now, Solution, LIVE DEMO, How it works (diagram), the 5 AgentOps prompts → our features (DECISION §2b),
+> Evaluation (with vs without), Business model, Impact & ethics, Team + ask. Simple English.*
 
 Then build the slides in Google Slides from the outline.
-✅ **Done when:** the deck link is shared in the team group.
+✅ **Done when:** the deck link is shared in the group, and every number on it has a source line in the speaker notes.
 
-## Day 7 (Wed 11 Nov): run the full QA
-Run all 20 QA cases. Fill in "Actual" and "Pass/Fail". For each Fail, open a GitHub issue
-(Issues → New issue, include a screenshot) and label it with the folder name (`brain`, `dashboard`, …).
-✅ **Done when:** `eval/QA.md` is fully filled in and the issues are created.
+### O10 (Day 7): full QA run
+Run all 20 QA cases on the real system (Tamjid's web dashboard + `python -m brain --fake`). Fill in Actual and Pass/Fail.
+Every Fail becomes an issue (with a screenshot), labelled with the folder name.
+✅ **Done when:** `eval/QA.md` is fully filled and the issues are created.
 
-## Day 8 (Thu 12 Nov): demo video script
+### O11 (Day 8): demo video script
 > Prompt for Codex:
-> *Read docs/DECISION.md section 5. Write eval/pitch/demo-script.md for a 4–5 minute YouTube video
-> as a table: Time, What is on screen, Exact words to say, Who speaks. Follow the judges' order:
-> problem → solution → live demo → team → call to action. Short sentences.*
+> *Read docs/DECISION.md section 5 and eval/pitch/deck-outline.md. Write eval/pitch/demo-script.md for a 4–5 minute video as a
+> table: Time, What is on screen, Exact words to say, Who speaks. Order: problem → solution → live demo (use the dashboard's
+> "Run the 3 AM incident" button) → results (with vs without) → team → call to action. Short sentences.*
 
 Rehearse the live demo 3 times with a timer.
+✅ **Done when:** one rehearsal fits in 5:00, and the script is merged.
+
+## 🟡 SHOULD
+- **O12 (Day 6–7): scenarios for Fojle's new rogues** (`prompt_injection`, `tool_storm`, `memory_poisoning`,
+  `slow_budget_leak`). One scenario per task, the same prompt as O6. The harness drives `shared/mocks/fake_fleet.py`, so first
+  check that FakeFleet knows the kind (`grep <kind> shared/mocks/fake_fleet.py`). If it doesn't, add a **Contract request** below,
+  and Alif's agent adds it.
+- **O13: `explain_saving(item)`**: one sentence per `saved_by_action` entry ("Paused beta at $0.042/min; projected 60 min of waste
+  avoided = $2.52"), added as a "sentence" key. 2 tests.
+- **O14: 20+ scenarios.** Variations of the existing ones: 2 agents rogue at once, a rogue during probation, a loop that starts after
+  60 s, a very slow leak. One per short task, and the expectation must be written down before you run it.
+- **O15: QA run at every checkpoint.** Run the 8 "never cut" cases (PLAN.md) at every CP, and add a CP column to `eval/QA.md`.
+
+## 🟢 STRETCH
+- **O16: judge comparison slide.** Alif's agent writes `docs/research/judge-eval.md` (accuracy, latency and cost per judge model). Make one
+  slide from it, and cite the Hugging Face Open LLM Leaderboard only as outside context (clearly labelled as not our measurement).
+- **O17: `docs/ETHICS.md` draft** (ask Taseen first: `docs/` is Taseen's folder): human-in-the-loop defaults, the audit trail,
+  data minimisation (prompt previews ≤200 characters), the prompt-injection defence, fail-safe behaviour, and the limits of the AI judge.
 
 ## Buffer (13–15 Nov)
-Record and edit the video (OBS for recording, any free editor), upload it to YouTube as **Unlisted**,
-and add a thumbnail. Make sure it's under 5 minutes.
+Record the video (OBS), edit it, upload it to YouTube as **Unlisted** (under 5 minutes) with a thumbnail. Put Tamjid's screenshots in README.md (ask Taseen to merge).
 
 ---
 
-## ⚠️ Notes from the lead review (Wed 4 Nov), read before Day 1
-1. **The benchmark numbers changed.** The brain now catches the paraphrase loop at its first failing tool cycle:
-   `python -m eval.harness` shows **3 s to detect, $2.25 saved** (it was 13 s / $6.30). Use the new numbers
-   in the deck. "Saved" is lower because we stop the agent sooner, which is a good thing. Say "caught in 3 s".
-2. A second benchmark exists for the judge only: `python -m brain.judge_bench` → `docs/research/judge-eval.md`.
-   It includes a **false-positive case** (`legit_burst`). Add a matching harness scenario on Day 4: a busy
-   healthy agent must get "no action".
-3. QA checklist additions:
-   - (a) In Claude Desktop, pause/resume/kill/edit-memory/decide now **ask for confirmation**, because they are marked destructive. Write that as the expected result.
-   - (b) A command for a misspelled agent (`alpah`) must fail, and no new agent card may appear.
-   - (c) A rewrite with no new arguments must show an error.
-4. `value_usd` that is negative or NaN is now stored as 0, so ROI can't be inflated by a bad agent.
+## Notes from the lead review (Wed 4 Nov)
+1. **Benchmark numbers:** the brain catches the paraphrase loop at its first failing tool cycle: **3 s to detect, $2.25 saved**.
+   "Saved" is low because we stop it early. Say "caught in 3 s", and use O8's with-vs-without numbers for the money story.
+2. The judge-only benchmark is `python -m brain.judge_bench` → `docs/research/judge-eval.md` (owned by Alif's agent).
+3. `value_usd` that is negative or NaN is stored as 0, so ROI can't be inflated.
+4. The harness runs on a **virtual clock**: use `store.spans_after(0, limit=100_000)`, not `recent_spans`.
+
+## Contract requests
+(Alif's agent reads this list (task A0). Write: what, why, which task.)
