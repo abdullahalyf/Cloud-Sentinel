@@ -40,6 +40,9 @@ decides gray cases → the agent is paused, healed or killed from outside → th
 6. **Branch protection is off** until Taseen H2. Alif's agent merges its own PRs, so CI is the only gate. Taseen reads its PRs daily.
 7. **The mock and the real brain both use port 8000.** Never run both.
 8. Semantic-loop false positives on busy healthy agents (risk R12): the `legit_burst` checks in A1/A2 and O7 guard this.
+10. **One flaky test, not identified:** on 4 Nov one local `python -m pytest -q` run had 1 failure that didn't come back in 16 reruns (CI green).
+    Suspects: the timing-based tests (`shared/tests/test_api_parity.py` node feed uses the wall clock; the LangGraph adapter tests use real threads).
+    Alif's agent: reproduce with `for i in $(seq 30); do python -m pytest -q -rf | grep FAILED; done` in A10.
 9. Running SQLite from several processes (A8 sharding) needs WAL plus busy_timeout. Don't point two brains at one DB file before A8.
 
 ## 4. Local setup on a normal laptop
