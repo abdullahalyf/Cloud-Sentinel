@@ -54,3 +54,8 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 - করা হয়েছে: Fojle-র ৩টা contract request main-এ: ৪টা নতুন ROGUE_KINDS, `schema_migrations` table, CloudWatch-এর ২টা setting (সব additive, test সহ)।
 - এরপর: A10 Nightly integration check (`brain/nightly.py`)।
 - কেউ আটকে আছে?: না। Fojle এখন F6, F9, F10 শুরু করতে পারবে।
+
+### 2026-11-05 · A10 Nightly integration check
+- করা হয়েছে: `python -m brain.nightly` বানানো হয়েছে: ৭টা check চালায় (pytest, e2e/chaos, harness, judge bench, 20 s boot smoke, compose, npm), ফেল হলে owner-এর নাম দিয়ে `data/nightly-report.md` লেখে; প্রথম run-এ সব সবুজ।
+- এরপর: A1 Labeled-incident judge eval (`brain/judge_eval.py`)।
+- কেউ আটকে আছে?: না।

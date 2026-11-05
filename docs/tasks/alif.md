@@ -67,7 +67,7 @@ setting or endpoint, and a LocalStore DB created before the change still opens (
 > comment when everything is green.*
 
 **Acceptance:** `brain/tests/test_nightly.py` checks the owner mapping and the report format with fake step results (no subprocesses).
-- [ ] A10 first build (brain/nightly.py)
+- [x] A10 first build (brain/nightly.py) (2026-11-05, PR_LINK). First run: 6 pass, npm skipped (no dashboard/web yet). Report: data/nightly-report.md
 
 ---
 
