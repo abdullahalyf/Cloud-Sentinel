@@ -317,21 +317,25 @@ class SupabaseStore:
         res = self._db.table("alerts").select("*").order("id", desc=True).limit(limit).execute()
         return res.data or []
 
-    # ── TODO(Fojle) Day 2: writes ──
+    # ── writes (Day 2) ──
     def upsert_agent(self, row: AgentRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """Insert the agent, or update it when the agent_id already exists (like LocalStore)."""
+        self._db.table("agents").upsert(row.to_row(), on_conflict="agent_id").execute()
 
     def insert_spans(self, rows: list[SpanRow]) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """One request for the whole list. An empty list does nothing."""
+        if not rows:
+            return
+        self._db.table("spans").insert([r.to_row() for r in rows]).execute()
 
     def insert_metric(self, row: MetricRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("agent_metrics", row.to_row())
 
     def insert_verdict(self, row: VerdictRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("verdicts", row.to_row())
 
     def insert_action(self, row: ActionRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("actions", row.to_row())
 
     # ── TODO(Fojle) Day 4: the rest ──
     def write_memory(self, agent_id: str, content: dict, edited_by: str, reason: str = "",
