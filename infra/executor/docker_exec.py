@@ -36,6 +36,8 @@ class DockerExecutor:
             stats = c.stats(stream=False, one_shot=True)
         except TypeError:  # older docker SDK
             stats = c.stats(stream=False)
+        except Exception:
+            return 0.0, 0.0
         mem = stats.get("memory_stats", {}) or {}
         inner = mem.get("stats", {}) or {}
         cache = inner.get("inactive_file", inner.get("total_inactive_file", inner.get("cache", 0)))
@@ -47,7 +49,7 @@ class DockerExecutor:
         out = []
         for agent_id, c in self._containers().items():
             status = {"running": "running", "paused": "paused"}.get(c.status, "exited")
-            mb, pct = self._memory(c) if status == "running" else (0.0, 0.0)
+            mb, pct = self._memory(c) if status in ("running", "paused") else (0.0, 0.0)
             out.append(RuntimeInfo(agent_id, c.id[:12], "docker", status, round(mb, 1), round(pct, 1)))
         return out
 
@@ -78,5 +80,8 @@ class DockerExecutor:
         return self._do(agent_id, "restarted", lambda c: c.start())
 
     def go_rogue(self, agent_id: str, kind: str) -> ExecResult:
-        return self._do(agent_id, f"switched to {kind}",
-                        lambda c: c.exec_run(["sh", "-c", f"echo {kind} > /tmp/go_rogue"]))
+        def _go_rogue(c):
+            if c.status == "paused":
+                c.unpause()
+            c.exec_run(["sh", "-c", f"echo {kind} > /tmp/go_rogue"])
+        return self._do(agent_id, f"switched to {kind}", _go_rogue)
