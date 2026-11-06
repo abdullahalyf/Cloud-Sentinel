@@ -1,0 +1,21 @@
+# Gitleaks configuration for CloudSentinel
+# Task T1: secrets hygiene in CI
+# Allowlist placeholder values in .env.example
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allowlist placeholder values in .env.example"
+paths = [
+    '''^\.env\.example$''',
+    '''\.env\.example$''',
+]
+
+[[allowlists]]
+description = "Allowlist placeholder values in .env.example"
+paths = [
+    '''^\.env\.example$''',
+    '''\.env\.example$''',
+]
+
