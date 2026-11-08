@@ -29,6 +29,12 @@ are no Claude latency, cost or accuracy numbers here. A1's live half is marked `
 
 ### The dataset
 
+> **The dataset grew after A1** — A12 added the `mixed_language` family, so it is now **70**
+> incidents (34 positive, 36 negative). The table below describes the **original A1** dataset;
+> the current numbers are in [The dataset grew](#the-dataset-grew) and in the results block
+> above. Both are stated, because a number that quietly changes shape is a number nobody can
+> check.
+
 | | |
 |---|---|
 | Incidents | **64** (31 positives, 33 negatives) |
@@ -41,7 +47,7 @@ no judge at all, because operators learn to ignore it.
 
 ## Results
 <!-- eval:start -->
-Run: 2026-11-08 05:50 UTC · judge `fallback` · model `fallback` · incidents **70**
+Run: 2026-11-08 12:43 UTC · judge `fallback` · model `fallback` · incidents **70**
 
 | Metric | Value |
 |---|---|
