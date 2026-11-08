@@ -1094,7 +1094,7 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > `docs/evidence/` is still not a folder `alif/` may write (the same request as B10, already noted
 > in `docs/tasks/taseen.md`).
 
-### B12 · [ ] 🟢 STRETCH · The evidence pack for the pitch
+### B12 · [x] 🟢 STRETCH · The evidence pack for the pitch
 > Prompt:
 > *Collect all the key numbers — detection time, heal time, money saved, accuracy, scale — into
 > `docs/evidence/PITCH_NUMBERS.md`, with the **exact command to reproduce each one**. Do not touch
@@ -1109,6 +1109,55 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+**What was built.** `docs/research/pitch-numbers.md` — eight numbered sections, each with the exact
+command that reproduces it, plus a summary table and a "what this file does not claim" list. The
+acceptance test is `brain/tests/test_evidence.py` (25 tests).
+
+**The path is `docs/research/`, not `docs/evidence/`.** The prompt above says `docs/evidence/`, but
+that directory does not exist and **the folder guard does not allow it** — `alif/` branches may write
+`brain/`, `docs/tasks/alif.md`, `docs/SUMMARY_BN.md`, `docs/research/` and `docs/tasks/*.md`, and
+nothing else. Writing `docs/evidence/PITCH_NUMBERS.md` would have failed CI. The evidence B3, B8
+and B9 wrote also all live in `docs/research/`, so the pack sits with them.
+
+**Three numbers were wrong when the pack was first written, and the test found them.**
+The pack is only worth the difference between what it says and what the code does, so every number
+was compared against the command that produces it. Three did not match:
+
+| | The pack said | The truth |
+| --- | --- | --- |
+| the judge's dataset | 64 incidents | **70** (34 positive, 36 negative) — the "64" was copied from a stale table in `judge-eval.md` |
+| SQLite commits per tick | 200 → 2 | **200 → 1** (`docs/research/brain-perf.md` says 1) |
+| the audit chain | verifiable | **empty unless `CS_AUDIT_ENABLED=true`** — the flag is off by default |
+
+The third one was not a wrong number but a **missing caveat**, and it is the kind of thing a pitch
+gets caught on: on a fresh checkout `python -m brain.audit verify` says "the chain is empty",
+which looks like a broken product. The pack now says so, and shows the tamper proof that was
+actually run — `ok: False, broken_at: 1`, with both hashes, because "the chain is broken" is not
+something an operator can act on.
+
+**The check proves it can fail.** The first version of the test looked for each number *somewhere*
+in the pack — and the pack states most numbers twice, once in the section that argues the claim and
+once in the summary table. That check was satisfied by the summary while the section said something
+else, so it **passed on a pack that lied**. Every number is now read out of the row, and the
+column, that makes the claim, and the file ends with twelve deliberate corruptions that each have
+to be noticed — plus a control, because a harness that fails every run for an unrelated reason
+would satisfy those twelve without checking anything.
+
+Three of the twelve caught real holes in the first version of the check itself:
+
+| The drift | Why the first check missed it |
+| --- | --- |
+| the judge's accuracy changed to 0.999 | "0.914" was still in the summary table, so `in pack` passed |
+| a detector's precision changed to 0.9 | the row's *recall* cell still said 1.0, so the substring matched |
+| the p95 changed to 129.9 ms | the regex guessed the p95 **column**, and guessed wrong — so the loop it guarded never ran, and the test passed vacuously |
+
+That last one is the one worth remembering. **A test whose loop never executes passes forever.**
+Reading the column out of the table's own header is the fix, and the scale doc has three tables
+with several latency columns in them, so guessing was never going to hold.
+
+**`eval/` is untouched.** `git status` on the branch shows only `docs/research/`,
+`docs/tasks/alif.md` and `brain/tests/`.
 
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)
