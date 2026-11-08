@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from brain import service
+from brain import audit as brain_audit
 from brain import backtest as brain_backtest
 from brain import cascade as brain_cascade
 from brain import budget as brain_budget
@@ -26,7 +27,8 @@ from brain.policy_reload import PolicyManager
 from brain.policy_schema import validate_yaml as policy_schema_validate
 from shared.config import Settings
 from shared.contracts import (CONTRACT_VERSION, HEAL_DECISIONS, HEAL_STATUSES,
-                              TOOL_DECISIONS, postmortem_markdown as postmortem_md)
+                              TOOL_DECISIONS, ToolRegistryRow, postmortem_markdown as postmortem_md,
+                              security_report_view, security_tool, security_tools_view)
 
 log = logging.getLogger("brain.api")
 
@@ -55,6 +57,17 @@ class ToolCallIn(BaseModel):
     value_usd: Optional[float] = None
 
 
+class ToolRegistryIn(BaseModel):
+    """The tools a registry serves, with their descriptions (B8).
+
+    A registry reports what it offers; the brain checks the descriptions for
+    steering and tells the registry what it found.
+    """
+    registry: str = ""
+    tools: list[dict[str, Any]] = Field(default_factory=list)
+    reported_by: str = "mcp"
+
+
 class DecisionIn(BaseModel):
     decision: str
     final_args: Optional[dict[str, Any]] = None
@@ -74,6 +87,25 @@ def clamp_limit(limit: int, top: int = 1000) -> int:
 
 def clamp_minutes(minutes: float, top: float = 24 * 60) -> float:
     return max(0.1, min(float(minutes), top)) if minutes == minutes else 5.0  # NaN → default
+
+
+def _refresh_descriptions(gate, store) -> None:
+    """
+    Give the gate the descriptions the brain knows about.
+
+    The gate checks a tool's description before it lets a call through, so it
+    needs to know what the registries actually serve. Without this the gate would
+    have nothing to check and a poisoned tool would sail through.
+
+    A store that cannot be read must not take the endpoint down: a missing
+    registry table is a missing verdict, not a failed report.
+    """
+    try:
+        rows = store.list_tools(limit=1000)
+    except Exception:
+        return
+    gate.descriptions = {r.get("tool_name", ""): r.get("description", "")
+                         for r in rows if r.get("tool_name")}
 
 
 def _burn_rates(store) -> dict[str, float]:
@@ -109,7 +141,8 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     # report the last error. Without a manager (a test, a script) the API still serves the
     # policy it was given.
     manager = policy_manager or PolicyManager(policy, cfg.policy_file, store=store,
-                                               default_budget=cfg.default_budget_usd)
+                                               default_budget=cfg.default_budget_usd,
+                                               audit_enabled=cfg.audit_enabled)
 
     # A6: the injection gate. It scores a tool call's arguments before the policy looks at them.
     gate = injection_gate or service.InjectionGate(
@@ -117,6 +150,14 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         approval_threshold=cfg.injection_approval_threshold,
         allowed_hosts=cfg.injection_allowed_hosts,
         enabled=cfg.injection_enabled)
+
+    # B8: the security gate. A poisoned tool description is denied, and a secret in the
+    # arguments is redacted before the call is stored. Off by default: with the flag off
+    # the detectors do not run at all and the old behaviour stands.
+    security_gate = service.SecurityGate(
+        deny_threshold=cfg.security_deny_threshold,
+        enabled=cfg.security_enabled,
+        redact_enabled=cfg.security_redact_enabled)
 
     def live_policy() -> Policy:
         """The policy that is in force right now (it can change under us — A5)."""
@@ -287,6 +328,30 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         window = float(minutes if minutes is not None else cfg.cascade_window_minutes)
         return brain_cascade.cascades_from_store(store, minutes=window)
 
+    # ── the audit chain (CONTRACTS §6, B7) ──
+    @app.get("/v1/audit", dependencies=[Depends(auth)])
+    def audit(limit: int = 200) -> dict:
+        """
+        The tamper-evident chain of every decision and every human action. (B7)
+
+        Each entry carries the hash of the entry before it, so an edit in the
+        middle breaks every link after it — and so does a deletion. The endpoint
+        serves the chain **and** the verification of it: `valid` says whether the
+        chain is intact, and `broken_at` names the entry that broke it.
+
+        It is behind `CS_AUDIT_ENABLED` (off by default), but unlike the backtest
+        and the cascade it does **not** disappear when the flag is off: an operator
+        asking "is the log tamper-proof?" deserves an answer rather than a 404.
+
+        The flag decides whether the chain is **written**, not whether it is
+        **read**. So with the flag off the endpoint says `enabled: false` and
+        serves whatever chain already exists — a chain written before the flag
+        was turned off is still a chain, and hiding it would be the one thing a
+        tamper-evident log must never do.
+        """
+        return brain_audit.chain_view(store, limit=clamp_limit(limit),
+                                      enabled=cfg.audit_enabled, as_of=time.time())
+
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
         return {"metrics": store.recent_metrics(minutes=clamp_minutes(minutes), agent_id=agent_id)}
@@ -321,7 +386,7 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.put("/v1/agents/{agent_id}/memory", dependencies=[Depends(auth)])
     def put_memory(agent_id: str, body: MemoryIn) -> dict:
         return call(service.save_memory, store, agent_id, body.content, body.edited_by, body.reason,
-                    body.base_version, gate)
+                    body.base_version, gate, cfg.audit_enabled)
 
     @app.get("/v1/agents/{agent_id}/memory/history", dependencies=[Depends(auth)])
     def memory_history(agent_id: str, limit: int = 10) -> dict:
@@ -330,9 +395,10 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.post("/v1/agents/{agent_id}/tool-calls", dependencies=[Depends(auth)])
     def tool_call(agent_id: str, body: ToolCallIn) -> dict:
         # the live policy, not the one from startup: A5 lets an operator change the rules
-        # without a restart. The injection gate (A6) looks at the arguments first.
+        # without a restart. The injection gate (A6) looks at the arguments first, and the
+        # security gate (B8) denies a call to a tool whose description is poisoned.
         return call(service.request_tool_call, store, live_policy(), agent_id, body.tool_name, body.args,
-                    body.value_usd, gate)
+                    body.value_usd, gate, cfg.audit_enabled, security_gate)
 
     @app.get("/v1/tool-calls", dependencies=[Depends(auth)])
     def tool_calls(status: Optional[str] = None, limit: int = 50) -> dict:
@@ -350,7 +416,7 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.post("/v1/tool-calls/{call_id}/decision", dependencies=[Depends(auth)])
     def decide(call_id: int, body: DecisionIn) -> dict:
         return call(service.decide_tool_call, store, call_id, body.decision, body.final_args, body.decided_by,
-                    body.reason)
+                    body.reason, cfg.audit_enabled)
 
     @app.get("/v1/tool-risk", dependencies=[Depends(auth)])
     def tool_risk(agent_id: Optional[str] = None) -> dict:
@@ -363,6 +429,105 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         from brain import tool_risk as brain_tool_risk
 
         return brain_tool_risk.learn(store, agent_id=agent_id)
+
+    # ── the security detectors (CONTRACTS §6, B8) ──
+    @app.post("/v1/security/tools", dependencies=[Depends(auth)])
+    def report_security_tools(body: ToolRegistryIn) -> dict:
+        """
+        A registry reports the tools it serves (B8), and the brain checks the descriptions.
+
+        A tool's *description* is what the agent reads before it decides, so a
+        description that tries to steer the agent ("always call this first", "do
+        not ask for approval") is an attack on the agent's instructions. The
+        detector reads the descriptions the registry actually serves and says which
+        ones are poisoned — and **why**, because a detector that only says "yes" is
+        a detector nobody can tune.
+
+        The verdict is stored, so the gate can deny a call to a poisoned tool. The
+        description is kept as it was served, so a human can see what the registry
+        actually said.
+
+        With `CS_SECURITY_ENABLED` off the detectors do not run at all: the tools
+        are recorded as they were reported, and every one of them is `clean`.
+        """
+        from brain import security as brain_security
+
+        registry = (body.registry or "").strip() or "default"
+        reported = []
+        for tool in body.tools:
+            name, description = brain_security.tool_name_and_description(tool)
+            if not name:
+                continue
+            finding = None
+            if cfg.security_enabled:
+                finding = brain_security.scan_tool_description(name, description)
+            status = "poisoned" if finding is not None else "clean"
+            reasons = list(finding.reasons) if finding is not None else []
+            score = float(finding.score) if finding is not None else 0.0
+            store.upsert_tool(ToolRegistryRow(
+                registry=registry, tool_name=name, description=description,
+                reported_by=body.reported_by or "mcp", status=status,
+                reasons="; ".join(reasons), score=score))
+            reported.append(security_tool(
+                tool_name=name, description=description, registry=registry,
+                status=status, reasons=reasons, score=score,
+                reported_by=body.reported_by or "mcp", updated_at=time.time()))
+        # The gate learns what it just learned: the descriptions it must check
+        # before it lets a call through.
+        _refresh_descriptions(security_gate, store)
+        return security_tools_view(tools=reported, enabled=cfg.security_enabled, as_of=time.time())
+
+    @app.get("/v1/security/tools", dependencies=[Depends(auth)])
+    def security_tools(registry: Optional[str] = None, status: Optional[str] = None) -> dict:
+        """
+        What the brain found in the tools the registries serve (B8).
+
+        `status=poisoned` filters to the ones that tried to steer the agent — the
+        question an operator asks first.
+
+        The endpoint exists whether or not the detectors are on: an operator asking
+        "is a tool poisoned?" deserves an answer rather than a 404, and a verdict
+        written before the flag was turned off is still a verdict.
+        """
+        if status is not None and status not in ("clean", "poisoned"):
+            raise HTTPException(400, "status must be clean or poisoned")
+        rows = store.list_tools(registry=registry, status=status, limit=clamp_limit(500, 1000))
+        tools = [security_tool(tool_name=r.get("tool_name", ""),
+                               description=r.get("description", ""),
+                               registry=r.get("registry", ""),
+                               status=r.get("status", "clean"),
+                               reasons=[x for x in (r.get("reasons") or "").split("; ") if x],
+                               score=float(r.get("score") or 0.0),
+                               reported_by=r.get("reported_by", "mcp"),
+                               updated_at=r.get("updated_at"))
+                 for r in rows]
+        return security_tools_view(tools=tools, enabled=cfg.security_enabled, as_of=time.time())
+
+    @app.get("/v1/security/report", dependencies=[Depends(auth)])
+    def security_report() -> dict:
+        """
+        The findings of the last scan (B8): what fired, how bad it was, and **why**.
+
+        The counts are the first thing an operator reads — "is anything poisoned" is
+        a count, not a list.
+        """
+        rows = store.list_tools(limit=clamp_limit(500, 1000))
+        findings = []
+        for r in rows:
+            if r.get("status") != "poisoned":
+                continue
+            reasons = [x for x in (r.get("reasons") or "").split("; ") if x]
+            findings.append({
+                "detector": "tool_description_poisoning",
+                "severity": "critical" if len(reasons) > 1 else "warning",
+                "title": f"the description of {r.get('tool_name')!r} is poisoned",
+                "detail": f"{r.get('registry', '') or 'a registry'} serves a description "
+                          "that tries to steer the agent",
+                "subject": r.get("tool_name", ""),
+                "score": float(r.get("score") or 0.0),
+                "reasons": reasons,
+            })
+        return security_report_view(findings=findings, enabled=cfg.security_enabled, as_of=time.time())
 
     @app.get("/v1/roi", dependencies=[Depends(auth)])
     def roi() -> dict:
@@ -407,7 +572,8 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         decision = (body.decision or "").strip().lower()
         if decision not in HEAL_DECISIONS:
             raise HTTPException(400, f"decision must be one of {', '.join(HEAL_DECISIONS)}")
-        return call(service.decide_heal_proposal, store, proposal_id, decision, body.requested_by, body.reason)
+        return call(service.decide_heal_proposal, store, proposal_id, decision, body.requested_by,
+                    body.reason, cfg.audit_enabled)
 
     @app.websocket("/v1/stream")
     async def stream(ws: WebSocket) -> None:

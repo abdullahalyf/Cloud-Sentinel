@@ -392,7 +392,12 @@ def record_cascade(engine, cascade: dict) -> None:
             except Exception:
                 usd = 0.0
         try:
-            engine.store.insert_action(ActionRow(agent_id, CASCADE_ACTION, CASCADE_ACTOR, reason, usd))
+            from brain import audit as brain_audit
+
+            brain_audit.record_action(engine.store, agent_id=agent_id, action=CASCADE_ACTION,
+                                      actor=CASCADE_ACTOR, reason=reason,
+                                      enabled=getattr(engine.cfg, "audit_enabled", False),
+                                      usd_saved=usd)
         except Exception:
             log.exception("could not write the cascade action for %s", agent_id)
 

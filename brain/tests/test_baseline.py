@@ -294,3 +294,126 @@ def test_the_baseline_can_be_switched_off(cfg):
         fleet.step(now)
         engine.tick(now)
     assert not engine.baselines or all(not b.ready() for b in engine.baselines.values())
+
+
+# ── B9: the recompute interval ───────────────────────────────────────────────
+#
+# The interval is the number of healthy observations between recomputes of the
+# learned statistic. The obvious worry is that a stale statistic lets a runaway
+# climb under the limit — these three tests are the measurement that says the
+# opposite, and the interval of 1 is kept as the exact old behaviour.
+
+
+def test_an_interval_of_one_is_the_old_behaviour_exactly(cfg):
+    """recompute_every=1 → the statistic is recomputed on every observation, as before."""
+    b = AgentBaseline("beta", recompute_every=1)
+    for i in range(10):
+        b.observe_and_maybe_recompute(1000.0 + i, {"tokens_per_min": 10_000.0}, cfg)
+    # every observation was a recompute, so the limit already reflects the last one
+    assert b.metrics["tokens_per_min"].samples == 10
+    assert b.metrics["tokens_per_min"].limit > 0
+
+
+def test_a_larger_interval_defers_the_statistic_but_not_the_learning(cfg):
+    """The samples are always recorded — only the *statistic* is deferred."""
+    b = AgentBaseline("beta", recompute_every=10)
+    for i in range(9):
+        b.observe_and_maybe_recompute(1000.0 + i, {"tokens_per_min": 10_000.0}, cfg)
+    # the first observation always recomputes, so there IS a limit...
+    assert b.limit("tokens_per_min") is not None
+    # ...but the statistic is stale: it still reflects the first sample only
+    assert b.metrics["tokens_per_min"].samples == 1
+    # ...while the *learning* is complete: all nine samples are recorded
+    assert len(b.samples["tokens_per_min"]) == 9
+
+
+def test_a_larger_interval_catches_a_runaway_sooner_not_later(cfg):
+    """
+    The measurement that justifies the interval.
+
+    The limit rises when the agent's recent samples rise. Recomputing on every
+    observation absorbs the runaway's own elevated samples immediately, so the
+    limit climbs alongside it. Recomputing less often leaves the limit standing
+    on the older, healthier samples — so it is lower, and the runaway crosses it
+    sooner.
+    """
+    def caught_at(interval: int) -> int:
+        """The tick at which a ramping agent crosses its own learned limit."""
+        b = AgentBaseline("beta", recompute_every=interval)
+        value = 10_000.0
+        for tick in range(1, 200):
+            value *= 1.03          # a 3% ramp per tick
+            b.observe_and_maybe_recompute(1000.0 + tick, {"tokens_per_min": value}, cfg)
+            limit = b.limit("tokens_per_min")
+            if limit is not None and value > limit:
+                return tick
+        return -1
+
+    slow = caught_at(20)
+    fast = caught_at(1)
+    assert slow > 0 and fast > 0, "the runaway must be caught either way"
+    assert slow < fast, (
+        f"the slower recompute caught it at tick {slow} and the faster one at tick {fast} — "
+        "the whole point is that the older limit catches the runaway sooner")
+
+
+def test_a_stable_agent_limit_stays_in_the_same_band_and_errs_low(cfg):
+    """
+    A stationary agent must not be pushed to a *higher* limit by a longer interval.
+
+    The limit does move a little: with a longer interval the statistic is computed
+    from a window that ends earlier, so its median and MAD are of a slightly
+    different subset of the samples. Measured on an agent jittering around
+    10 000: interval 1 gives a limit of 24 826 and interval 20 gives 23 585.
+
+    That difference is the safe direction — the limit errs LOW, so the agent is
+    tripped a little earlier, and a human looks. What must never happen is the
+    limit going UP: that would let a busy agent past a runaway that was
+    previously caught.
+    """
+    def limit_after(interval: int) -> float:
+        b = AgentBaseline("beta", recompute_every=interval)
+        for i in range(200):
+            # a little jitter, as a real agent has
+            value = 10_000.0 + (500.0 if i % 2 else -500.0)
+            b.observe_and_maybe_recompute(1000.0 + i, {"tokens_per_min": value}, cfg)
+        return b.limit("tokens_per_min")
+
+    slow, fast = limit_after(20), limit_after(1)
+    assert slow <= fast, f"a longer interval raised the limit ({slow} > {fast}) — that is the unsafe direction"
+    # and it does not drift so far that the agent is stopped for doing its job
+    assert slow >= fast * 0.9, f"the limit fell too far ({slow} vs {fast})"
+
+
+def test_the_interval_can_be_disabled_by_choosing_one(cfg):
+    """The shipped default is 1: the behaviour before B9, exactly."""
+    assert cfg.baseline_recompute_every == 1
+
+
+def test_the_engine_hands_the_configured_interval_to_the_baseline(cfg):
+    """The setting has to reach the baseline, or it is a setting that does nothing."""
+    cfg = replace(cfg, baseline_recompute_every=20, baseline_warmup_seconds=1.0)
+    store, fleet, engine = make_sim(cfg, names=("alpha",))
+    now = 1000.0
+    for _ in range(5):
+        now += 1
+        fleet.step(now)
+        engine.tick(now)
+    baseline = engine.baselines.get("alpha")
+    assert baseline is not None
+    assert baseline.recompute_every == 20
+
+
+def test_a_restart_keeps_the_configured_interval(cfg):
+    """A restart must not quietly change how often the statistic is recomputed."""
+    cfg = replace(cfg, baseline_recompute_every=20, baseline_warmup_seconds=1.0)
+    store, fleet, engine = make_sim(cfg, names=("alpha",))
+    now = 1000.0
+    for _ in range(5):
+        now += 1
+        fleet.step(now)
+        engine.tick(now)
+
+    _, _, restarted = make_sim(cfg, store=store, fleet=fleet)
+    assert "alpha" in restarted.baselines
+    assert restarted.baselines["alpha"].recompute_every == 20

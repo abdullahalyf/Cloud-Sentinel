@@ -818,7 +818,9 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B7 · [ ] 🟡 SHOULD · The tamper-evident audit log
+### B7 · [x] 🟡 SHOULD · The tamper-evident audit log
+> ✅ 2026-11-08 · contract PR [#79](https://github.com/abdullahalyf/Cloud-Sentinel/pull/79) (the shapes) · brain PR [#80](https://github.com/abdullahalyf/Cloud-Sentinel/pull/80) · gap PR [#81](https://github.com/abdullahalyf/Cloud-Sentinel/pull/81) · 25 brain tests + 14 contract tests
+>
 > Prompt:
 > *Every decision and every human action goes into a **hash-chained** log, with a verify command
 > and a `GET /v1/audit` endpoint. This is the governance story for the judges.*
@@ -840,7 +842,9 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B8 · [ ] 🟡 SHOULD · The security detectors
+### B8 · [x] 🟡 SHOULD · The security detectors
+> ✅ DONE · 2026-11-08 · contract PR #83, brain PR #85, gap PR #86
+>
 > Prompt:
 > *Three detectors: **MCP tool-description poisoning** (a tool whose description tries to steer the
 > agent), **PII / secret leakage in tool outputs**, and **prompt injection in retrieved content**.
@@ -859,26 +863,112 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Note (8 Nov):** `docs/evidence/` is not in `alif/`'s allowed folders, so the evidence went to
+> `docs/research/security.md` instead — the folder the guard *does* allow. The contract half landed
+> as PR #83 (`CS_SECURITY_ENABLED`, `CS_SECURITY_REDACT_ENABLED`, `CS_SECURITY_DENY_THRESHOLD`, the
+> `tool_registry` table, and the mock's three endpoints); the brain half landed as PR #85 and the
+> gap closed as PR #86.
+>
+> **What it is:** three detectors in `brain/security.py` — a poisoned tool description (a tool whose
+> *description* tries to steer the agent), a secret in a tool output (**redacted before it is
+> stored**), and an injection in retrieved content (the **existing** A6 scorer reused, not a second
+> one). The flag off means the detectors do not run **at all**, not "run but do not report".
+>
+> **The measurement:** 115 labelled cases, 30 of them adversarial negatives written to make the
+> detectors *wrong*. They found **8 real false positives**, every one fixed at the root rather than
+> skipped. All three detectors sit at precision 1.0 / recall 1.0, reproducible with one command:
+> `python -m brain.security measure --cases brain/eval_data/security.jsonl`. The command **exits
+> non-zero** below a floor, so it can be a CI job.
+>
+> **A note on the fixtures:** the secret-shaped cases carry `{{PLACEHOLDER}}` markers and the loader
+> expands them, because a secret-shaped literal in the repository is indistinguishable from a
+> leak to the `secrets` job — and a scanner that cries wolf on the team's own corpus teaches the
+> team to ignore it. The measurement is unchanged; the repository holds no secret-shaped literal.
 
-### B9 · [ ] 🟡 SHOULD · The scale proof
+### B9 · [x] 🟡 SHOULD · The scale proof
 > Prompt:
 > *Benchmark the brain with 500 and then 1000 simulated agents. Report the decision latency
 > p50 / p95 / p99 and the throughput, profile and optimise the hot paths, and publish the numbers in
 > `docs/evidence/scale.md`.*
 >
 > **Owned files:** `brain/scale_bench.py` (new), `brain/tests/test_scale.py` (new),
-> `docs/evidence/scale.md` (new).
+> `docs/research/scale.md` (new).
 >
 > **Acceptance tests:** the benchmark runs 500 and 1000 agents and prints the p50 / p95 / p99 and the
-> throughput; the numbers in `docs/evidence/scale.md` come from a real run, not from a guess; the
+> throughput; the numbers in `docs/research/scale.md` come from a real run, not from a guess; the
 > tick stays inside its budget at 500 agents (the A11 budget, 200 ms at 100 agents, scaled and
 > stated); the benchmark is offline and deterministic; a regression against the published numbers
-> fails (the test reads `docs/evidence/scale.md`).
+> fails (the test reads `docs/research/scale.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Done (8 Nov).** The evidence file is at `docs/research/scale.md`, not `docs/evidence/` — the
+> folder guard gives `alif/` `docs/research/`, and `docs/evidence/` is still an open request to
+> Taseen. The file is written by the command that measured it, and a test reads it back and fails
+> if the published number and the measured number disagree.
+>
+> **What the measurement found, and what was fixed.**
+>
+> - **The rows were deep-copied to be read.** `dataclasses.asdict` is a *deep* copy. The metric
+>   row is flat, so the copy bought nothing. Profiling **the tick alone** at 1000 agents, the
+>   `dataclasses` module accounted for **94,000 of the tick's 479,817 function calls**. The batch
+>   now reads the columns straight off the row, and the tick makes **zero** `dataclasses` calls —
+>   pinned as a test.
+> - **A baseline was built for every agent on every tick and thrown away.**
+>   `setdefault(agent_id, AgentBaseline(agent_id=agent_id))` evaluates its argument *before* it
+>   looks the key up, so 1000 baselines were constructed and discarded every tick.
+> - **The chat window was walked four times.** `snapshot()` made four passes over the same deque;
+>   the two windows are nested, so one walk serves both.
+> - **The tick's cost grew with the *age* of the brain.** At 1000 agents the tick went from
+>   178 ms at tick 1 to **1183 ms at tick 120** — past the 1000 ms interval. The baseline recompute
+>   alone was 173 ms of a ~450 ms tick. The growth stops at 601 samples — the size of the
+>   600-second window — confirmed by a 1000-tick run.
+>
+> **Result:** 479,817 → 323,204 function calls per tick (−33%), 94,000 → 0 `dataclasses` calls
+> (−100%), and 10–25% off the wall clock at matched tick indices.
+>
+> **The correction that mattered.** The first conclusion — "recomputing the baseline less often
+> would chase a runaway and is therefore wrong" — was **wrong**, and the measurement said so.
+> The limit rises when the agent's recent samples rise, so recomputing on every observation
+> absorbs the runaway immediately and the limit climbs alongside it. Recomputing less often leaves
+> the limit standing on the *older, healthier* samples, so it is lower and the runaway crosses it
+> **sooner**: measured, the runaway was caught at tick 73 with an interval of 20 against tick 109
+> with an interval of 1. A stable agent is unaffected, and a creeping agent is protected better
+> (+15% drift against +35%). So `CS_BASELINE_RECOMPUTE_EVERY` ships — default `1`, the behaviour
+> before B9 — and the reasoning is in `brain/baseline.py`.
+>
+> **On the noise.** One measurement cannot classify the curve: the p95 ratio of two identical runs
+> moved between 8.5× and 27.6× over five runs of the same code. So each rung is measured three
+> times and the **minimum** p95 is published, with a `spread` column and the three repeats shown
+> so the noise can be checked. The *shape* is measured in function calls, which do not move with
+> the machine: **215.9 calls per agent at 100 agents and 215.1 at 1000**, flat to within 0.4%. The
+> wall-clock ratio is a budget question, not a shape question, and it is tested as one.
+>
+> **The correction to the correction (8 Nov, after the merge).** The 8.5×–27.6× spread above was
+> **not the machine — it was a bug in the benchmark**, and the CI caught it: the B9 merge went red
+> because the published p95 at 100 agents was 9.2 ms and a CI runner measured 118 ms. The
+> benchmark meant to delete its throwaway database before each repeat and **the deletion never
+> worked**: `LocalStore` opens a connection and never closes it, and on Windows an open file cannot
+> be deleted — so `os.remove` failed, the failure was swallowed, and each repeat ran against the
+> *previous* repeat's rows. The rows written went 2300 → 4600 → 6900 at 100 agents, and that drift
+> is what the "noise" was. On Linux the unlink succeeds but the orphan `-wal` file is recovered by
+> the next connection, so the bug was on every platform — it just failed differently. The
+> benchmark now closes its own store and removes the database, the `-wal` and the `-shm`. With
+> that, the rows written are constant and the spread across five identical runs falls from 5.1×
+> to **1.16× at 100 agents, 1.17× at 500 and 1.56× at 1000**. The published numbers were
+> regenerated, the test now compares the published number against the *same estimator* it was
+> produced with (the minimum across the repeats — a minimum compared against a single draw is not a
+> comparison), and the deterministic half (the rows written, the agents seen) is checked exactly.
+> Five regression tests pin it: the store must be fresh between repeats, the repeats must measure
+> the same store size, the throwaway files must be gone, and the benchmark must close what it
+> opened.
+>
+> **Contract:** `CS_BASELINE_RECOMPUTE_EVERY` — PR #88 (contract), merged first.
+> **Needs Taseen:** `docs/evidence/` is still not a folder `alif/` may write.
 
-### B10 · [ ] 🟡 SHOULD · The team status report
+### B10 · [x] 🟡 SHOULD · The team status report
 > Prompt:
 > *A script reads the git log, the task files and the CI results and writes `docs/STATUS_BN.md`:
 > per person, what is done versus what is planned, and who is behind or blocked. Run it after every
@@ -896,8 +986,78 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Done (8 Nov).** The script is `brain/status.py` and the report is `docs/research/STATUS_BN.md`.
+> Both paths are inside the folders the folder guard already gives `alif/` (`brain/` and
+> `docs/research/`), because `scripts/` and `docs/STATUS_BN.md` are still not allowed — the
+> request for those two lines is written up in `docs/tasks/taseen.md`. The command is
+> `python -m brain.status --write docs/research/STATUS_BN.md`, and `--json` prints the same numbers
+> machine-readably so a CI job can read them.
+>
+> **Four signals, because no one signal was enough.** The task files' boxes (`[x]`, `[!]`, `[ ]`)
+> exist only in Alif's file, so they cannot be the definition. The report reads **four** things and
+> combines them:
+>
+> - **the box** — `[x]` done, `[!]` blocked. Only some files have it.
+> - **the git log on `main`** — a commit whose message names a task id means that task is done,
+>   whether or not anyone remembered to tick a box. This is the signal that makes the report work
+>   for the people whose files have no boxes.
+> - **the branches that are not on `main`** — a commit on a branch but not on `main` means the work
+>   is done but never submitted. That is a *different* problem from "not started", and it needs a
+>   different word: the fix is "open the PR", not "do the work". This signal found Tamjid's D1
+>   and D2.
+> - **the open pull requests** (`gh pr list`) — submitted and waiting for a merge. This found
+>   Fojle's F2 and F3 on PR #60.
+>
+> **"Behind" is a rule, not a feeling.** A person is behind when they have a task that is planned
+> and not started on a day that has already passed, or a task marked `[!]`. The day comes from the
+> task's own label (`### T2 (Day 1)`), read against Day 1 = 5 Nov 2026 from `docs/PLAN.md`. A task
+> with no day label is **never** behind on that count — there is nothing to compare it to. Being
+> due today is not being late. The rule is written into the report itself, in Bangla, so a reader
+> can check it instead of trusting it.
+>
+> **CI is read through `gh`, and "unknown" is an answer.** The newest workflow run on `main` gives
+> green / red / running / grey. When `gh` is missing, unauthenticated, or there is no run, the
+> report says **"অজানা"** and says why — it never crashes and never guesses, because a status
+> report that lies about CI is worse than one that admits it does not know. There is a test that
+> removes `gh` from under it and checks the report still renders.
+>
+> **Two bugs the report found in its own inputs.** Alif's task file uses the id `A10` twice — once
+> to open a recurring task and once to write its completion detail — and the report counted it
+> twice, overstating the work done. One id is now one task. And the ids were listed in
+> lexicographic order (`A0, A1, A10, A11, A2`), so the numbers are compared as numbers now.
+>
+> 30 tests, no network and no `gh` required for the core ones: every person is named and counted,
+> the counts add up, the day arithmetic is checked against known dates, the behind rule is tested
+> case by case, the report is in Bangla, it is byte-for-byte deterministic, the command exits 0,
+> and `--json` is machine-readable.
+>
+> **The third bug the CI caught (8 Nov, after the first PR).** PR #90 was red on three tests, and
+> all three had the same cause: **the git log came back empty in CI**. The reason is that CI checks
+> a pull request out as a **detached HEAD on a shallow history** — `actions/checkout` runs with
+> `fetch-depth: 1`, so there is **no local `main` branch at all**, only `origin/main`. The script
+> had been assuming `main` exists, so `git log main` failed, and the report read that as "nothing
+> is done" — which is exactly the lie the report exists not to tell.
+>
+> The fix has two halves:
+>
+> - **the ref is resolved, not assumed** — `main` → `origin/main` → `refs/remotes/origin/main` →
+>   `HEAD`, and `HEAD` only as the last resort, so a branch's own commits never look landed. Both
+>   signals (done and started) resolve `main` the **same** way, because the two sets are subtracted
+>   from each other;
+> - **"I could not read it" is now a distinct answer from "nothing is done"** — the report has a
+>   `git_readable` flag, and when the history is unreadable it says **"git log পড়া যায়নি"** instead
+>   of "0 commits".
+>
+> The three failing tests were also **asking the wrong question**. One asserted `"A1" in done` — but
+> A1's commit is 67 commits back, and a depth-1 checkout does not have it. That is not a bug in the
+> script; it is a bug in the test, which asserted a fact about *the checkout* rather than about the
+> *rule*. They now check the rule structurally: the done set is exactly the ids the resolved
+> revision's log names, the two signals never overlap, and the revision is resolved rather than
+> assumed. Verified against three checkout shapes — a full clone, a CI-faithful shallow detached
+> clone, and a clone with no `main` ref anywhere (36 pass, 32 + 4 skip).
 
-### B11 · [ ] 🟢 STRETCH · Packaging
+### B11 · [x] 🟢 STRETCH · Packaging
 > Prompt:
 > *Make the SDK and the MCP server pip-installable, with a 5-line quickstart that works from a
 > clean virtualenv. Test it — actually create the venv and run it.*
@@ -913,8 +1073,30 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Done (8 Nov).** Both `pyproject.toml`s already existed and were complete — `cloudsentinel` 0.3.0
+> and `cloudsentinel-mcp` 0.7.0 — so there was nothing to write there, and **Fojle's folder was
+> never touched**. What was missing was the *proof* and the quickstart: `docs/research/quickstart.md`
+> and `brain/tests/test_packaging.py`.
+>
+> **The test builds a real virtualenv, really installs, and runs inside it.** A claim like "you can
+> install this" is worth nothing if it is only ever checked in the developer's own environment,
+> where the repo is on `sys.path` and every dependency is already there. So the test creates a
+> **real venv**, really `pip install`s both packages, and runs code **inside that venv** with the
+> repo *not* on the path. The MCP check drives the **installed** console script over **real MCP
+> stdio** — which is the check that catches the classic packaging bug: the package installs, the
+> command exists, and then it dies the moment a client connects.
+>
+> **The last check is the whole story in one test.** The installed server is pointed at a running
+> `python -m brain --fake` and returns a **real fleet**. Everything before it could pass with a
+> server that answers nothing at all. Five live checks pass; the offline ones (the quickstart's
+> shape and its claims) always run. The live tests are marked `live` and skip without a network.
+>
+> The quickstart is `docs/research/quickstart.md` — **not** `docs/evidence/quickstart.md`, because
+> `docs/evidence/` is still not a folder `alif/` may write (the same request as B10, already noted
+> in `docs/tasks/taseen.md`).
 
-### B12 · [ ] 🟢 STRETCH · The evidence pack for the pitch
+### B12 · [x] 🟢 STRETCH · The evidence pack for the pitch
 > Prompt:
 > *Collect all the key numbers — detection time, heal time, money saved, accuracy, scale — into
 > `docs/evidence/PITCH_NUMBERS.md`, with the **exact command to reproduce each one**. Do not touch
@@ -929,6 +1111,141 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+**What was built.** `docs/research/pitch-numbers.md` — eight numbered sections, each with the exact
+command that reproduces it, plus a summary table and a "what this file does not claim" list. The
+acceptance test is `brain/tests/test_evidence.py` (25 tests).
+
+**The path is `docs/research/`, not `docs/evidence/`.** The prompt above says `docs/evidence/`, but
+that directory does not exist and **the folder guard does not allow it** — `alif/` branches may write
+`brain/`, `docs/tasks/alif.md`, `docs/SUMMARY_BN.md`, `docs/research/` and `docs/tasks/*.md`, and
+nothing else. Writing `docs/evidence/PITCH_NUMBERS.md` would have failed CI. The evidence B3, B8
+and B9 wrote also all live in `docs/research/`, so the pack sits with them.
+
+**Three numbers were wrong when the pack was first written, and the test found them.**
+The pack is only worth the difference between what it says and what the code does, so every number
+was compared against the command that produces it. Three did not match:
+
+| | The pack said | The truth |
+| --- | --- | --- |
+| the judge's dataset | 64 incidents | **70** (34 positive, 36 negative) — the "64" was copied from a stale table in `judge-eval.md` |
+| SQLite commits per tick | 200 → 2 | **200 → 1** (`docs/research/brain-perf.md` says 1) |
+| the audit chain | verifiable | **empty unless `CS_AUDIT_ENABLED=true`** — the flag is off by default |
+
+The third one was not a wrong number but a **missing caveat**, and it is the kind of thing a pitch
+gets caught on: on a fresh checkout `python -m brain.audit verify` says "the chain is empty",
+which looks like a broken product. The pack now says so, and shows the tamper proof that was
+actually run — `ok: False, broken_at: 1`, with both hashes, because "the chain is broken" is not
+something an operator can act on.
+
+**The check proves it can fail.** The first version of the test looked for each number *somewhere*
+in the pack — and the pack states most numbers twice, once in the section that argues the claim and
+once in the summary table. That check was satisfied by the summary while the section said something
+else, so it **passed on a pack that lied**. Every number is now read out of the row, and the
+column, that makes the claim, and the file ends with twelve deliberate corruptions that each have
+to be noticed — plus a control, because a harness that fails every run for an unrelated reason
+would satisfy those twelve without checking anything.
+
+Three of the twelve caught real holes in the first version of the check itself:
+
+| The drift | Why the first check missed it |
+| --- | --- |
+| the judge's accuracy changed to 0.999 | "0.914" was still in the summary table, so `in pack` passed |
+| a detector's precision changed to 0.9 | the row's *recall* cell still said 1.0, so the substring matched |
+| the p95 changed to 129.9 ms | the regex guessed the p95 **column**, and guessed wrong — so the loop it guarded never ran, and the test passed vacuously |
+
+That last one is the one worth remembering. **A test whose loop never executes passes forever.**
+Reading the column out of the table's own header is the fix, and the scale doc has three tables
+with several latency columns in them, so guessing was never going to hold.
+
+**`eval/` is untouched.** `git status` on the branch shows only `docs/research/`,
+`docs/tasks/alif.md` and `brain/tests/`.
+
+---
+
+# 🆕 C-series backlog (added 8 Nov 2026, by Alif) — the closing run
+
+**Where this sits.** Eleven tasks, C0 to C10, added on top of the B-series. They are the
+**closing run** before the submission: prove it, harden it, explain it, and write it down.
+
+**The rules that cover every task in this series** (from Alif, 8 Nov):
+
+1. **Freeze: 2026-11-12 23:59 (Asia/Dhaka).** After that, only fixes, stability, docs and
+   submission. A C task that has not merged by then is not started.
+2. **New behaviour goes behind a flag**, in `shared/config.py` and `.env.example`. The default
+   is **off** unless the behaviour is fully tested.
+3. **Contract changes are additive only** and go through a `contract/…` branch.
+4. **Alif never does anything by hand.** Every human-only item goes to `docs/tasks/taseen.md`
+   and is listed under "needs Taseen" in the status report. **Never** under "needs Alif".
+5. **A teammate's folder is never edited.** A needed change there goes into a PR for them to
+   merge, or a note in their task file. Never merged by Alif.
+6. **Evidence goes in `docs/research/`** (or `docs/evidence/` once Taseen's folder-guard
+   change lands — PR #96).
+
+### C0 · [~] 🔴 Unblock the team
+> *Two requests are blocking work, so they go first.*
+> - **(a) Taseen** — the folder guard does not allow `alif/` to write `docs/evidence/`,
+>   `scripts/` or `docs/STATUS_BN.md`, so the B-series evidence landed in `docs/research/`
+>   with the file names the tasks did not ask for. One line in `.github/folder_guard.py`.
+> - **(b) Fojle** — `SupabaseStore.insert_audit` / `audit_entries` / `audit_head` are
+>   `NotImplementedError` stubs, so the audit chain does not exist in Postgres. Plus the
+>   `SpanRow.to_row()` deep copy (the B9 note).
+>
+> **Done when:** both are open PRs into the owner's folder, for the owner to merge.
+
+**Done.** Both PRs are open:
+- **PR #96** (`taseen/folder-guard-docs-evidence`) — the folder guard allows `alif/` to write
+  `docs/evidence/`, `scripts/` and `docs/STATUS_BN.md`, and the guard's own self-tests assert
+  each new path so the rule cannot regress. **Taseen merges it.**
+- **PR #97** (`contract/supabase-audit-methods`) — the audit chain's three store methods (with
+  the append-only rule and the highest-`seq` head), `insert_spans` using `SpanRow.to_row()`,
+  and the `to_row()` deep copy removed: **`asdict` 4.47 µs → 1.16 µs per span (3.9× faster)**.
+  **Fojle merges it** — `shared/store.py` is his file.
+
+### C1 · [ ] 🔴 The judge eval, run by CI
+> *`judge_eval --runs 3` for every Claude model, using `secrets.ANTHROPIC_API_KEY`, opening a
+> PR that updates `pitch-numbers.md`. The workflow is dispatched by hand, so it costs nothing
+> until somebody wants it.*
+>
+> **Acceptance:** the workflow file exists, is valid YAML, and runs the eval. Taseen gets the
+> task to add the secret, with the exact steps. **After every later task, check whether the
+> secret exists** — and the moment it does, run `gh workflow run judge-eval.yml` and merge the
+> result.
+
+### C2 · [ ] 🔴 The real integration rehearsal
+> *Boot the whole stack from `main`, with the real components wherever they exist, and run the
+> B3 demo runner against it. Fix what is ours. Open PRs or notes for the rest.*
+
+### C3 · [ ] 🔴 The red-team suite
+> *Adversarial agents try to **evade** the breaker: slow loops, heavy paraphrasing, the work
+> split across agents, healthy-looking pacing, budget leaks under the thresholds. Measure the
+> evasion rate, harden the detectors, and publish the before/after numbers.*
+
+### C4 · [ ] 🔴 The soak test
+> *Two hours of a mixed fleet. Track memory, CPU, latency drift and false positives. Fix the
+> leaks.*
+
+### C5 · [ ] 🟡 The threat model (STRIDE) + ADRs
+> *A STRIDE threat model for the whole system, and an ADR for every major decision.*
+
+### C6 · [ ] 🟡 The submission draft
+> *All 8 required sections plus the MCP disclosure (per `docs/research/hackathon.md`), in
+> `docs/research/submission-draft.md`. Every claim links to a number in `pitch-numbers.md`.*
+
+### C7 · [ ] 🟡 The judge Q&A
+> *40 likely judge questions, short answers, each with evidence and a command.*
+
+### C8 · [ ] 🟡 The demo backup
+> *A deterministic recording of the demo runner, and a fallback script for when the live demo
+> fails.*
+
+### C9 · [ ] 🟡 One rubric round
+> *Score the project 1–10 per rubric criterion in `docs/research/self-score.md`. Take the **2
+> lowest** criteria, write at most 5 tasks (D1–D5), execute them, then re-score **once**.*
+
+### C10 · [ ] 🔴 The final closing run
+> *The B3 demo runner 20/20, the full suite, the B10 status report, and the C2 rehearsal once
+> more.*
 
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)

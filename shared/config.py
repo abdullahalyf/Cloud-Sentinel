@@ -113,6 +113,12 @@ class Settings:
     baseline_enabled: bool
     baseline_warmup_seconds: float
     baseline_k: float
+    # B9: how many healthy observations between recomputes of the learned statistic
+    # (the median and the MAD). 1 = every observation, which is the behaviour before
+    # B9. A larger number is cheaper AND safer: the learned limit then stands on the
+    # older, healthier samples for longer, so a runaway crosses it sooner. See
+    # `brain/baseline.py` for the measurement.
+    baseline_recompute_every: int
     # ── Policy hot reload (A5): pick up a changed policies.yaml without a restart ──
     policy_reload_enabled: bool
     policy_reload_interval_seconds: float
@@ -175,6 +181,22 @@ class Settings:
     cascade_window_minutes: float = 10.0
     # How many calls into one agent in the window make a contagion.
     cascade_fanout_calls: int = 20
+    # ── The tamper-evident audit log (B7): every decision, hash-chained ──
+    # Off = nothing is chained and the endpoint says so. On = every brain
+    # decision and every human action is appended to a hash-chained log, and
+    # the verify command can prove it has not been edited after the fact.
+    audit_enabled: bool = False
+    # How many entries the chain reader shows at a time.
+    audit_page_size: int = 200
+    # ── Security detectors (B8): three ways a fleet gets hurt ──
+    # Off = the detectors do not run AT ALL: a poisoned tool is served as it is, a
+    # secret in a tool output is stored as it is, and the old behaviour stands.
+    security_enabled: bool = False
+    # Off = the tool outputs are stored as they are. The detection still runs and
+    # still reports; only the taking-out of the secret is skipped.
+    security_redact_enabled: bool = True
+    # The score a poisoned tool description must reach before the call is denied.
+    security_deny_threshold: float = 0.5
 
     @property
     def use_supabase(self) -> bool:
@@ -236,9 +258,15 @@ def load_settings() -> Settings:
         cascade_enabled=_bool("CS_CASCADE_ENABLED", False),
         cascade_window_minutes=max(0.0, _float("CS_CASCADE_WINDOW_MINUTES", 10.0)),
         cascade_fanout_calls=max(1, _int("CS_CASCADE_FANOUT_CALLS", 20)),
+        audit_enabled=_bool("CS_AUDIT_ENABLED", False),
+        audit_page_size=max(1, _int("CS_AUDIT_PAGE_SIZE", 200)),
+        security_enabled=_bool("CS_SECURITY_ENABLED", False),
+        security_redact_enabled=_bool("CS_SECURITY_REDACT_ENABLED", True),
+        security_deny_threshold=max(0.0, _float("CS_SECURITY_DENY_THRESHOLD", 0.5)),
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
+        baseline_recompute_every=_int("CS_BASELINE_RECOMPUTE_EVERY", 1),
         policy_reload_enabled=_bool("CS_POLICY_RELOAD_ENABLED", True),
         policy_reload_interval_seconds=_float("CS_POLICY_RELOAD_INTERVAL_SECONDS", 1.0),
         injection_enabled=_bool("CS_INJECTION_ENABLED", True),

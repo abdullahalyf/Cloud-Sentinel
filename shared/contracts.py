@@ -321,6 +321,20 @@ class CommandRow(_Row):
 
 
 @dataclass
+class AuditRow(_Row):
+    """One link in the tamper-evident audit chain (B7). Table: audit_log"""
+    seq: int
+    agent_id: str
+    kind: str                      # decision | human | policy
+    actor: str
+    action: str
+    reason: str
+    prev_hash: str
+    hash: str
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
 class MemoryRow(_Row):
     """One version of an agent's external memory. Table: agent_memory (append-only)"""
     agent_id: str
@@ -355,6 +369,35 @@ class ToolCallRow(_Row):
         d["args"] = _dump(self.args)
         d["final_args"] = _dump(self.final_args)
         return d
+
+
+@dataclass
+class ToolRegistryRow(_Row):
+    """
+    One tool a registry serves, with the description the brain checked (B8).
+
+    Table: tool_registry.
+
+    A registry (an MCP server, a tool hub) reports what it offers. The brain
+    checks the **descriptions** — a description is what the agent reads before
+    it decides, so a poisoned one is an attack on the agent's instructions.
+
+    The row keeps the description as it was served (so a human can see what the
+    registry actually said) and the finding the brain made about it. A finding
+    of `poisoned` means the description tried to steer the agent.
+    """
+    registry: str
+    tool_name: str
+    description: str = ""
+    reported_by: str = "mcp"
+    status: str = "clean"            # clean | poisoned
+    reasons: str = ""                # the human-readable reasons the detector gave
+    score: float = 0.0
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_row(self) -> dict:
+        return asdict(self)
 
 
 class MemoryConflict(Exception):
@@ -1186,3 +1229,195 @@ def cascade_summary(report: dict) -> str:
     agents = ", ".join(str(a.get("agent_id") or "") for a in (report.get("agents") or []))
     return (f"{report.get('kind', 'cascade')}: {counts.get('agents', 0)} agents ({agents}), "
             f"{counts.get('contained', 0)} contained")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. The tamper-evident audit log (CONTRACTS §6, B7)
+# ─────────────────────────────────────────────────────────────────────────────
+# Every decision and every human action goes into a **hash-chained** log.
+#
+# The chain is the point: each entry carries the hash of the one before it, so
+# changing an entry in the middle does not just change that entry — it breaks
+# every link after it. Deleting an entry breaks the chain the same way. That is
+# the whole governance story: an operator can prove that the record of what the
+# brain did has not been edited after the fact.
+#
+# The chain is **append-only and ordered**. `seq` is the position in the chain,
+# and it starts at 1 — a gap in the sequence is itself a sign of tampering.
+#
+# Like the postmortem, the backtest and the cascade, the *shape* lives here so
+# the mock and the real API say exactly the same thing, and the *builder* lives
+# in the brain.
+
+# The kinds of thing that goes into the log. "decision" is what the brain decided
+# on its own; "human" is what a person did; "policy" is what the tool gate did.
+AUDIT_KINDS = ("decision", "human", "policy")
+
+# The hash an empty chain starts from — the first entry links to this.
+AUDIT_GENESIS = "0" * 16
+
+# The action a chain entry carries when the caller does not name one.
+AUDIT_DEFAULT_KIND = "decision"
+
+
+def audit_entry(seq: int = 1, agent_id: str = "", kind: str = AUDIT_DEFAULT_KIND, actor: str = "",
+                action: str = "", reason: str = "", prev_hash: str = AUDIT_GENESIS,
+                hash: str = "", created_at: Optional[float] = None) -> dict:
+    """
+    One link in the audit chain.
+
+    `prev_hash` is the hash of the entry before it, and `hash` is this entry's
+    own. A reader who has the whole chain can recompute every `hash` and see
+    that they match — that is the verification.
+    """
+    return {
+        "seq": int(seq or 0),
+        "agent_id": str(agent_id or ""),
+        "kind": str(kind or AUDIT_DEFAULT_KIND),
+        "actor": str(actor or ""),
+        "action": str(action or ""),
+        "reason": str(reason or ""),
+        "prev_hash": str(prev_hash or AUDIT_GENESIS),
+        "hash": str(hash or ""),
+        "created_at": created_at,
+    }
+
+
+def audit_view(entries: Optional[list] = None, head_hash: str = "", valid: bool = True,
+               broken_at: Optional[int] = None, enabled: bool = True, as_of: Optional[float] = None) -> dict:
+    """
+    The whole chain, plus what the verification says about it.
+
+    `head_hash` is the hash of the last entry — the one-line proof that the
+    chain is intact up to now. `valid` says whether it is, and `broken_at`
+    names the entry that broke it (`None` when nothing is broken).
+    """
+    entries = list(entries or [])
+    return {
+        "entries": entries,
+        "head_hash": str(head_hash or ""),
+        "valid": bool(valid),
+        "broken_at": broken_at,
+        "enabled": bool(enabled),
+        "counts": {"entries": len(entries),
+                   "decisions": sum(1 for e in entries if e.get("kind") == "decision"),
+                   "human": sum(1 for e in entries if e.get("kind") == "human"),
+                   "policy": sum(1 for e in entries if e.get("kind") == "policy")},
+        "as_of": as_of,
+    }
+
+
+def audit_verify_result(ok: bool, entries: int = 0, head_hash: str = "",
+                        broken_at: Optional[int] = None, reason: str = "") -> dict:
+    """
+    What the verify command says about a chain.
+
+    `ok` is the answer; `broken_at` says **which** entry broke it, because
+    "your log is broken" without a position is not an answer an operator can
+    act on.
+    """
+    return {
+        "ok": bool(ok),
+        "entries": int(entries or 0),
+        "head_hash": str(head_hash or ""),
+        "broken_at": broken_at,
+        "reason": str(reason or ""),
+    }
+
+
+def audit_hash(entry: dict) -> str:
+    """
+    The hash of one entry: the previous entry's hash plus this entry's content.
+
+    The rule lives **here**, in the contract, because the mock and the real API
+    must compute the same hash — a client that verifies the mock's chain would
+    otherwise reject the real one, and a real chain the mock cannot reproduce is
+    a chain nobody can test against.
+
+    The fields that go in are the ones that describe **what happened**: the
+    position, the agent, the kind, the actor, the action and the reason. The
+    `created_at` is deliberately **not** in the hash: a clock is not a fact
+    about the decision, and two sides that wrote the same decision at slightly
+    different times must still agree on the chain.
+    """
+    import hashlib
+
+    parts = [
+        str(entry.get("seq") or 0),
+        str(entry.get("agent_id") or ""),
+        str(entry.get("kind") or AUDIT_DEFAULT_KIND),
+        str(entry.get("actor") or ""),
+        str(entry.get("action") or ""),
+        str(entry.get("reason") or ""),
+        str(entry.get("prev_hash") or AUDIT_GENESIS),
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
+# ── the tool registry (B8) ───────────────────────────────────────────────────
+def security_tool(tool_name: str, description: str = "", registry: str = "",
+                  status: str = "clean", reasons: Optional[list] = None,
+                  score: float = 0.0, reported_by: str = "mcp",
+                  updated_at: Optional[float] = None) -> dict:
+    """
+    One tool a registry serves, with what the brain found about its description.
+
+    `status` is `clean` or `poisoned`. `reasons` is the list of human-readable
+    reasons the detector gave — a detector that only says "yes" is a detector
+    nobody can tune, so the reasons travel with the verdict.
+    """
+    return {
+        "tool_name": str(tool_name or ""),
+        "description": str(description or ""),
+        "registry": str(registry or ""),
+        "status": str(status or "clean"),
+        "reasons": [str(r) for r in (reasons or [])],
+        "score": float(score or 0.0),
+        "reported_by": str(reported_by or "mcp"),
+        "updated_at": updated_at,
+    }
+
+
+def security_tools_view(tools: Optional[list] = None, enabled: bool = True,
+                        as_of: Optional[float] = None) -> dict:
+    """
+    What the brain found in the tools the registries serve.
+
+    `enabled` says whether the detectors are running at all. With the flag off
+    the view is still served — an operator asking "is a tool poisoned?" deserves
+    an answer rather than a 404 — but it says `enabled: false`, and the list is
+    empty because nothing was ever checked.
+    """
+    tools = list(tools or [])
+    return {
+        "tools": tools,
+        "enabled": bool(enabled),
+        "counts": {"total": len(tools),
+                   "clean": sum(1 for t in tools if t.get("status") == "clean"),
+                   "poisoned": sum(1 for t in tools if t.get("status") == "poisoned")},
+        "as_of": as_of,
+    }
+
+
+def security_report_view(findings: Optional[list] = None, enabled: bool = True,
+                         as_of: Optional[float] = None) -> dict:
+    """
+    The findings of one scan: what fired, and why.
+
+    `by_detector` and `by_severity` are the counts an operator reads first —
+    "is anything poisoned" is a count, not a list.
+    """
+    findings = list(findings or [])
+    by_detector: dict = {}
+    by_severity: dict = {}
+    for f in findings:
+        by_detector[f.get("detector", "")] = by_detector.get(f.get("detector", ""), 0) + 1
+        by_severity[f.get("severity", "")] = by_severity.get(f.get("severity", ""), 0) + 1
+    return {
+        "findings": findings,
+        "enabled": bool(enabled),
+        "counts": {"total": len(findings),
+                   "by_detector": by_detector,
+                   "by_severity": by_severity},
+        "as_of": as_of,
+    }
