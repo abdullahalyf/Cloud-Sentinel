@@ -56,6 +56,11 @@ class Store(Protocol):
     def insert_heal_proposal(self, row: HealProposalRow) -> int: ...
     def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
                              reason: str = "") -> None: ...
+    # brain workers (A8): the heartbeat that says "I am alive and here is what I own"
+    def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
+                         agents_owned: int, pid: int = 0) -> None: ...
+    def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]: ...
+    def remove_worker(self, worker_id: str) -> None: ...
     # reads
     def list_agents(self) -> list[dict]: ...
     def get_agent(self, agent_id: str) -> Optional[dict]: ...
@@ -131,6 +136,11 @@ class LocalStore:
         decided_by text, decided_at text, created_at text);
     create table if not exists schema_migrations (
         version text primary key, applied_at text);
+    -- Brain workers (A8): every worker process heartbeats here. A worker that stops
+    -- heartbeating is dead, and the others take its agents.
+    create table if not exists workers (
+        worker_id text primary key, started_at real, last_seen real,
+        agents_owned integer not null default 0, pid integer not null default 0);
     """
 
     def __init__(self, path: str):
@@ -241,6 +251,33 @@ class LocalStore:
                              reason: str = "") -> None:
         self._exec("update heal_proposals set status=?, decided_by=?, reason=?, decided_at=? where id=?",
                    (status, decided_by, reason, utc_now_iso(), proposal_id))
+
+    # ── brain workers (A8) ───────────────────────────────────────────────────
+    def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
+                         agents_owned: int, pid: int = 0) -> None:
+        """Say "I am alive and here is what I own".
+
+        `started_at` is kept across heartbeats (it is when the worker came up, not now), so a
+        heartbeat must not overwrite it with the current time — a worker's uptime would reset
+        every two seconds and nobody could tell a fresh worker from a long-running one.
+        """
+        self._exec("insert into workers (worker_id, started_at, last_seen, agents_owned, pid) "
+                   "values (?, ?, ?, ?, ?) "
+                   "on conflict(worker_id) do update set last_seen=excluded.last_seen, "
+                   "agents_owned=excluded.agents_owned, pid=excluded.pid",
+                   (worker_id, started_at, last_seen, int(agents_owned), int(pid)))
+
+    def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]:
+        """Every worker, newest heartbeat first. With `seen_within_seconds`, only the ones that
+        heartbeated recently — a worker that stopped is dead and must not own anything."""
+        if seen_within_seconds is None:
+            return self._select("select * from workers order by worker_id")
+        cutoff = time.time() - float(seen_within_seconds)
+        return self._select("select * from workers where last_seen >= ? order by worker_id", (cutoff,))
+
+    def remove_worker(self, worker_id: str) -> None:
+        """Forget a worker — used when it shuts down cleanly, so it does not linger as a ghost."""
+        self._exec("delete from workers where worker_id=?", (worker_id,))
 
     # ── reads ──
     def list_agents(self) -> list[dict]:
@@ -439,6 +476,28 @@ class SupabaseStore:
     def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
                             limit: int = 50) -> list[dict]:
         raise NotImplementedError("Fojle Day 4")
+
+    # ── brain workers (A8): implemented here, not left as a stub ──
+    # The sharding tests run against SQLite, but a store that raises on heartbeat_worker
+    # would break the brain the moment someone sets SUPABASE_URL. These three are small and
+    # have no dependency on the parts Fojle has not written yet.
+    def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
+                         agents_owned: int, pid: int = 0) -> None:
+        self._db.table("workers").upsert(
+            {"worker_id": worker_id, "started_at": started_at, "last_seen": last_seen,
+             "agents_owned": int(agents_owned), "pid": int(pid)},
+            on_conflict="worker_id").execute()
+
+    def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]:
+        query = self._db.table("workers").select("*").order("worker_id")
+        if seen_within_seconds is not None:
+            cutoff = time.time() - float(seen_within_seconds)
+            query = query.gte("last_seen", cutoff)
+        res = query.execute()
+        return [decode(r) for r in (res.data or [])]
+
+    def remove_worker(self, worker_id: str) -> None:
+        self._db.table("workers").delete().eq("worker_id", worker_id).execute()
 
     def reset(self) -> None:
         raise NotImplementedError("Fojle Day 4")

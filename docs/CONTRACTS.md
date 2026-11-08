@@ -89,6 +89,9 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_MCP_RATE_LIMIT` *(added 8 Nov)* | `30` | mcp | destructive MCP calls per minute, per session; reads are never throttled |
 | `CS_MCP_HTTP_HOST` *(added 8 Nov)* | `127.0.0.1` | mcp | the address the MCP HTTP transport binds; a non-localhost bind needs `CS_API_TOKEN` or the server refuses to start |
 | `CS_MCP_HTTP_PORT` *(added 8 Nov)* | `8765` | mcp | the port the MCP HTTP transport binds |
+| `CS_WORKER_ID` *(added 8 Nov)* | "" | brain | this brain worker's id; empty → one generated from the pid |
+| `CS_WORKER_HEARTBEAT_SECONDS` *(added 8 Nov)* | `2` | brain | how often a worker writes its heartbeat into the `workers` table |
+| `CS_WORKER_STALE_SECONDS` *(added 8 Nov)* | `10` | brain | a worker that has not beaten for this long is dead, and its agents are taken over |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
 | `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
@@ -158,6 +161,7 @@ Every table has `id` (auto increment). Columns marked JSON are TEXT containing J
 | `tool_calls` | agent_id, tool_name, args (JSON), decision (`pending`·`allow`·`deny`·`rewrite`·`timeout`), final_args (JSON), decided_by (`policy`·`human`·`mcp`·`timeout`), reason, value_usd, created_at, decided_at | api | api, brain, eval |
 | `heal_proposals` *(added 8 Nov)* | agent_id, kind (`memory_patch`·`tool_policy`), patch (JSON), confidence, status (`pending`·`applied`·`rejected`·`expired`), verdict_id, base_version, reason, decided_by (`human`·`mcp`·`brain:autoheal`), decided_at, created_at | brain, api | api, dashboard, mcp |
 | `schema_migrations` *(added 5 Nov)* | version (PK, migration file name), applied_at | `telemetry/db/migrate.py` | migrate.py |
+| `workers` *(added 8 Nov, A8)* | worker_id (PK), started_at (float, when the worker came up), last_seen (float, last heartbeat), agents_owned (int), pid | brain workers | brain, api (`/v1/health`) |
 
 **Enums** (in `shared/contracts.py`):
 - `AgentState`: `healthy` · `suspicious` · `paused` · `probation` · `killed`
@@ -173,13 +177,17 @@ writes:  upsert_agent(AgentRow) · insert_spans(list[SpanRow]) · insert_metric(
          finish_command(id, status, result) · write_memory(agent_id, content, edited_by, reason, base_version=None) -> MemoryRow
          insert_tool_call(ToolCallRow) -> int · decide_tool_call(id, decision, final_args, decided_by, reason)
          insert_heal_proposal(HealProposalRow) -> int · decide_heal_proposal(id, status, decided_by, reason)
+         heartbeat_worker(worker_id, started_at, last_seen, agents_owned, pid=0)
 reads:   list_agents() · get_agent(id) · spans_after(last_id, limit=2000) · recent_spans(minutes, agent_id=None)
          recent_metrics(minutes, agent_id=None) · recent_alerts(limit) · recent_verdicts(limit, agent_id=None)
          recent_actions(limit) · pending_commands() · get_memory(agent_id) · memory_history(agent_id, limit)
          get_tool_call(id) · list_tool_calls(status=None, limit=50)
          get_heal_proposal(id) · list_heal_proposals(status=None, agent_id=None, limit=50)
+         list_workers(seen_within_seconds=None) · remove_worker(worker_id)
 admin:   reset()
 ```
+`heartbeat_worker` keeps `started_at` across heartbeats — it is when the worker came up, not the
+time of the last beat, so a worker's uptime must not reset every two seconds.
 `write_memory` with `base_version` older than the latest version written by `human`/`mcp` raises
 `MemoryConflict` (the API maps it to HTTP 409) — so an agent can never silently overwrite a human fix.
 
@@ -193,6 +201,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | Method + path | Body → Response | Caller |
 |---|---|---|
 | `GET /v1/health` | → `{"ok": true, "mode": "fake"|"docker"|"k8s"|"mock", "judge": "claude"|"gemini"|"fallback", "contract": 2}` | all |
+| `GET /v1/health` *(added 8 Nov, A8)* | the same, plus `"workers": [{"worker_id", "started_at", "last_seen", "agents_owned", "pid"}]` and `"agents_total": int` — one entry per live worker, and how many agents the fleet has between them | all |
 | `GET /v1/fleet` | → `{"agents": [AgentView]}` | dashboard, mcp |
 | `GET /v1/agents/{id}` | → `{"agent": AgentView, "spans": [SpanRow ≤50], "verdicts": [VerdictRow ≤10], "memory": MemoryRow|null}` | dashboard, mcp |
 | `GET /v1/agents/{id}/nodes?minutes=10&limit=100` *(added 4 Nov)* | → `NodeFeed` (below) | dashboard |

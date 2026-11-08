@@ -27,6 +27,19 @@ def keys(obj):
     return set()
 
 
+# The mock may be *ahead* of the real API for a while: the contract lands the mock first,
+# and the brain branch that implements the same shape on the real API follows it. A field
+# the mock has and the real API does not yet is a known gap, not a mismatch — but a field
+# the real API has and the mock does not is a bug, because a client written against the
+# mock would break on the real thing.
+#
+# This list is the record of those gaps. It must stay short: an entry here is a promise
+# that a PR is on its way. When the brain branch lands, the entry goes.
+MOCK_AHEAD_OF_REAL = {
+    "/v1/health": {"workers", "agents_total"},   # A8: the workers table lands with A8
+}
+
+
 def test_mock_and_real_api_have_the_same_shapes(sim, cfg):
     sim.fleet.go_rogue("beta", "paraphrase_loop", sim.now)
     sim.fleet.go_rogue("delta", "bad_tool_call", sim.now)
@@ -34,10 +47,36 @@ def test_mock_and_real_api_have_the_same_shapes(sim, cfg):
     real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
     for path in GETS:
         r, m = real.get(path).json(), mock.get(path).json()
-        assert keys(r) == keys(m), path
+        # The documented gaps are the mock's job: the contract lands them first.
+        ahead = MOCK_AHEAD_OF_REAL.get(path, set())
+        assert keys(r) - ahead == keys(m) - ahead, path
         for k in r:
             if isinstance(r[k], list) and r[k] and m.get(k):
                 assert keys(r[k]) == keys(m[k]), f"{path} → {k}"
+
+
+def test_the_mock_is_not_behind_the_real_api(sim, cfg):
+    """The mock must never be missing a field the real API has — a client written against
+    the mock would break on the real thing."""
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    for path in GETS:
+        r, m = keys(real.get(path).json()), keys(mock.get(path).json())
+        missing = r - m
+        assert not missing, f"{path}: the mock is missing {sorted(missing)} that the real API has"
+
+
+def test_the_known_mock_gaps_are_still_gaps(sim, cfg):
+    """A field listed as "the mock is ahead" must really be ahead. When the brain branch
+    lands, this test fails and the entry has to be deleted — that is the point of it."""
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    for path, fields in MOCK_AHEAD_OF_REAL.items():
+        r, m = keys(real.get(path).json()), keys(mock.get(path).json())
+        assert fields <= m, f"{path}: the mock should have {sorted(fields)}"
+        assert not (fields & r), (
+            f"{path}: the real API now has {sorted(fields & r)} — delete this entry from "
+            f"MOCK_AHEAD_OF_REAL, the mock is no longer ahead")
 
 
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).

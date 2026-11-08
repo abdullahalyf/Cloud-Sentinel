@@ -137,7 +137,11 @@ app = FastAPI(title="CloudSentinel MOCK C2 API", version=f"contract-{CONTRACT_VE
 
 @app.get("/v1/health")
 def health() -> dict:
-    return {"ok": True, "mode": "mock", "judge": "claude", "contract": CONTRACT_VERSION}
+    # A8: the workers the fleet is shared between. The mock has none — it serves one
+    # brain — but the shape must be the same, so a client written against the mock
+    # works against the real API.
+    return {"ok": True, "mode": "mock", "judge": "claude", "contract": CONTRACT_VERSION,
+            "workers": [], "agents_total": len(_fleet())}
 
 
 @app.get("/v1/fleet")

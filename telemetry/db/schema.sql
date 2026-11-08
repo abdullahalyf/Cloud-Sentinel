@@ -161,5 +161,16 @@ create table if not exists schema_migrations (
     applied_at timestamptz not null default now()
 );
 
+-- Brain workers (added 8 Nov, A8): every brain worker process heartbeats here every 2 s.
+-- A worker that stops heartbeating is dead — the others take its agents within 15 s.
+create table if not exists workers (
+    worker_id    text primary key,
+    started_at   double precision not null default 0,   -- when the worker came up (not the last beat)
+    last_seen    double precision not null default 0,   -- unix seconds of the last heartbeat
+    agents_owned integer not null default 0,             -- how many agents it currently owns
+    pid          integer not null default 0
+);
+create index if not exists workers_last_seen on workers (last_seen);
+
 -- Hackathon note: the service-role key is used from trusted laptops only.
 -- Never put it in a publicly deployed dashboard (the dashboard talks to the API, not the DB).
