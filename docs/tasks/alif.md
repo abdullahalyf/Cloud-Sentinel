@@ -521,9 +521,42 @@ judge (which reads the logs) can tell them apart.
 rows. One command per row, ≈ $0.03 on Haiku for all 70 × 3 runs — it is not a money decision, it
 is a "somebody has to paste a key" one. The commands are in the doc.
 
-### A13 · [ ] Incident explanation endpoint
+### A13 · [x] (alif/puku-a13-explain, 2026-11-08) · Incident explanation endpoint
 Add `GET /v1/agents/{id}/explain?minutes=10` (contract): a deterministic summary of what happened (alerts → verdict → action → heal), with
 an optional Claude polish when a key is present. Add MCP tool `explain_agent`. **Acceptance:** parity test, and a golden-text test for the fallback.
+
+**Done.** The contract side merged first (PR #46, `c6a8ae5`), so the brain branch rebased cleanly onto it.
+
+**The text is written once.** The paragraph and the event shape live in `shared/contracts.py`
+(`explain_event` / `explain_summary` / `explain_report`), and the mock and the real API both call
+them. If the words were written twice — once in `shared/mocks/` and once in `brain/` — the two would
+drift, and the golden test would be testing the mock against itself.
+
+**The story is built in the brain's own layer.** `brain/explain.py` collects the four kinds of event
+(alert → verdict → action → heal), filters them by agent and by window, and sorts them by **the time
+they happened**, not by the table they came from: an alert that came after a verdict cannot have
+caused it. `shared/store.py` is Fojle's folder, so the filtering happens here rather than by asking
+for new store methods — `recent_alerts` and `recent_actions` have no agent filter, so the rows are
+narrowed in the brain.
+
+**The summary is deterministic.** No key, no network, no clock of its own: the same agent and the
+same store always produce the same words. That is what makes it testable (a golden-text test pins
+the exact sentences) and safe to cache. The Claude polish is layered on top and can only ever *add*
+the `polished_summary` field — it can never make the endpoint fail, and a rewrite that drops a number
+("$0.2500" → "a little") is rejected rather than shown, because a fluent sentence that says something
+subtly different from what happened is worse than no sentence at all.
+
+**Two things worth stating:**
+
+- **An unknown agent is a 404**, the way the mock answers it. An explanation of nothing would be a
+  confident paragraph about an agent nobody has ever heard of.
+- **The window is a real window.** `?minutes=10` excludes an alert from two hours ago; `?minutes=180`
+  brings it back. It is clamped to 24 hours, because a window of "forever" is not a window.
+
+**`brain/tests/test_explain.py`** — 18 tests: the endpoint's shape, the 404, the golden text of a
+story, the golden text of an agent with nothing to report, the outcome, the event order, the counts,
+another agent's events staying out of the story, the window in both directions, the clamp, the parity
+with the mock, and the three ways the polish can fail.
 
 ## 🟢 STRETCH
 - **A14:** a learned tool-risk score per (agent, tool) from approval history: auto-approve after 5 human approvals of identical args, with an audit trail.
