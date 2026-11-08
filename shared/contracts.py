@@ -57,10 +57,23 @@ JUDGE_ACTIONS = ("KILL", "PAUSE", "WARN", "IGNORE")
 
 ActionType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
                      "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
-                     "POLICY_RELOAD", "TOOL_INJECTION_DENY", "TOOL_AUTO_ALLOW"]
+                     "POLICY_RELOAD", "TOOL_INJECTION_DENY", "TOOL_AUTO_ALLOW",
+                     "THROTTLE", "DOWNGRADE"]
 ACTION_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
                 "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
-                "POLICY_RELOAD", "TOOL_INJECTION_DENY", "TOOL_AUTO_ALLOW")
+                "POLICY_RELOAD", "TOOL_INJECTION_DENY", "TOOL_AUTO_ALLOW",
+                "THROTTLE", "DOWNGRADE")
+
+# The degradation ladder (CONTRACTS §8, B4): the order a runaway agent is
+# stepped down in, from the gentlest to the last resort.
+#
+# The order is the whole point. A throttle costs the agent almost nothing and
+# a kill costs it everything, so the ladder starts gentle and gets harsher
+# only as the gentler steps fail. **A step never skips a rung** — an agent
+# that has not been throttled is not downgraded, because a downgrade is a
+# bigger promise than a throttle and deserves the smaller one's evidence
+# first.
+DEGRADATION_LADDER = ("THROTTLE", "DOWNGRADE", "PAUSE", "KILL")
 
 Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp",
                 "brain:autoheal", "brain:toolrisk"]
@@ -759,6 +772,129 @@ def postmortem_markdown(report: dict) -> str:
     if report.get("resolution"):
         lines += ["## Resolution", "", report["resolution"], ""]
     return "\n".join(lines) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5c. The budget hierarchy and the degradation ladder (CONTRACTS §8, B4)
+# ─────────────────────────────────────────────────────────────────────────────
+# One agent cannot spend the whole fleet's money. The budget is a tree —
+# org → team → agent — and every level is the sum of the level below it. So
+# an agent that runs away eats its *own* share first, and the org's money is
+# still there for the other agents.
+#
+# The forecast answers the question an operator asks at 3 AM: "how long have
+# I got?" — and it answers it only when it can. **A burn rate of zero has no
+# forecast**: "exhausted in 0 minutes" is a lie, and "exhausted in infinity"
+# is not a number anybody can put in a dashboard. So the answer is `null`, and
+# the sentence it becomes says nothing rather than something false.
+#
+# The ladder is the order a runaway agent is stepped down in, and it never
+# skips a rung: throttle → downgrade → pause → kill.
+
+# The levels of the budget tree, from the widest to the narrowest.
+BUDGET_LEVELS = ("org", "team", "agent")
+
+
+def budget_forecast(budget_usd: float, spend_usd: float, usd_per_min: float,
+                    horizon_minutes: float = 60.0) -> dict:
+    """
+    "This budget is exhausted in X minutes" — or nothing, when it cannot be told.
+
+    The forecast is the burn rate (`usd_per_min`) times forward until the
+    remaining money is gone. Two facts make it honest:
+
+    - **a burn rate of zero has no forecast** — nothing is being spent, so
+      nothing will be exhausted, and "in 0 minutes" would be a lie;
+    - **a budget that is already gone has already been exhausted** — the
+      forecast is 0 minutes, not a negative number.
+
+    `remaining_usd` is what is left, and it is never negative: an over-budget
+    agent has 0 left, not -$3.
+    """
+    budget_usd = float(budget_usd or 0.0)
+    spend_usd = float(spend_usd or 0.0)
+    usd_per_min = float(usd_per_min or 0.0)
+    horizon_minutes = float(horizon_minutes or 0.0)
+
+    remaining = max(0.0, budget_usd - spend_usd)
+    if usd_per_min <= 0:
+        minutes = None
+        sentence = ""
+    else:
+        minutes = round(remaining / usd_per_min, 1)
+        if remaining <= 0:
+            sentence = "the budget is already exhausted"
+        else:
+            sentence = f"exhausted in {minutes:.0f} min"
+    return {
+        "remaining_usd": round(remaining, 4),
+        "usd_per_min": round(usd_per_min, 4),
+        "minutes_to_exhausted": minutes,
+        "horizon_minutes": horizon_minutes,
+        "sentence": sentence,
+        "exhausted_within_horizon": (minutes is not None and minutes <= horizon_minutes),
+    }
+
+
+def budget_node(level: str, node_id: str, budget_usd: float, spend_usd: float,
+                children: Optional[list] = None, forecast: Optional[dict] = None) -> dict:
+    """One node of the budget tree: org, team or agent."""
+    return {
+        "level": str(level),
+        "id": str(node_id),
+        "budget_usd": round(float(budget_usd or 0.0), 4),
+        "spend_usd": round(float(spend_usd or 0.0), 4),
+        "remaining_usd": round(max(0.0, float(budget_usd or 0.0) - float(spend_usd or 0.0)), 4),
+        "children": list(children or []),
+        "forecast": dict(forecast or {}),
+    }
+
+
+def budget_report(org: dict, teams: Optional[list] = None, agents: Optional[list] = None,
+                  as_of: Optional[float] = None) -> dict:
+    """
+    The whole `BudgetReport` — the budget tree, top to bottom.
+
+    The tree is the point: **the org's budget is the sum of the teams', and a
+    team's is the sum of its agents'**. So one runaway agent cannot eat the
+    fleet's money — it eats its own share, and the tree says so out loud.
+    """
+    teams = list(teams or [])
+    agents = list(agents or [])
+    return {
+        "org": dict(org or {}),
+        "teams": teams,
+        "agents": agents,
+        "as_of": as_of,
+    }
+
+
+def degradation_plan(current_step: Optional[str] = None,
+                     applied: Optional[list] = None) -> dict:
+    """
+    Where an agent stands on the ladder, and what comes next.
+
+    `applied` is the list of rungs already gone through. The plan says which
+    rung comes next and — just as importantly — **which rungs must not be
+    skipped**: an agent that has not been throttled is not downgraded.
+    """
+    applied = [str(a) for a in (applied or []) if str(a) in DEGRADATION_LADDER]
+    if current_step is not None and str(current_step) in DEGRADATION_LADDER:
+        # "The agent is at PAUSE" means the ladder was walked *up to and
+        # including* PAUSE — you cannot be paused without having been
+        # throttled and downgraded first. So the rungs below it are applied
+        # too, and the next rung is the one after PAUSE.
+        through = DEGRADATION_LADDER.index(str(current_step)) + 1
+        applied = list(DEGRADATION_LADDER[:through])
+    index = len(applied)
+    next_step = DEGRADATION_LADDER[index] if index < len(DEGRADATION_LADDER) else None
+    return {
+        "ladder": list(DEGRADATION_LADDER),
+        "applied": applied,
+        "next_step": next_step,
+        "exhausted": next_step is None,
+        "skipped": [],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
