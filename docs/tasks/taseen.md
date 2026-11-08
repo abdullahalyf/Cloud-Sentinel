@@ -262,3 +262,19 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
   environment: { EXECUTOR: docker, CS_VERDICT_OTLP_ENDPOINT: "http://collector:4318" }
   ```
   It is the only edit to `docker-compose.yml` in the B-series. Everything else stays Taseen's.
+- 2026-11-08 · **B3 — one line in `.github/folder_guard.py`: allow `docs/evidence/` for `alif/`.** The B-series
+  tasks B3, B8, B9 and B12 all write their evidence into `docs/evidence/`, and the folder guard currently allows
+  `alif/` to touch only `brain/`, `docs/tasks/alif.md`, `docs/SUMMARY_BN.md` and `docs/research/`. The guard's own
+  docstring lists the rules, so the change is one line in `PREFIX_RULES`:
+  ```python
+  "alif/": lambda path: (
+      path.startswith("brain/")
+      or path == "docs/tasks/alif.md"
+      or path == "docs/SUMMARY_BN.md"
+      or path.startswith("docs/research/")
+      or path.startswith("docs/evidence/")     # ← this line
+  ),
+  ```
+  It is the folder guard's own file, so it is Taseen's to change — Alif's agent cannot edit it. Until it lands the
+  demo runner writes its report to `docs/research/demo_run.md` instead, and the other evidence tasks write theirs
+  next to it. Nothing about the code depends on the change: only where the report file lands.

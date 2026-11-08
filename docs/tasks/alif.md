@@ -680,7 +680,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 4. **Never edit a teammate's folder.** A needed change in `telemetry/`, `dashboard/`, `eval/`,
    `infra/`, `docker-compose.yml` or `.github/` goes into a note in that person's task file.
 
-### B1 · [ ] 🔴 MUST · Verified auto-heal (the shadow dry-run)
+### B1 · [x] 🔴 MUST · Verified auto-heal (the shadow dry-run)
+> ✅ 2026-11-08 · branch `alif/b1-verified-heal` · PR [#61](https://github.com/abdullahalyf/Cloud-Sentinel/pull/61)
 > Prompt:
 > *The judge proposes a structured patch (a memory edit, a tool override, or a model downgrade).
 > Today a confident patch is applied straight away, and the only evidence it worked is whether the
@@ -707,7 +708,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B2 · [ ] 🔴 MUST · Incident postmortems
+### B2 · [x] 🔴 MUST · Incident postmortems
+> ✅ 2026-11-08 · branches `contract/b2-incident-postmortem` + `alif/b2-postmortem` · PR [#62](https://github.com/abdullahalyf/Cloud-Sentinel/pull/62) · PR [#63](https://github.com/abdullahalyf/Cloud-Sentinel/pull/63) · PR [#64](https://github.com/abdullahalyf/Cloud-Sentinel/pull/64)
 > Prompt:
 > *For every incident, generate a structured postmortem: the timeline, the root cause, the evidence
 > spans, the action taken, the money saved, the time to detect and the time to heal. Expose it as
@@ -728,7 +730,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B3 · [ ] 🔴 MUST · The deterministic demo runner
+### B3 · [x] 🔴 MUST · The deterministic demo runner
+> ✅ 2026-11-08 · branch `alif/b3-demo-runner` · PR [#65](https://github.com/abdullahalyf/Cloud-Sentinel/pull/65) · 20/20 runs held
 > Prompt:
 > *One command runs the whole "3 AM incident" headless — an agent goes rogue, the brain detects it,
 > the judge decides, the breaker acts, the agent is healed or killed, and the money is counted — with
