@@ -1,0 +1,130 @@
+name: judge-eval
+# The Claude judge's real latency, cost and accuracy — measured in CI, written into the
+# evidence pack, and opened as a PR. Manual dispatch only: it costs money (about $0.03 on
+# Haiku for the whole labelled set, ~10x that on Opus), so it must be somebody's decision.
+#
+# It exists because docs/research/pitch-numbers.md used to say the Claude judge's numbers
+# had "never been measured". They had not — there was no API key in the environment that
+# wrote the file. This workflow is how those numbers get measured and put in the pack
+# without a human ever typing them by hand (a hand-typed number is exactly the thing
+# brain/tests/test_evidence.py refuses to accept).
+#
+# Needs one repository secret: ANTHROPIC_API_KEY. See docs/tasks/taseen.md.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "calls per incident per model (3 is the number the pack quotes)"
+        type: string
+        default: "3"
+      models:
+        description: "comma-separated Claude models (empty = all of them)"
+        type: string
+        default: ""
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  judge-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: pip install -r requirements.txt
+
+      - name: Check the API key is present
+        # The runner refuses to write numbers it did not measure, so this job would
+        # fail anyway — but it fails here with a message that says what to do, instead
+        # of a traceback about a missing key.
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set as a repository secret."
+            echo "Add it in: Settings -> Secrets and variables -> Actions -> New repository secret."
+            echo "See docs/tasks/taseen.md for the exact steps."
+            exit 1
+          fi
+
+      - name: Run the judge eval for every Claude model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          ARGS="--runs ${{ inputs.runs || '3' }}"
+          if [ -n "${{ inputs.models }}" ]; then
+            for m in $(echo "${{ inputs.models }}" | tr ',' ' '); do
+              ARGS="$ARGS --model $m"
+            done
+          fi
+          echo "python -m brain.judge_eval_ci $ARGS"
+          python -m brain.judge_eval_ci $ARGS
+
+      - name: Check the pack really changed
+        # The runner exits 0 if it measured something. This step is the belt to that
+        # braces: if the numbers did not land in the pack, there is nothing to open a
+        # PR about, and a green job that changed nothing is worse than a red one.
+        run: |
+          if git diff --quiet -- docs/research/pitch-numbers.md; then
+            echo "::error::the pack did not change — the numbers did not land."
+            exit 1
+          fi
+          git diff --stat -- docs/research/pitch-numbers.md docs/research/judge-eval-ci.json
+
+      - name: The evidence pack's own tests still pass
+        # The pack has a test that fails if it quotes a Claude number without a
+        # measurement behind it. If the new numbers do not satisfy it, the numbers
+        # are wrong and the PR must not be opened.
+        run: python -m pytest brain/tests/test_evidence.py -q
+
+      - name: Open a PR with the new numbers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          git config user.name "cloudsentinel-bot[bot]"
+          git config user.email "cloudsentinel-bot@users.noreply.github.com"
+          BRANCH="ci/judge-eval-$(date -u +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          git add docs/research/pitch-numbers.md docs/research/judge-eval-ci.json
+          git commit -m "judge eval: the Claude judge's real latency, cost and accuracy"
+          git push -u origin "$BRANCH"
+
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "judge eval: measured Claude judge numbers" \
+            --body "$(cat <<'EOF'
+          ## What this is
+
+          The Claude judge's latency, cost and accuracy, **measured on the real API** over the
+          labelled incident set, and written into the evidence pack by CI.
+
+          These numbers used to be marked "needs a human" — there was no API key in the
+          environment that wrote the pack. They are written by the machine that measured
+          them, never by hand: `brain/tests/test_evidence.py` refuses any Claude cost or
+          latency that does not have a measurement behind it.
+
+          ## Files
+
+          - `docs/research/pitch-numbers.md` — section 4, the machine-written block
+          - `docs/research/judge-eval-ci.json` — the raw run: every metric per model, plus the error column
+
+          ## Reproduce
+
+          ```bash
+          python -m brain.judge_eval_ci --runs 3
+          ```
+
+          🤖 Generated with [puku-cli](https://puku.sh)
+          EOF
+          )"
+
+      - name: Upload the raw run
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: judge-eval-json
+          path: docs/research/judge-eval-ci.json
+          if-no-files-found: ignore
