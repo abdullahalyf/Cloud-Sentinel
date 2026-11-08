@@ -175,6 +175,13 @@ class Settings:
     cascade_window_minutes: float = 10.0
     # How many calls into one agent in the window make a contagion.
     cascade_fanout_calls: int = 20
+    # ── The tamper-evident audit log (B7): every decision, hash-chained ──
+    # Off = nothing is chained and the endpoint says so. On = every brain
+    # decision and every human action is appended to a hash-chained log, and
+    # the verify command can prove it has not been edited after the fact.
+    audit_enabled: bool = False
+    # How many entries the chain reader shows at a time.
+    audit_page_size: int = 200
 
     @property
     def use_supabase(self) -> bool:
@@ -236,6 +243,8 @@ def load_settings() -> Settings:
         cascade_enabled=_bool("CS_CASCADE_ENABLED", False),
         cascade_window_minutes=max(0.0, _float("CS_CASCADE_WINDOW_MINUTES", 10.0)),
         cascade_fanout_calls=max(1, _int("CS_CASCADE_FANOUT_CALLS", 20)),
+        audit_enabled=_bool("CS_AUDIT_ENABLED", False),
+        audit_page_size=max(1, _int("CS_AUDIT_PAGE_SIZE", 200)),
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),

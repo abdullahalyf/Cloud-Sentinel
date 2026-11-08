@@ -27,9 +27,12 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
-from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
+from shared.contracts import (AUDIT_GENESIS, COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS,
+                              HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
-                              ToolCallRow, VerdictRow, agent_view, backtest_catch, backtest_false_positive,
+                              ToolCallRow, VerdictRow, agent_view, audit_entry, audit_hash, audit_view,
+                              backtest_catch,
+                              backtest_false_positive,
                               backtest_report, budget_forecast, budget_node, budget_report,
                               cascade_agent, cascade_edge, cascade_report, cascade_view,
                               explain_event, explain_report, load_json,
@@ -783,6 +786,47 @@ def cascades() -> dict:
         reason="delta flooded gamma: 60 calls into one agent in a minute",
         usd_saved=1.02)
     return cascade_view(cascades=[contagion, loop_cascade], as_of=now)
+
+
+@app.get("/v1/audit")
+def audit(limit: int = 200) -> dict:
+    """
+    The tamper-evident audit chain (B7).
+
+    Every decision and every human action goes into a **hash-chained** log: each
+    entry carries the hash of the entry before it, so an edit in the middle
+    breaks every link after it — and so does a deletion.
+
+    The mock has no brain behind it, so the chain is **fixed**. But the hashes
+    are **real**: the mock builds the chain with the same rule the brain uses,
+    so a client written against the mock can verify the mock's chain the same
+    way it verifies the real one. A mock with fake hashes would teach the
+    client to skip the check.
+
+    The chain shows the three kinds of thing that goes into it:
+    - a **decision** the brain took on its own (a runaway paused);
+    - a **human** action (an operator pausing an agent by hand);
+    - a **policy** action (the tool gate denying a call).
+    """
+    now = time.time()
+    steps = [
+        ("decision", "rules", "beta", "PAUSE", "semantic loop on order 4471"),
+        ("human", "dashboard", "beta", "PAUSE", "an operator paused it by hand"),
+        ("policy", "policy", "delta", "TOOL_DENY", "issue_refund: $41,000 is over the limit"),
+        ("decision", "brain:autoheal", "beta", "AUTO_HEAL", "the belief keeps it looping"),
+        ("human", "mcp", "gamma", "SET_BUDGET", "budget set to $2.00"),
+    ]
+    entries: list[dict] = []
+    prev = AUDIT_GENESIS
+    for seq, (kind, actor, agent_id, action, reason) in enumerate(steps, start=1):
+        entry = audit_entry(seq=seq, agent_id=agent_id, kind=kind, actor=actor,
+                            action=action, reason=reason, prev_hash=prev,
+                            created_at=now - (len(steps) - seq) * 30.0)
+        entry["hash"] = audit_hash(entry)
+        entries.append(entry)
+        prev = entry["hash"]
+    return audit_view(entries=entries, head_hash=prev, valid=True, broken_at=None,
+                      enabled=True, as_of=now)
 
 
 if __name__ == "__main__":

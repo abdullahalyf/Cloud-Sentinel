@@ -321,6 +321,20 @@ class CommandRow(_Row):
 
 
 @dataclass
+class AuditRow(_Row):
+    """One link in the tamper-evident audit chain (B7). Table: audit_log"""
+    seq: int
+    agent_id: str
+    kind: str                      # decision | human | policy
+    actor: str
+    action: str
+    reason: str
+    prev_hash: str
+    hash: str
+    created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
 class MemoryRow(_Row):
     """One version of an agent's external memory. Table: agent_memory (append-only)"""
     agent_id: str
@@ -1186,3 +1200,126 @@ def cascade_summary(report: dict) -> str:
     agents = ", ".join(str(a.get("agent_id") or "") for a in (report.get("agents") or []))
     return (f"{report.get('kind', 'cascade')}: {counts.get('agents', 0)} agents ({agents}), "
             f"{counts.get('contained', 0)} contained")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 9. The tamper-evident audit log (CONTRACTS §6, B7)
+# ─────────────────────────────────────────────────────────────────────────────
+# Every decision and every human action goes into a **hash-chained** log.
+#
+# The chain is the point: each entry carries the hash of the one before it, so
+# changing an entry in the middle does not just change that entry — it breaks
+# every link after it. Deleting an entry breaks the chain the same way. That is
+# the whole governance story: an operator can prove that the record of what the
+# brain did has not been edited after the fact.
+#
+# The chain is **append-only and ordered**. `seq` is the position in the chain,
+# and it starts at 1 — a gap in the sequence is itself a sign of tampering.
+#
+# Like the postmortem, the backtest and the cascade, the *shape* lives here so
+# the mock and the real API say exactly the same thing, and the *builder* lives
+# in the brain.
+
+# The kinds of thing that goes into the log. "decision" is what the brain decided
+# on its own; "human" is what a person did; "policy" is what the tool gate did.
+AUDIT_KINDS = ("decision", "human", "policy")
+
+# The hash an empty chain starts from — the first entry links to this.
+AUDIT_GENESIS = "0" * 16
+
+# The action a chain entry carries when the caller does not name one.
+AUDIT_DEFAULT_KIND = "decision"
+
+
+def audit_entry(seq: int = 1, agent_id: str = "", kind: str = AUDIT_DEFAULT_KIND, actor: str = "",
+                action: str = "", reason: str = "", prev_hash: str = AUDIT_GENESIS,
+                hash: str = "", created_at: Optional[float] = None) -> dict:
+    """
+    One link in the audit chain.
+
+    `prev_hash` is the hash of the entry before it, and `hash` is this entry's
+    own. A reader who has the whole chain can recompute every `hash` and see
+    that they match — that is the verification.
+    """
+    return {
+        "seq": int(seq or 0),
+        "agent_id": str(agent_id or ""),
+        "kind": str(kind or AUDIT_DEFAULT_KIND),
+        "actor": str(actor or ""),
+        "action": str(action or ""),
+        "reason": str(reason or ""),
+        "prev_hash": str(prev_hash or AUDIT_GENESIS),
+        "hash": str(hash or ""),
+        "created_at": created_at,
+    }
+
+
+def audit_view(entries: Optional[list] = None, head_hash: str = "", valid: bool = True,
+               broken_at: Optional[int] = None, enabled: bool = True, as_of: Optional[float] = None) -> dict:
+    """
+    The whole chain, plus what the verification says about it.
+
+    `head_hash` is the hash of the last entry — the one-line proof that the
+    chain is intact up to now. `valid` says whether it is, and `broken_at`
+    names the entry that broke it (`None` when nothing is broken).
+    """
+    entries = list(entries or [])
+    return {
+        "entries": entries,
+        "head_hash": str(head_hash or ""),
+        "valid": bool(valid),
+        "broken_at": broken_at,
+        "enabled": bool(enabled),
+        "counts": {"entries": len(entries),
+                   "decisions": sum(1 for e in entries if e.get("kind") == "decision"),
+                   "human": sum(1 for e in entries if e.get("kind") == "human"),
+                   "policy": sum(1 for e in entries if e.get("kind") == "policy")},
+        "as_of": as_of,
+    }
+
+
+def audit_verify_result(ok: bool, entries: int = 0, head_hash: str = "",
+                        broken_at: Optional[int] = None, reason: str = "") -> dict:
+    """
+    What the verify command says about a chain.
+
+    `ok` is the answer; `broken_at` says **which** entry broke it, because
+    "your log is broken" without a position is not an answer an operator can
+    act on.
+    """
+    return {
+        "ok": bool(ok),
+        "entries": int(entries or 0),
+        "head_hash": str(head_hash or ""),
+        "broken_at": broken_at,
+        "reason": str(reason or ""),
+    }
+
+
+def audit_hash(entry: dict) -> str:
+    """
+    The hash of one entry: the previous entry's hash plus this entry's content.
+
+    The rule lives **here**, in the contract, because the mock and the real API
+    must compute the same hash — a client that verifies the mock's chain would
+    otherwise reject the real one, and a real chain the mock cannot reproduce is
+    a chain nobody can test against.
+
+    The fields that go in are the ones that describe **what happened**: the
+    position, the agent, the kind, the actor, the action and the reason. The
+    `created_at` is deliberately **not** in the hash: a clock is not a fact
+    about the decision, and two sides that wrote the same decision at slightly
+    different times must still agree on the chain.
+    """
+    import hashlib
+
+    parts = [
+        str(entry.get("seq") or 0),
+        str(entry.get("agent_id") or ""),
+        str(entry.get("kind") or AUDIT_DEFAULT_KIND),
+        str(entry.get("actor") or ""),
+        str(entry.get("action") or ""),
+        str(entry.get("reason") or ""),
+        str(entry.get("prev_hash") or AUDIT_GENESIS),
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]

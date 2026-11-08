@@ -83,6 +83,8 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_CASCADE_ENABLED` *(added 8 Nov, B6)* | `false` | brain | detect the chains where agents keep each other running — alpha → beta → alpha, or one agent flooding the others — and contain the **whole chain** in one tick. `false` → the old behaviour exactly (every agent handled on its own) |
 | `CS_CASCADE_WINDOW_MINUTES` *(added 8 Nov, B6)* | `10` | brain | how many minutes of spans the agent-to-agent call graph is built from |
 | `CS_CASCADE_FANOUT_CALLS` *(added 8 Nov, B6)* | `20` | brain | how many calls into one agent in the window make a contagion |
+| `CS_AUDIT_ENABLED` *(added 8 Nov, B7)* | `false` | brain | chain every brain decision and every human action into a **hash-chained** audit log and serve `GET /v1/audit`. `false` → nothing is chained, and the endpoint says so without failing |
+| `CS_AUDIT_PAGE_SIZE` *(added 8 Nov, B7)* | `200` | brain | how many entries the chain reader shows at a time |
 | `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
 | `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
@@ -271,6 +273,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/budgets` *(added 8 Nov, B4)* | → `BudgetReport` (below) — the org → team → agent budget tree, with a burn-rate forecast at every level | dashboard, mcp |
 | `GET /v1/backtest?policy_path=` *(added 8 Nov, B5)* | → `BacktestReport` (below) — what a candidate policy would have caught, the false positives, and the money saved. Behind `CS_BACKTEST_ENABLED` | dashboard, mcp |
 | `GET /v1/cascades` *(added 8 Nov, B6)* | → `CascadeView` (below) — the chains where agents keep each other running, and who was contained because of them. Behind `CS_CASCADE_ENABLED` | dashboard, mcp |
+| `GET /v1/audit` *(added 8 Nov, B7)* | → `AuditView` (below) — the hash-chained audit log, its head hash, and whether it still verifies. Behind `CS_AUDIT_ENABLED` | dashboard, mcp |
 | `WS /v1/stream` | server pushes `{"type": "metric"|"verdict"|"action"|"alert"|"tool_call","data":{...}}` | optional clients |
 
 **`PolicyView`** *(added 8 Nov)* — the policy actually in force:
@@ -496,6 +499,51 @@ nearby is not being connected.
 look at it. The actions carry the actor `brain:cascade` and the alerts carry the rules
 `cascade_loop` / `cascade_contagion`.
 
+**`AuditView`** *(added 8 Nov, B7)* — the tamper-evident audit chain:
+
+```
+{
+  "entries": [                   # oldest first — the order they happened
+    {
+      "seq": int,               # position in the chain, starting at 1
+      "agent_id": str,
+      "kind": "decision"|"human"|"policy",
+      "actor": str,             # rules | brain:autoheal | human | dashboard | mcp | policy
+      "action": str,            # PAUSE | KILL | TOOL_DENY | AUTO_HEAL | SET_BUDGET | …
+      "reason": str,
+      "prev_hash": str,         # the hash of the entry before this one
+      "hash": str,              # this entry's own hash
+      "created_at": float|null
+    }
+  ],
+  "head_hash": str,             # the hash of the last entry — the one-line proof
+  "valid": bool,                # does the chain still verify?
+  "broken_at": int|null,        # which entry broke it (null when nothing is broken)
+  "enabled": bool,              # false → the chaining is off and nothing is chained
+  "counts": {"entries": int, "decisions": int, "human": int, "policy": int},
+  "as_of": float|null
+}
+```
+
+**The chain is the point: `hash` = the previous entry's hash + this entry's content.** The
+content that goes into the hash is `seq`, `agent_id`, `kind`, `actor`, `action`, `reason` and
+`prev_hash` — the fields that describe *what happened*. `created_at` is deliberately **not**
+in the hash: a clock is not a fact about the decision, and two sides that wrote the same
+decision at slightly different times must still agree on the chain.
+
+**Every decision and every human action is in the chain** — a runaway paused by the rules, a
+PAUSE by a human, a `TOOL_DENY` by the policy, an `AUTO_HEAL`. The `kind` says which.
+
+**A tampered entry is caught, and the chain says *which* entry.** Changing one entry's
+content breaks that entry's hash, which breaks the `prev_hash` of the next one, and so on to
+the end of the chain. Deleting an entry from the middle breaks it the same way. A **gap in
+`seq`** is a sign of tampering too. `python -m brain.audit verify` exits **non-zero** on a
+broken chain.
+
+**An empty chain verifies.** "Nothing has happened yet" is a fact, not a failure.
+
+**The chain is append-only.** Nothing in the audit table is ever updated — only inserted.
+
 **`PostmortemReport`** *(added 8 Nov, B2)* — the postmortem of one incident:
 
 ```
@@ -605,7 +653,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| _(no gaps — the mock and the real API say the same thing)_ | | |
+| `GET /v1/audit` | the whole endpoint | the brain side (B7) |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.

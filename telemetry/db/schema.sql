@@ -172,5 +172,23 @@ create table if not exists workers (
 );
 create index if not exists workers_last_seen on workers (last_seen);
 
+-- The tamper-evident audit log (added 8 Nov, B7). Every decision and every human
+-- action is appended here, and each row links to the one before it by hash — so
+-- an edit in the middle breaks every link after it, and so does a deletion.
+-- Append-only: nothing in this table is ever updated.
+create table if not exists audit_log (
+    id         bigint generated always as identity primary key,
+    seq        integer not null,                       -- position in the chain, starting at 1
+    agent_id   text not null default '',
+    kind       text not null default 'decision',       -- decision | human | policy
+    actor      text not null default '',
+    action     text not null default '',
+    reason     text not null default '',
+    prev_hash  text not null,                          -- the hash of the entry before this one
+    hash       text not null,                          -- this entry's own hash
+    created_at timestamptz not null default now()
+);
+create index if not exists audit_log_seq on audit_log (seq);
+
 -- Hackathon note: the service-role key is used from trusted laptops only.
 -- Never put it in a publicly deployed dashboard (the dashboard talks to the API, not the DB).
