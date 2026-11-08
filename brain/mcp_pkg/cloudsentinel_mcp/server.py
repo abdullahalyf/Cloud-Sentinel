@@ -44,7 +44,7 @@ DESTRUCTIVE_TOOLS = frozenset({
 })
 READ_ONLY_TOOLS = frozenset({
     "list_agents", "get_agent", "explain_agent", "get_memory", "list_pending_tool_calls",
-    "get_roi_report", "get_policy", "validate_policy", "list_heal_proposals",
+    "get_roi_report", "get_policy", "validate_policy", "list_heal_proposals", "get_tool_risk",
 })
 
 settings: McpSettings = load_settings()
@@ -160,6 +160,22 @@ def get_memory(agent_id: str) -> dict:
 def list_pending_tool_calls() -> list[dict]:
     """Tool calls waiting for a human decision (e.g. large refunds)."""
     return client.get("/v1/tool-calls?status=pending")["items"]
+
+
+@mcp.tool(annotations=SAFE)
+def get_tool_risk(agent_id: str = "") -> dict:
+    """
+    The learned tool risk (A14): what a human has approved, per (agent, tool, args).
+
+    A call a human has approved as many times as the threshold (5) is let through
+    without asking again — but only for that exact call, and never if a human ever
+    denied it. Use this to see which approvals the brain has already learned, before
+    approving the next one by hand.
+    """
+    path = "/v1/tool-risk"
+    if agent_id:
+        path = f"{path}?agent_id={check_agent_id(agent_id)}"
+    return client.get(path)
 
 
 @mcp.tool(annotations=SAFE)

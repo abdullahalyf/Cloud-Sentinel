@@ -558,8 +558,43 @@ story, the golden text of an agent with nothing to report, the outcome, the even
 another agent's events staying out of the story, the window in both directions, the clamp, the parity
 with the mock, and the three ways the polish can fail.
 
+### A14 · [x] (alif/puku-a14-tool-risk, 2026-11-08) · The learned tool risk
+Add `GET /v1/tool-risk?agent_id=` (contract): what a human has approved, per (agent, tool, args) —
+auto-approve after 5 human approvals of the identical call, with an audit trail. Add MCP tool
+`get_tool_risk`. **Acceptance:** a deny is never learned away, and a parity test.
+
+**Done.** The contract side merged first (PR #50, `b4c6d9f`), so the brain branch rebased cleanly onto it.
+
+**The counting rule is written once.** `tool_risk_from_history` lives in `shared/contracts.py`, and
+the mock and the real API both call it. If the rule were written twice — once in `shared/mocks/` and
+once in `brain/` — the two would drift on the one question that matters here: *what counts as an
+approval?* The mock's history is the same history the real API reads, scored by the same function.
+
+**Only a human answer teaches the brain.** A `policy` allow is the rules doing their job; an `mcp`
+answer is another agent's opinion. Neither is a person saying "yes, this is fine", so neither may
+teach the brain to stop asking. A pending call teaches nothing, and a rewritten call was not
+approved as it stands.
+
+**A denial is a veto.** A call a human refused is never auto-approved, however many times somebody
+else later said yes. The counts stay visible — five approvals and one denial is still five
+approvals and one denial — because an operator has to be able to see *both* before trusting the
+number.
+
+**The learned score never loosens a deny.** The auto-approval is checked only on the `approval`
+path, after the policy rules have already run, so a deny rule, a paused agent and an injection
+denial are all untouched by the learning. A store that cannot be read is not learning either: it
+fails safe, with no auto-approval.
+
+**The audit trail.** Every auto-approval writes a `TOOL_AUTO_ALLOW` action by the `brain:toolrisk`
+actor, so an operator can see which calls went through on their own and on what evidence.
+
+**`brain/tests/test_tool_risk.py`** — 22 tests: the fifth approval teaching the brain, the
+auto-approval in the audit log, the denial vetoing the learning, a policy allow not teaching, a
+deny rule never being learned away, a paused agent getting no tools even when learned, an injection
+being denied even when learned, the real API and the mock saying the same thing, and the store
+failing safe.
+
 ## 🟢 STRETCH
-- **A14:** a learned tool-risk score per (agent, tool) from approval history: auto-approve after 5 human approvals of identical args, with an audit trail.
 - **A15:** an OpenTelemetry "semantic loop" span event, so external tools (Phoenix) see our verdicts on the agent's trace.
 
 ---

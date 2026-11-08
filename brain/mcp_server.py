@@ -46,6 +46,7 @@ from cloudsentinel_mcp.server import (  # noqa: E402  (the tool functions themse
     get_memory,
     get_policy,
     get_roi_report,
+    get_tool_risk,
     kill_agent,
     list_agents,
     list_heal_proposals,
@@ -64,7 +65,7 @@ import httpx  # noqa: E402,F401
 __all__ = ["mcp", "main", "SAFE", "DESTRUCTIVE", "DESTRUCTIVE_TOOLS", "READ_ONLY_TOOLS",
            "client", "limiter", "ToolError", "httpx",
            "list_agents", "get_agent", "explain_agent", "get_memory", "list_pending_tool_calls",
-           "get_roi_report", "get_policy", "validate_policy", "list_heal_proposals",
+           "get_roi_report", "get_policy", "validate_policy", "list_heal_proposals", "get_tool_risk",
            "pause_agent", "resume_agent", "kill_agent", "set_budget", "edit_memory",
            "decide_tool_call", "decide_heal"]
 

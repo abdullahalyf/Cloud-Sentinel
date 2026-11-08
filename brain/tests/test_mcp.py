@@ -16,10 +16,10 @@ def _route_to(monkeypatch, app):
     monkeypatch.setattr(m.httpx, "Client", lambda **kw: TestClient(app, headers=kw.get("headers")))
 
 
-def test_sixteen_tools_with_contract_annotations():
-    """CONTRACTS §7 — 16 tools after A5 added get_policy and validate_policy."""
+def test_seventeen_tools_with_contract_annotations():
+    """CONTRACTS §7 — 17 tools after A14 added get_tool_risk."""
     tools = {t.name: t for t in asyncio.run(m.mcp.list_tools())}
-    assert len(tools) == 16
+    assert len(tools) == 17
     for name, tool in tools.items():
         assert tool.annotations.destructive_hint == (name in WRITE_TOOLS), name
         assert tool.annotations.read_only_hint == (name not in WRITE_TOOLS), name
@@ -53,6 +53,8 @@ def test_every_tool_round_trips(api):
     done = m.decide_tool_call(pending[0]["id"], "deny", "test")
     assert done["decision"] == "deny" and done["decided_by"] == "mcp"
     assert "saved_usd" in m.get_roi_report()
+    risk = m.get_tool_risk()
+    assert "entries" in risk and "threshold" in risk
 
 
 def test_the_policy_tools_work(api):

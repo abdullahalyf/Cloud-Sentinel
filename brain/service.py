@@ -184,6 +184,10 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
 
     The injection gate runs FIRST on purpose: a policy rule that allows `run_sql` should not let
     a `; DROP TABLE` through just because the policy had no rule for it.
+
+    A third thing happens last (A14): a call the policy would have *held for approval* is let
+    through when a human has already approved that exact call enough times. It never touches a
+    deny — the injection gate and the policy's deny rules still win.
     """
     agent_id = check_agent_id(agent_id)
     tool_name = (tool_name or "").strip()
@@ -206,6 +210,16 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
     if agent and agent.get("state") in ("paused", "killed"):
         # second layer: even if the container could not be frozen, a tripped agent gets no tools
         action, reason = "deny", f"agent is {agent['state']} by CloudSentinel"
+    # A14: the learned tool risk. It only ever turns an *approval* into an allow, so a
+    # deny above is untouched. The auto-approval is written to the audit log below.
+    learned_entry = None
+    if action == "approval":
+        from brain import tool_risk
+
+        learned_entry = tool_risk.is_auto_approved(store, agent_id, tool_name, args)
+        if learned_entry is not None:
+            action = "allow"
+            reason = tool_risk.auto_approve_reason(learned_entry)
     value = money(value_usd)
     decision = {"allow": "allow", "deny": "deny"}.get(action, "pending")
     call_id = store.insert_tool_call(ToolCallRow(agent_id, tool_name, args or {}, decision,
@@ -213,6 +227,11 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
                                                  "policy" if decision != "pending" else "", reason, value))
     if decision == "deny":
         store.insert_action(ActionRow(agent_id, "TOOL_DENY", "policy", f"{tool_name}: {reason}", value))
+    if learned_entry is not None and decision == "allow":
+        # The audit trail: an operator must be able to see which calls went through on
+        # their own, and on what evidence.
+        store.insert_action(ActionRow(agent_id, "TOOL_AUTO_ALLOW", "brain:toolrisk",
+                                      f"{tool_name}: {reason}", value))
     return store.get_tool_call(call_id)
 
 
