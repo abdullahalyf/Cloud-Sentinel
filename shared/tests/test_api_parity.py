@@ -27,22 +27,27 @@ def keys(obj):
     return set()
 
 
-# The mock may be *ahead* of the real API for a while. The contract lands the mock first,
-# and the brain branch that implements the same shape on the real API follows it. A field
-# the mock has and the real API does not yet is a known gap, not a mismatch — but a field
-# the real API has and the mock does not is a bug, because a client written against the
-# mock would break on the real thing.
+# The mock and the real API must have the same shape.
 #
-# So the rule is one-sided: the real API's fields must be a subset of the mock's. The
-# mock may lead, the mock may never lag.
+# They live in **different folders**, so a change to one cannot land in the same PR as
+# the other: the contract lands the mock first, and the brain branch that implements the
+# same shape on the real API follows it. In between, the mock leads — it has fields the
+# real API does not have yet.
 #
-# The gaps are recorded in docs/CONTRACTS.md ("the mock leads the real API"), not here.
+# So the rule is one-sided: **the real API's fields must be a subset of the mock's.** The
+# mock may lead; the mock may never lag. A field the real API has and the mock does not
+# is a bug, because a client written against the mock would break on the real thing.
+#
+# The gaps are recorded in docs/CONTRACTS.md ("the mock may lead the real API"), not here.
 # A test that pinned the exact gap list would have to be edited by whichever side closed
 # it — and the side that closes it is usually the one that is not allowed to edit
 # shared/. That is how a parity test ends up blocking the very change it was written to
 # check.
-MOCK_AHEAD_OF_REAL = {
-    "/v1/health": {"workers", "agents_total"},   # A8: the workers table lands with A8
+#
+# This list is the machine-readable half of that record: the fields the mock has and the
+# real API does not (yet). It is empty when the two have caught up.
+MOCK_AHEAD_OF_REAL: dict[str, set[str]] = {
+    # A8's gap — /v1/health gained "workers" and "agents_total" — closed when b22d509 merged.
 }
 
 
@@ -84,6 +89,23 @@ def test_the_recorded_gaps_are_real_gaps(sim, cfg):
     for path, fields in MOCK_AHEAD_OF_REAL.items():
         m = keys(mock.get(path).json())
         assert fields <= m, f"{path}: the mock should have {sorted(fields)}"
+
+
+def test_the_shapes_are_the_same_now(sim, cfg):
+    """The mock and the real API should have caught up: the same fields, not just the
+    same rule. A8 was the last gap — the workers on /v1/health.
+
+    This is the check that the two-sided parity is back. While a gap is open the shapes
+    differ, and this test says so by name, so the next person knows what is left.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    for path in GETS:
+        r, m = keys(real.get(path).json()), keys(mock.get(path).json())
+        assert r == m, (
+            f"{path}: the real API has {sorted(r - m)} that the mock does not, and the mock has "
+            f"{sorted(m - r)} that the real API does not. If the mock leads, record it in "
+            f"docs/CONTRACTS.md and in MOCK_AHEAD_OF_REAL")
 
 
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
