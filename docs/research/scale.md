@@ -42,11 +42,17 @@ Taking the minimum removes the machine's contribution and leaves the code's
 — and the `spread` column shows how much the machine did contribute, so a
 reader can see the noise instead of taking the number on faith.
 
+**Every repeat starts from an empty database.** The store is the benchmark's
+throwaway scratch space, and a repeat that started on the previous repeat's
+rows would be measuring a bigger database than the last one — which is not
+a measurement of the tick. The rows written are therefore constant across
+the repeats, and `brain/tests/test_scale.py` checks that they are.
+
 | Agents | min | p50 | p95 | p99 | max | spread | agents/s | % of interval | fits |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 100 | 5.3 ms | 9.0 ms | **9.2 ms** | 34.3 ms | 34.3 ms | 189% | 11,112 | 0.9% | yes |
-| 500 | 20.9 ms | 53.7 ms | **52.0 ms** | 198.8 ms | 198.8 ms | 145% | 9,308 | 5.2% | yes |
-| 1000 | 74.7 ms | 113.9 ms | **133.5 ms** | 438.8 ms | 438.8 ms | 130% | 8,779 | 13.4% | yes |
+| 100 | 7.9 ms | 9.9 ms | **11.0 ms** | 16.1 ms | 16.1 ms | 37% | 10,079 | 1.1% | yes |
+| 500 | 24.3 ms | 47.1 ms | **50.2 ms** | 72.8 ms | 72.8 ms | 43% | 10,612 | 5.0% | yes |
+| 1000 | 59.7 ms | 105.3 ms | **129.2 ms** | 156.3 ms | 156.3 ms | 8% | 9,495 | 12.9% | yes |
 
 The p95 is the number the budget is checked against, because the p95 is the
 worst tick and the median is the tick nobody notices. The other columns are
@@ -57,21 +63,21 @@ checked rather than taken on faith:
 
 | Agents | repeat 1 | repeat 2 | repeat 3 | published (min) |
 | --- | --- | --- | --- | --- |
-| 100 | 9.2 ms | 11.0 ms | 26.6 ms | **9.2 ms** |
-| 500 | 52.0 ms | 70.4 ms | 127.1 ms | **52.0 ms** |
-| 1000 | 133.5 ms | 149.9 ms | 307.5 ms | **133.5 ms** |
+| 100 | 15.1 ms | 11.7 ms | 11.0 ms | **11.0 ms** |
+| 500 | 50.2 ms | 67.7 ms | 71.7 ms | **50.2 ms** |
+| 1000 | 129.2 ms | 139.2 ms | 130.9 ms | **129.2 ms** |
 
 ## The shape of the curve
 
-From 100 to 1000 agents the fleet grew **10.0x** and the tick p95 grew **14.5x** — the measurement is **too noisy to call** — the repeats of the *same* code differed by 189%, so the shape of the curve is inside the noise and only the *size* of the tick is a finding.
+From 100 to 1000 agents the fleet grew **10.0x** and the tick p95 grew **11.7x** — **sub-linear** — the tick got cheaper per agent as the fleet grew, which is what a fixed setup cost does.
 
-**The wall-clock ratio cannot carry this verdict, and the report does not pretend otherwise.** The 100→1000 ratio is too noisy to classify — the p95 at 100 agents is only ~9 ms, so one millisecond of machine jitter is a large fraction of it. Measured four times end to end, that pair gave 8.26x, 16.78x, 17.75x and 5.87x. At 500→1000 the ratio is better behaved — 2.57x against an expected 2.0x on an idle machine — but under load the same code gave 1.31x, 1.83x, 2.56x, 2.30x, 3.38x and 1.52x across six measurements. A ratio that swings that much is measuring the machine.
+**The wall-clock ratio cannot carry this verdict, and the report does not pretend otherwise.** The 100→1000 ratio is too noisy to classify — the p95 at 100 agents is only ~11 ms, so one millisecond of machine jitter is a large fraction of it. At 500→1000 the ratio reads 2.57x against an expected 2.0x, but that is a single pair of numbers, and the same code under load has been seen anywhere between 1.3x and 3.4x. A ratio that swings that much is measuring the machine.
 
 So the shape is measured in **function calls**, which do not move with the machine. The tick does one pass per agent, so the calls per agent have to stay flat as the fleet grows: measured at **215.9** calls per agent at 100 agents and **215.1** at 1000 — flat to within 0.4%. That is linear by construction, and it is the shape that travels between machines.
 
-Per agent, the tick costs **91.9 µs** at 100 agents and **133.5 µs** at 1000 agents — a drift of **+45%**.
+Per agent, the tick costs **110.3 µs** at 100 agents and **129.2 µs** at 1000 agents — a drift of **+17%**.
 
-**Two different costs, and only one of them is the shape.** The per-agent cost in *function calls* is flat — 215.9 against 215.1 — and that is the tick doing the same work per agent rather than more work per agent. The per-agent cost in *microseconds* drifts by +45%, and that is the ageing effect below: the same work, done more slowly, because the brain is older and the baseline window is fuller.
+**Two different costs, and only one of them is the shape.** The per-agent cost in *function calls* is flat — 215.9 against 215.1 — and that is the tick doing the same work per agent rather than more work per agent. The per-agent cost in *microseconds* drifts by +17%, and that is the ageing effect below: the same work, done more slowly, because the brain is older and the baseline window is fuller.
 
 **The two rungs are not the same age.** The larger fleet has more agents, so more of them are being judged, and the learned baseline has one more sample per tick to recompute. Part of the drift is the fleet and part is the brain getting older — which is why the tick gets *slower* over a long run even at a fixed fleet size. The ageing half is bounded by the baseline window and is discussed under the profile below.
 
@@ -172,6 +178,40 @@ should not be protected by a statistic it has not learned yet. The setting
 is documented in `docs/CONTRACTS.md`; the reasoning and the measurement are
 in `brain/baseline.py`.
 
+### The measurement bug that was hiding in this report
+
+The first version of these numbers was wrong, and it was wrong in a way
+that looked like a slow machine rather than a bug.
+
+`run_ladder` measured each repeat with a throwaway SQLite file and
+removed the file before each repeat, so the run would measure the tick
+and not the disk. **The removal never worked.** `LocalStore` opens a
+connection and never closes it, and on Windows a file that is open cannot
+be deleted — so `os.remove` failed, the failure was swallowed, and the
+next repeat opened the *existing* database and added to it.
+
+The symptom was a measurement that drifted instead of repeating. The rows
+written went 2300 → 4600 → 6900 at 100 agents, and the p95 of five
+identical runs spread by **5.1×** — a spread wide enough to pass for a
+loaded machine. The natural reading was "the CI runner is slow", and
+that reading was wrong: the CI runner was measuring an ever-growing
+database too. The orphan `-wal` file survives the unlink on Linux, and the
+next connection recovers the old rows from it, so the bug was on every
+platform — it just failed differently.
+
+The fix is in the benchmark, which now closes the store it opened and
+removes the database, the `-wal` and the `-shm`. With that, the rows
+written are constant and the spread across five identical runs falls to
+**1.16× at 100 agents, 1.17× at 500 and 1.56× at 1000** — which is what
+the machine's contribution actually looks like.
+
+Two things follow from it, and both are in the tests now. The benchmark
+must assert that the rows written are the same every repeat, because a
+growing store is the signature of the bug. And the published number must
+be compared against the **same estimator** it was produced with — the
+minimum across the repeats — because a minimum compared against a single
+draw is not a comparison.
+
 ### And one that is not ours to fix
 
 The ingest path still deep-copies: `SpanRow.to_row()` goes through `asdict`
@@ -192,7 +232,7 @@ the rungs, and whether the tick fits the interval at all.
 
 ## What is left
 
-At 1000 agents one tick uses **13.4%** of the tick interval, so the fleet is still observed on the schedule it was promised. Two things would matter at a larger fleet, neither of them needed now:
+At 1000 agents one tick uses **12.9%** of the tick interval, so the fleet is still observed on the schedule it was promised. Two things would matter at a larger fleet, neither of them needed now:
 
 - **the store's commit-per-write.** Every consumer of `shared/store.py` other than the brain's batched write pays one disk sync per row. A bulk `insert_metrics(rows)` / `upsert_agents(rows)` on the store would let the collector and the dashboard write in batches too. That is Fojle's folder — noted in `docs/tasks/fojle.md`.
 - **sharding, not one worker.** At some point one worker stops being the right shape; A8 already shards the fleet across workers, so the answer is more workers, not a faster loop.

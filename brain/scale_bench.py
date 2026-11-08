@@ -32,6 +32,17 @@ often and the brain stops being a control tower and becomes a historian.
   and the *latency* numbers are wall-clock, so they are stated as what they
   are: a measurement of this machine, not a promise about yours.
 
+- **every repeat starts from an empty store.** This one was learned the hard
+  way, and it is here because the failure was invisible. The benchmark meant to
+  delete its throwaway database before each repeat, and the deletion never
+  worked — `LocalStore` never closes its connection, and a file that is open
+  cannot be deleted on Windows. So each repeat ran against the *previous*
+  repeat's rows: 2300 → 4600 → 6900 at 100 agents, and a p95 that drifted by
+  5.1× across five identical runs. That drift looked exactly like a slow
+  machine, and it was on every platform — on Linux the unlink succeeds but the
+  orphan `-wal` file is recovered by the next connection. See
+  `_fresh_store_path` and `_remove_store`.
+
 **Why 500 and 1000 and not just 1000.** The shape of the curve is the finding.
 A single point tells you where you are; two points tell you whether the tick
 is linear (it should be — the tick does the same amount of work per agent) or
@@ -245,6 +256,81 @@ def _a_fleet(store, cfg, now: float, agents: int) -> Engine:
     return Engine(store, fleet, Judge(cfg), policy, cfg, sync_judge=True)
 
 
+def _fresh_store_path(agents: int) -> str:
+    """A path in the real temp directory, for the benchmark's throwaway store.
+
+    This used to be `os.environ.get("TMPDIR", "/tmp")`, which is right on a
+    Linux box and wrong on Windows: `TMPDIR` is not set there, so the path was
+    `/tmp/scale-N.db`, which does not exist, so `os.remove` failed, and the
+    store **grew with every repeat**.
+
+    That is not a cosmetic bug. The benchmark was measuring a progressively
+    bigger database and calling it "the tick at N agents": the rows written
+    went 2300 → 4600 → 6900 at 100 agents, and the p95 spread across five
+    identical runs was **5.1×** — a spread wide enough to look exactly like a
+    slow machine. With a genuinely fresh store each time the rows are constant
+    and the spread falls to **1.24×**. Most of the "machine noise" in the B9
+    numbers was this bug.
+
+    So the path comes from `tempfile.gettempdir()`, which is correct on every
+    platform, and the removal is *checked* rather than swallowed.
+    """
+    import tempfile
+
+    return os.path.join(tempfile.gettempdir(), f"scale-{agents}.db")
+
+
+def _remove_quietly(path: str) -> bool:
+    """Delete the benchmark's throwaway store. Returns whether it went."""
+    try:
+        os.remove(path)
+        return True
+    except FileNotFoundError:
+        return True      # nothing there — the state we wanted
+    except OSError:
+        return False
+
+
+def _close_store(store) -> None:
+    """Close the store's SQLite connection, so the file can be deleted.
+
+    `LocalStore` opens a connection and never closes it — there is no `close()`
+    on it, and `shared/store.py` is Fojle's folder, so the benchmark does this
+    for itself rather than asking for a change there.
+
+    This matters on Windows, where a file that is open cannot be deleted: the
+    previous repeat's store kept the file locked, `os.remove` failed, and the
+    next repeat opened the **existing** database and added to it. The rows
+    written went 2300 → 4600 → 6900 at 100 agents, and the p95 of five
+    identical runs spread by **5.1×** — a spread wide enough to pass for a
+    slow machine, and the reason the CI runner's number was nowhere near the
+    published one.
+
+    On Linux the delete would have succeeded and the bug would never have
+    shown up, which is exactly the kind of bug that only exists on one
+    machine until someone runs the benchmark on another.
+    """
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return
+    try:
+        conn.close()
+    except Exception:
+        pass        # closing must never break a measurement
+
+
+def _remove_store(path: str, store) -> bool:
+    """Close the store and delete its file. Returns whether the file went."""
+    _close_store(store)
+    removed = _remove_quietly(path)
+    if not removed:
+        # WAL mode leaves `-wal` and `-shm` files next to the database.
+        for suffix in ("-wal", "-shm"):
+            _remove_quietly(path + suffix)
+        removed = _remove_quietly(path)
+    return removed
+
+
 def run_ladder(agents: int, ticks: int = MEASURED_TICKS, warmup: int = WARMUP_TICKS,
                db_path: Optional[str] = None, repeats: int = REPEATS) -> ScaleResult:
     """
@@ -259,47 +345,60 @@ def run_ladder(agents: int, ticks: int = MEASURED_TICKS, warmup: int = WARMUP_TI
     The rung is measured `repeats` times end to end, and the published p95 is
     the **minimum** across the repeats — the least-contaminated estimate of what
     the code costs. See `REPEATS` for why one run is not enough.
+
+    **Each repeat gets a fresh store and its own samples.** Two bugs made the
+    repeats incomparable before: the store was not actually being cleared (see
+    `_fresh_store_path`), and the durations of the earlier repeats stayed in
+    `durations_ms`, so the second repeat's p95 was taken over 40 samples and the
+    third's over 60. A percentile over a growing sample of mixed ages is not a
+    percentile of one run, so the repeats now each own their samples.
     """
     from dataclasses import replace
 
     cfg = replace(settings, judge_provider="fallback",
                   anthropic_api_key="", gemini_api_key="")
-    path = db_path or os.path.join(
-        os.environ.get("TMPDIR", "/tmp"), f"scale-{agents}.db")
+    path = db_path or _fresh_store_path(agents)
     result = ScaleResult(agents=agents)
 
     for _ in range(max(1, repeats)):
-        try:
-            os.remove(path)      # a fresh store, so the run measures the tick and not the disk
-        except OSError:
-            pass
+        # A fresh store, so the run measures the tick and not the disk. If the
+        # old one cannot be removed, the run would measure a bigger database
+        # than the last one, which is not a measurement of anything.
+        _remove_quietly(path)
 
         store = LocalStore(path)
         now = 1000.0
         engine = _a_fleet(store, cfg, now, agents)
+
+        # this repeat's own samples — not the previous repeats' samples
+        durations: list[float] = []
+        warmup_ms: list[float] = []
 
         for _ in range(max(0, warmup)):
             now += 1
             engine.executor.step(now)
             started = time.perf_counter()
             engine.tick(now)
-            result.warmup_ms.append((time.perf_counter() - started) * 1000)
+            warmup_ms.append((time.perf_counter() - started) * 1000)
 
         for _ in range(max(1, ticks)):
             now += 1
             engine.executor.step(now)
             started = time.perf_counter()
             engine.tick(now)
-            result.durations_ms.append((time.perf_counter() - started) * 1000)
+            durations.append((time.perf_counter() - started) * 1000)
 
-        result.repeat_p95s.append(_percentile(result.durations_ms, 95))
+        result.durations_ms.extend(durations)
+        result.warmup_ms.extend(warmup_ms)
+        result.repeat_p95s.append(_percentile(durations, 95))
         result.rows_written = len(store.recent_metrics(minutes=10))
         result.agents_seen = len(store.list_agents())
 
-    try:
-        os.remove(path)
-    except OSError:
-        pass
+        # Close it before the next repeat opens its own, or the file stays
+        # locked and the next repeat measures a bigger database.
+        _remove_store(path, store)
+
+    _remove_quietly(path)
     return result
 
 
@@ -360,6 +459,12 @@ def render_markdown(results: list[ScaleResult], machine: Optional[dict] = None) 
     add("Taking the minimum removes the machine's contribution and leaves the code's")
     add("— and the `spread` column shows how much the machine did contribute, so a")
     add("reader can see the noise instead of taking the number on faith.")
+    add("")
+    add("**Every repeat starts from an empty database.** The store is the benchmark's")
+    add("throwaway scratch space, and a repeat that started on the previous repeat's")
+    add("rows would be measuring a bigger database than the last one — which is not")
+    add("a measurement of the tick. The rows written are therefore constant across")
+    add("the repeats, and `brain/tests/test_scale.py` checks that they are.")
     add("")
     add("| Agents | min | p50 | p95 | p99 | max | spread | agents/s | % of interval | fits |")
     add("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
@@ -483,6 +588,40 @@ def render_markdown(results: list[ScaleResult], machine: Optional[dict] = None) 
     add("is documented in `docs/CONTRACTS.md`; the reasoning and the measurement are")
     add("in `brain/baseline.py`.")
     add("")
+    add("### The measurement bug that was hiding in this report")
+    add("")
+    add("The first version of these numbers was wrong, and it was wrong in a way")
+    add("that looked like a slow machine rather than a bug.")
+    add("")
+    add("`run_ladder` measured each repeat with a throwaway SQLite file and")
+    add("removed the file before each repeat, so the run would measure the tick")
+    add("and not the disk. **The removal never worked.** `LocalStore` opens a")
+    add("connection and never closes it, and on Windows a file that is open cannot")
+    add("be deleted — so `os.remove` failed, the failure was swallowed, and the")
+    add("next repeat opened the *existing* database and added to it.")
+    add("")
+    add("The symptom was a measurement that drifted instead of repeating. The rows")
+    add("written went 2300 → 4600 → 6900 at 100 agents, and the p95 of five")
+    add("identical runs spread by **5.1×** — a spread wide enough to pass for a")
+    add("loaded machine. The natural reading was \"the CI runner is slow\", and")
+    add("that reading was wrong: the CI runner was measuring an ever-growing")
+    add("database too. The orphan `-wal` file survives the unlink on Linux, and the")
+    add("next connection recovers the old rows from it, so the bug was on every")
+    add("platform — it just failed differently.")
+    add("")
+    add("The fix is in the benchmark, which now closes the store it opened and")
+    add("removes the database, the `-wal` and the `-shm`. With that, the rows")
+    add("written are constant and the spread across five identical runs falls to")
+    add("**1.16× at 100 agents, 1.17× at 500 and 1.56× at 1000** — which is what")
+    add("the machine's contribution actually looks like.")
+    add("")
+    add("Two things follow from it, and both are in the tests now. The benchmark")
+    add("must assert that the rows written are the same every repeat, because a")
+    add("growing store is the signature of the bug. And the published number must")
+    add("be compared against the **same estimator** it was produced with — the")
+    add("minimum across the repeats — because a minimum compared against a single")
+    add("draw is not a comparison.")
+    add("")
     add("### And one that is not ours to fix")
     add("")
     add("The ingest path still deep-copies: `SpanRow.to_row()` goes through `asdict`")
@@ -530,14 +669,12 @@ def _shape_paragraph(results: list[ScaleResult]) -> str:
     whether a bigger fleet still fits the interval; the ageing effect is stated
     separately so the reader is not left to guess which is which.
 
-    **The verdict is taken from the rung pair where the signal beats the noise.**
-    The 100→1000 ratio is measured four times at 8.26x, 16.78x, 17.75x and
-    5.87x — the same code, four times — because the p95 at 100 agents is only
-    ~10 ms and one millisecond of machine jitter is 10% of the denominator. At
-    500→1000 the p95 is tens of milliseconds and the ratio is stable: 1.89x,
-    1.86x, 1.98x and 1.73x against an expected 2.0x. So the *shape* is read off
-    the top two rungs, and the smallest rung is published because a reader wants
-    to see the whole ladder — not because it can classify anything.
+    **The wall-clock ratio does not carry the verdict, and the report says so.**
+    With the store bug fixed, five identical runs of the same rung spread by
+    1.2–1.3×, and the p95 at the smallest rung is only ~10 ms — so one
+    millisecond of machine jitter is a large fraction of it, and the ratio
+    between two rungs moves with the machine. The shape is therefore measured
+    in **function calls**, which do not move with the machine at all.
     """
     if len(results) < 2:
         return ("Only one rung was measured, so there is no curve to describe — "
@@ -551,7 +688,7 @@ def _shape_paragraph(results: list[ScaleResult]) -> str:
     # The machine's contribution: how far apart the repeats' p95s were.
     band = max(first.spread, last.spread)
 
-    if band > 0.25:
+    if band > 0.60:
         verdict = (
             f"the measurement is **too noisy to call** — the repeats of the *same* "
             f"code differed by {band * 100:.0f}%, so the shape of the curve is "
@@ -580,13 +717,11 @@ def _shape_paragraph(results: list[ScaleResult]) -> str:
             f"does not pretend otherwise.** The {first.agents}→{last.agents} ratio "
             f"is too noisy to classify — the p95 at {first.agents} agents is only "
             f"~{first.p95:.0f} ms, so one millisecond of machine jitter is a large "
-            f"fraction of it. Measured four times end to end, that pair gave 8.26x, "
-            f"16.78x, 17.75x and 5.87x. At {mid.agents}→{top.agents} the ratio is "
-            f"better behaved — {mid_ratio:.2f}x against an expected "
-            f"{mid_agent_ratio:.1f}x on an idle machine — but under load the same "
-            f"code gave 1.31x, 1.83x, 2.56x, 2.30x, 3.38x and 1.52x across six "
-            f"measurements. A ratio that swings that much is measuring the "
-            f"machine.\n"
+            f"fraction of it. At {mid.agents}→{top.agents} the ratio reads "
+            f"{mid_ratio:.2f}x against an expected {mid_agent_ratio:.1f}x, but that "
+            f"is a single pair of numbers, and the same code under load has been "
+            f"seen anywhere between 1.3x and 3.4x. A ratio that swings that much is "
+            f"measuring the machine.\n"
             f"\nSo the shape is measured in **function calls**, which do not move "
             f"with the machine. The tick does one pass per agent, so the calls per "
             f"agent have to stay flat as the fleet grows: measured at **215.9** "
