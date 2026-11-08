@@ -70,7 +70,8 @@ def clamp_minutes(minutes: float, top: float = 24 * 60) -> float:
 
 
 def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
-               policy_manager: Optional[PolicyManager] = None) -> FastAPI:
+               policy_manager: Optional[PolicyManager] = None,
+               injection_gate: Optional[service.InjectionGate] = None) -> FastAPI:
     app = FastAPI(title="CloudSentinel C2 API", version=f"contract-{CONTRACT_VERSION}",
                   description="Command & Control for AI agent fleets: observe, pause, heal, kill.")
 
@@ -79,6 +80,13 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     # policy it was given.
     manager = policy_manager or PolicyManager(policy, cfg.policy_file, store=store,
                                                default_budget=cfg.default_budget_usd)
+
+    # A6: the injection gate. It scores a tool call's arguments before the policy looks at them.
+    gate = injection_gate or service.InjectionGate(
+        deny_threshold=cfg.injection_deny_threshold,
+        approval_threshold=cfg.injection_approval_threshold,
+        allowed_hosts=cfg.injection_allowed_hosts,
+        enabled=cfg.injection_enabled)
 
     def live_policy() -> Policy:
         """The policy that is in force right now (it can change under us — A5)."""
@@ -155,7 +163,8 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
 
     @app.put("/v1/agents/{agent_id}/memory", dependencies=[Depends(auth)])
     def put_memory(agent_id: str, body: MemoryIn) -> dict:
-        return call(service.save_memory, store, agent_id, body.content, body.edited_by, body.reason, body.base_version)
+        return call(service.save_memory, store, agent_id, body.content, body.edited_by, body.reason,
+                    body.base_version, gate)
 
     @app.get("/v1/agents/{agent_id}/memory/history", dependencies=[Depends(auth)])
     def memory_history(agent_id: str, limit: int = 10) -> dict:
@@ -164,9 +173,9 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.post("/v1/agents/{agent_id}/tool-calls", dependencies=[Depends(auth)])
     def tool_call(agent_id: str, body: ToolCallIn) -> dict:
         # the live policy, not the one from startup: A5 lets an operator change the rules
-        # without a restart
+        # without a restart. The injection gate (A6) looks at the arguments first.
         return call(service.request_tool_call, store, live_policy(), agent_id, body.tool_name, body.args,
-                    body.value_usd)
+                    body.value_usd, gate)
 
     @app.get("/v1/tool-calls", dependencies=[Depends(auth)])
     def tool_calls(status: Optional[str] = None, limit: int = 50) -> dict:

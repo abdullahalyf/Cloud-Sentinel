@@ -85,7 +85,9 @@ def evaluate(s: Snapshot, cfg: Settings, strict: bool = False, baseline=None) ->
         f.add(Level.SUSPICIOUS, "tool_cycle", "tool calls repeat the same short pattern")
     # ── L5 prompt injection aimed at the monitor ──
     if s.injection_hits:
-        f.add(Level.SUSPICIOUS, "injection", f"{s.injection_hits} prompt(s) contain text addressed to the monitor")
+        f.add(Level.SUSPICIOUS, "injection",
+              f"{s.injection_hits} prompt(s) score as prompt injection "
+              f"(worst {getattr(s, 'injection_score', 0.0):.2f})")
     return f
 
 

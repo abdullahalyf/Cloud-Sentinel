@@ -85,4 +85,12 @@ def tool_cycle(tool_names: list[str], min_repeats: int = 4, max_period: int = 3)
 
 
 def injection_hits(prompts: list[str]) -> int:
-    return sum(1 for p in prompts if p and _INJECTION.search(p))
+    """
+    How many of the recent prompts carry an injection.
+
+    Since A6 this is the real scorer (brain/injection.py), not the small denylist this used to
+    be — the denylist missed "ignore all previous instructions" and every Bangla phrasing.
+    """
+    from brain.injection import FINDING_SCORE, score_text
+
+    return sum(1 for p in prompts if p and score_text(p).score >= FINDING_SCORE)

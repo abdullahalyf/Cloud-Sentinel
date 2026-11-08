@@ -10,14 +10,54 @@ from collections import defaultdict
 from typing import Optional
 
 from brain.policy import Policy
-from shared.contracts import (COMMAND_TYPES, ROGUE_KINDS, ActionRow, CommandRow, ToolCallRow, agent_view,
-                              load_json)
+from shared.contracts import (COMMAND_TYPES, ROGUE_KINDS, ActionRow, AlertRow, CommandRow, ToolCallRow,
+                              agent_view, load_json)
 
 
 class ApiError(Exception):
     def __init__(self, status: int, detail: str):
         super().__init__(detail)
         self.status, self.detail = status, detail
+
+
+# How strict a decision is. The stricter of two gates wins.
+# "" means "this gate had nothing to say" — it must lose to any real decision, including allow.
+_SEVERITY = {"": -1, "allow": 0, "approval": 1, "deny": 2}
+
+
+def _severity(action: str) -> int:
+    return _SEVERITY.get(action, 1)
+
+
+class InjectionGate:
+    """
+    The injection part of the tool gate (A6, CONTRACTS §11a).
+
+    It scores a tool call's arguments once and turns the score into a decision:
+    a score at or above the deny threshold denies the call, a score at or above the approval
+    threshold leaves it pending for a human, and anything lower is left to the policy.
+
+    The gate also records what it saw, so the dashboard can show why a call was blocked.
+    """
+
+    def __init__(self, deny_threshold: float = 0.8, approval_threshold: float = 0.5,
+                 allowed_hosts: str = "", enabled: bool = True):
+        self.deny_threshold = deny_threshold
+        self.approval_threshold = approval_threshold
+        self.allowed_hosts = allowed_hosts
+        self.enabled = enabled
+
+    def check(self, tool_name: str, args: dict) -> tuple[str, str]:
+        """(action, reason) for one tool call. "allow" and an empty reason mean nothing fired."""
+        if not self.enabled:
+            return "", ""
+        from brain.injection import gate_decision, score_tool_args
+
+        verdict = score_tool_args(tool_name, args, self.allowed_hosts)
+        action = gate_decision(verdict.score, self.deny_threshold, self.approval_threshold)
+        if action == "allow":
+            return "", ""
+        return action, f"injection score {verdict.score:.2f}: " + "; ".join(verdict.reasons)
 
 
 # Allowed actor values (CONTRACTS §5). Anything else is a caller bug → 400, not a silent bad audit row.
@@ -72,7 +112,7 @@ def post_command(store, agent_id: str, command: str, params: Optional[dict], req
 
 # ── memory ──
 def save_memory(store, agent_id: str, content: dict, edited_by: str, reason: str,
-                base_version: Optional[int]) -> dict:
+                base_version: Optional[int], injection: Optional[InjectionGate] = None) -> dict:
     from shared.contracts import MemoryConflict
 
     agent_id = check_agent_id(agent_id)
@@ -84,6 +124,10 @@ def save_memory(store, agent_id: str, content: dict, edited_by: str, reason: str
         raise ApiError(400, "base_version must be >= 0")
     if len(json.dumps(content, default=str)) > MAX_MEMORY_BYTES:
         raise ApiError(400, f"memory content is larger than {MAX_MEMORY_BYTES} bytes")
+    # A poisoned memory is a belief the agent will keep. The write still happens — the memory may
+    # be a legitimate instruction — but a human is told about it (A6).
+    if injection is not None:
+        _alert_on_poisoned_memory(store, agent_id, content, injection)
     try:
         row = store.write_memory(agent_id, content, edited_by, reason, base_version)
     except MemoryConflict as exc:
@@ -91,6 +135,21 @@ def save_memory(store, agent_id: str, content: dict, edited_by: str, reason: str
     if edited_by in ("human", "mcp"):
         store.insert_action(ActionRow(agent_id, "MEMORY_EDIT", edited_by, reason or "memory edited"))
     return row
+
+
+def _alert_on_poisoned_memory(store, agent_id: str, content: dict, gate: InjectionGate) -> None:
+    """Raise an alert when a memory write carries an instruction that tries to bend the rules."""
+    from brain.injection import MEMORY_ALERT_SCORE, score_text
+
+    if not gate.enabled:
+        return
+    blob = json.dumps(content, ensure_ascii=False, default=str)
+    verdict = score_text(blob)
+    if verdict.score < MEMORY_ALERT_SCORE:
+        return
+    store.insert_alert(AlertRow(agent_id, "warning", "injection_detected",
+                                f"memory write scored {verdict.score:.2f} for injection: "
+                                + "; ".join(verdict.reasons)))
 
 
 # ── tool gate ──
@@ -115,17 +174,34 @@ def saved_by_tool_decision(decision: str, args: dict, final_args: dict, value_us
 
 
 def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args: dict,
-                      value_usd: Optional[float]) -> dict:
-    """Called by the SDK before running a tool. Policy decides now, or leaves it pending for a human."""
+                      value_usd: Optional[float], injection: Optional[InjectionGate] = None) -> dict:
+    """
+    Called by the SDK before running a tool. Policy decides now, or leaves it pending for a human.
+
+    Two gates, in this order:
+      1. the injection scorer (A6) — an argument that carries an attack is denied or escalated
+      2. the policy — budgets and the tool rules
+
+    The injection gate runs FIRST on purpose: a policy rule that allows `run_sql` should not let
+    a `; DROP TABLE` through just because the policy had no rule for it.
+    """
     agent_id = check_agent_id(agent_id)
     tool_name = (tool_name or "").strip()
     if not tool_name:
         raise ApiError(400, "tool_name is required")
     args = args if isinstance(args, dict) else {}
+    action, reason = "", ""
+    if injection is not None:
+        action, reason = injection.check(tool_name, args)
     try:
-        action, reason = policy.decide_tool(tool_name, args)
+        policy_action, policy_reason = policy.decide_tool(tool_name, args)
     except Exception as exc:  # a broken rule must fail SAFE: a human decides
-        action, reason = "approval", f"policy error ({exc}); needs a human"
+        policy_action, policy_reason = "approval", f"policy error ({exc}); needs a human"
+    # The stricter of the two wins: a deny beats an approval, an approval beats an allow.
+    if _severity(action) >= _severity(policy_action):
+        action, reason = action, reason or policy_reason
+    else:
+        action, reason = policy_action, policy_reason
     agent = store.get_agent(agent_id)
     if agent and agent.get("state") in ("paused", "killed"):
         # second layer: even if the container could not be frozen, a tripped agent gets no tools
