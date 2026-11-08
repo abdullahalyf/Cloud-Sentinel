@@ -245,3 +245,12 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
 
 ## Requests from Alif's agent
 (Alif's agent writes here when it needs a human: a key, an account, a GitHub setting. Do these first each morning.)
+- 2026-11-08 · **A1 live Claude judge run — needs `ANTHROPIC_API_KEY` (H3, still open).** The labeled-incident
+  evaluation is built and the offline numbers are measured, but the Claude half cannot run without a key.
+  - Put a key with a $5 spend limit in GitHub → Settings → Secrets and variables → Actions as `ANTHROPIC_API_KEY`
+    (so the nightly job uses the real judge), and in Alif's laptop `.env`.
+  - Then run: `python -m brain.judge_eval --judge claude --runs 3 --write` (about 1 minute, well under $0.05
+    for 64 incidents × 3 runs). It rewrites the "Results" block in `docs/research/judge-eval.md` with real
+    precision/recall, latency p50/p95 and $ per verdict.
+  - Acceptance targets: recall ≥ 0.90, precision ≥ 0.90, p50 < 3 s, zero invalid outputs.
+  - If it is still missing on Day 8, the fallback judge still works and the demo still runs offline.
