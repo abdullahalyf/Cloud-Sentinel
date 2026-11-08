@@ -73,7 +73,10 @@ setting or endpoint, and a LocalStore DB created before the change still opens (
 
 ## 🔴 MUST (do in this order)
 
-### A1 · [ ] Claude judge: real-run evaluation on labeled incidents (precision / recall)
+### A1 · [x] (2026-11-08, https://github.com/abdullahalyf/Cloud-Sentinel/pull/24) Claude judge: real-run evaluation on labeled incidents (precision / recall)
+**Done:** ৬৪টা labeled incident (`brain/eval_data/incidents.jsonl`) + scorer (`brain/judge_eval.py`) + ২৪টা test.
+**Fallback judge:** precision 0.929, recall 0.839, F1 0.881, `legit_burst`-এ ০ false positive.
+**Live Claude run:** [!] — `ANTHROPIC_API_KEY` নেই, তাই Claude-এর latency/cost সংখ্যা এখনো নেই।
 **Owns:** `brain/judge_eval.py` (new), `brain/eval_data/incidents.jsonl` (new), `brain/tests/test_judge_eval.py`, `docs/research/judge-eval.md`.
 **Needs:** `ANTHROPIC_API_KEY` for the live part. Without it, build and run everything with `--judge fallback`, mark the live run `[!]`,
 and ask Taseen (H3).

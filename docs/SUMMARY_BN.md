@@ -54,3 +54,8 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 - করা হয়েছে: Fojle-র ৩টা contract request main-এ: ৪টা নতুন ROGUE_KINDS, `schema_migrations` table, CloudWatch-এর ২টা setting (সব additive, test সহ)।
 - এরপর: A10 Nightly integration check (`brain/nightly.py`)।
 - কেউ আটকে আছে?: না। Fojle এখন F6, F9, F10 শুরু করতে পারবে।
+
+### 2026-11-08 · A1 Judge evaluation on labeled incidents
+- করা হয়েছে: ৬৪টা labeled incident (৩১টা সমস্যা, ৩৩টা সুস্থ) + scorer `brain/judge_eval.py` + ২৪টা test। Fallback judge: precision 0.929, recall 0.839, F1 0.881; busy-healthy agent-কে ভুল করে থামায় না (০ false positive)।
+- এরপর: A2 Judge tuning — slow budget leak ও token bomb এখনো WARN (recall 0.839 < 0.90), আর stable-high-memory-কে ভুল করে PAUSE হয় (memory trend signal নেই)।
+- কেউ আটকে আছে?: হ্যাঁ — Taseen, `ANTHROPIC_API_KEY` দরকার (H3)। Claude judge-এর live run (latency/cost/accuracy) ছাড়া A1-এর অর্ধেক অংশ বাকি; `.env`-এ key বসিয়ে `python -m brain.judge_eval --judge claude --runs 3 --write` চালাতে হবে।
