@@ -1159,6 +1159,92 @@ with several latency columns in them, so guessing was never going to hold.
 **`eval/` is untouched.** `git status` on the branch shows only `docs/research/`,
 `docs/tasks/alif.md` and `brain/tests/`.
 
+---
+
+# 🆕 C-series backlog (added 8 Nov 2026, by Alif) — the closing run
+
+**Where this sits.** Eleven tasks, C0 to C10, added on top of the B-series. They are the
+**closing run** before the submission: prove it, harden it, explain it, and write it down.
+
+**The rules that cover every task in this series** (from Alif, 8 Nov):
+
+1. **Freeze: 2026-11-12 23:59 (Asia/Dhaka).** After that, only fixes, stability, docs and
+   submission. A C task that has not merged by then is not started.
+2. **New behaviour goes behind a flag**, in `shared/config.py` and `.env.example`. The default
+   is **off** unless the behaviour is fully tested.
+3. **Contract changes are additive only** and go through a `contract/…` branch.
+4. **Alif never does anything by hand.** Every human-only item goes to `docs/tasks/taseen.md`
+   and is listed under "needs Taseen" in the status report. **Never** under "needs Alif".
+5. **A teammate's folder is never edited.** A needed change there goes into a PR for them to
+   merge, or a note in their task file. Never merged by Alif.
+6. **Evidence goes in `docs/research/`** (or `docs/evidence/` once Taseen's folder-guard
+   change lands — PR #96).
+
+### C0 · [~] 🔴 Unblock the team
+> *Two requests are blocking work, so they go first.*
+> - **(a) Taseen** — the folder guard does not allow `alif/` to write `docs/evidence/`,
+>   `scripts/` or `docs/STATUS_BN.md`, so the B-series evidence landed in `docs/research/`
+>   with the file names the tasks did not ask for. One line in `.github/folder_guard.py`.
+> - **(b) Fojle** — `SupabaseStore.insert_audit` / `audit_entries` / `audit_head` are
+>   `NotImplementedError` stubs, so the audit chain does not exist in Postgres. Plus the
+>   `SpanRow.to_row()` deep copy (the B9 note).
+>
+> **Done when:** both are open PRs into the owner's folder, for the owner to merge.
+
+**Done.** Both PRs are open:
+- **PR #96** (`taseen/folder-guard-docs-evidence`) — the folder guard allows `alif/` to write
+  `docs/evidence/`, `scripts/` and `docs/STATUS_BN.md`, and the guard's own self-tests assert
+  each new path so the rule cannot regress. **Taseen merges it.**
+- **PR #97** (`contract/supabase-audit-methods`) — the audit chain's three store methods (with
+  the append-only rule and the highest-`seq` head), `insert_spans` using `SpanRow.to_row()`,
+  and the `to_row()` deep copy removed: **`asdict` 4.47 µs → 1.16 µs per span (3.9× faster)**.
+  **Fojle merges it** — `shared/store.py` is his file.
+
+### C1 · [ ] 🔴 The judge eval, run by CI
+> *`judge_eval --runs 3` for every Claude model, using `secrets.ANTHROPIC_API_KEY`, opening a
+> PR that updates `pitch-numbers.md`. The workflow is dispatched by hand, so it costs nothing
+> until somebody wants it.*
+>
+> **Acceptance:** the workflow file exists, is valid YAML, and runs the eval. Taseen gets the
+> task to add the secret, with the exact steps. **After every later task, check whether the
+> secret exists** — and the moment it does, run `gh workflow run judge-eval.yml` and merge the
+> result.
+
+### C2 · [ ] 🔴 The real integration rehearsal
+> *Boot the whole stack from `main`, with the real components wherever they exist, and run the
+> B3 demo runner against it. Fix what is ours. Open PRs or notes for the rest.*
+
+### C3 · [ ] 🔴 The red-team suite
+> *Adversarial agents try to **evade** the breaker: slow loops, heavy paraphrasing, the work
+> split across agents, healthy-looking pacing, budget leaks under the thresholds. Measure the
+> evasion rate, harden the detectors, and publish the before/after numbers.*
+
+### C4 · [ ] 🔴 The soak test
+> *Two hours of a mixed fleet. Track memory, CPU, latency drift and false positives. Fix the
+> leaks.*
+
+### C5 · [ ] 🟡 The threat model (STRIDE) + ADRs
+> *A STRIDE threat model for the whole system, and an ADR for every major decision.*
+
+### C6 · [ ] 🟡 The submission draft
+> *All 8 required sections plus the MCP disclosure (per `docs/research/hackathon.md`), in
+> `docs/research/submission-draft.md`. Every claim links to a number in `pitch-numbers.md`.*
+
+### C7 · [ ] 🟡 The judge Q&A
+> *40 likely judge questions, short answers, each with evidence and a command.*
+
+### C8 · [ ] 🟡 The demo backup
+> *A deterministic recording of the demo runner, and a fallback script for when the live demo
+> fails.*
+
+### C9 · [ ] 🟡 One rubric round
+> *Score the project 1–10 per rubric criterion in `docs/research/self-score.md`. Take the **2
+> lowest** criteria, write at most 5 tasks (D1–D5), execute them, then re-score **once**.*
+
+### C10 · [ ] 🔴 The final closing run
+> *The B3 demo runner 20/20, the full suite, the B10 status report, and the C2 rehearsal once
+> more.*
+
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)
 - 2026-11-04 (lead): the flaky failure was the CrewAI adapter test (thread-pool event handlers). Fixed in telemetry/ (Fojle's folder) with `flush()` + early-completion handling; nothing to do in brain/. A10 should still watch the `adapters` job.
