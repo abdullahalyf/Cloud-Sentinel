@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -271,7 +272,7 @@ export const FleetView: React.FC = () => {
   } = useQuery({
     queryKey: ['fleet'],
     queryFn: api.getFleet,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Fetch live ROI telemetry
@@ -283,7 +284,7 @@ export const FleetView: React.FC = () => {
   } = useQuery({
     queryKey: ['roi'],
     queryFn: api.getRoi,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const agents = fleetData?.agents || [];

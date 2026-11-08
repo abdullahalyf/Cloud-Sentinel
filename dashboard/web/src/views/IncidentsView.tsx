@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Play, Pause, ShieldCheck } from 'lucide-react';
@@ -15,8 +16,8 @@ const KIND_COLOR: Record<EventKind, string> = {
 };
 
 const OUTCOME_COLOR: Record<Outcome, string> = {
-  killed: 'var(--color-state-killed)',
-  paused: 'var(--color-state-paused)',
+  killed: 'var(--color-state-killed-text)',
+  paused: 'var(--color-state-paused-text)',
   healed: 'var(--color-state-healthy)',
   open: 'var(--color-state-suspicious)',
 };
@@ -28,7 +29,7 @@ const TICK_MS = 100;
 const TAIL_MS = 30_000; // keep replaying a little past the last event to see the aftermath
 
 export const IncidentsView: React.FC = () => {
-  const poll = { refetchInterval: 1000 };
+  const poll = { refetchInterval: livePoll };
   const alertsQ = useQuery({ queryKey: ['alerts', 100], queryFn: () => api.getAlerts(100), ...poll });
   const actionsQ = useQuery({ queryKey: ['actions', 200], queryFn: () => api.getActions(200), ...poll });
   const verdictsQ = useQuery({ queryKey: ['verdicts', 100], queryFn: () => api.getVerdicts(100), ...poll });
@@ -50,7 +51,7 @@ export const IncidentsView: React.FC = () => {
     queryKey: ['memory-history', selectedAgent],
     queryFn: () => api.getMemoryHistory(selectedAgent as string, 20),
     enabled: !!selectedAgent,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
   const memoryRows = useMemo(() => memoryQ.data?.items ?? [], [memoryQ.data]);
 
@@ -290,7 +291,7 @@ export const IncidentsView: React.FC = () => {
               style={{ backgroundColor: 'var(--color-surface-elevated)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3) var(--space-4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
             >
               <div>
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: act.action === 'KILL' ? 'var(--color-state-killed)' : 'var(--color-state-paused)', marginRight: 'var(--space-2)' }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: act.action === 'KILL' ? 'var(--color-state-killed-text)' : 'var(--color-state-paused-text)', marginRight: 'var(--space-2)' }}>
                   [{act.action}]
                 </span>
                 <span style={{ fontWeight: 600 }}>{act.agent_id}: </span>

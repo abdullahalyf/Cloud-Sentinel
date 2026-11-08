@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldAlert, Check, X, Edit2, Clock, Keyboard } from 'lucide-react';
@@ -168,7 +169,7 @@ const ToolCard: React.FC<ToolCardProps> = ({
             <button type="button" aria-label={`Approve tool call ${call.id}`} disabled={busy} onClick={() => onDecide('allow')} style={btn('var(--color-state-healthy-bg)', 'var(--color-state-healthy-border)', 'var(--color-state-healthy)')}>
               <Check size={14} /> Approve (A)
             </button>
-            <button type="button" aria-label={`Deny tool call ${call.id}`} disabled={busy} onClick={() => onDecide('deny')} style={btn('var(--color-state-killed-bg)', 'var(--color-state-killed-border)', 'var(--color-state-killed)')}>
+            <button type="button" aria-label={`Deny tool call ${call.id}`} disabled={busy} onClick={() => onDecide('deny')} style={btn('var(--color-state-killed-bg)', 'var(--color-state-killed-border)', 'var(--color-state-killed-text)')}>
               <X size={14} /> Deny (D)
             </button>
             <button type="button" aria-label={`Rewrite tool call ${call.id}`} disabled={busy} onClick={onStartRewrite} style={btn('var(--color-surface)', 'var(--color-border)', 'var(--color-text-primary)')}>
@@ -237,7 +238,7 @@ const HealCard: React.FC<{
         <button type="button" aria-label={`Apply heal ${heal.id}`} disabled={busy} onClick={() => onDecide('apply')} style={btn('var(--color-state-healthy-bg)', 'var(--color-state-healthy-border)', 'var(--color-state-healthy)')}>
           <Check size={14} /> Apply (A)
         </button>
-        <button type="button" aria-label={`Reject heal ${heal.id}`} disabled={busy} onClick={() => onDecide('reject')} style={btn('var(--color-state-killed-bg)', 'var(--color-state-killed-border)', 'var(--color-state-killed)')}>
+        <button type="button" aria-label={`Reject heal ${heal.id}`} disabled={busy} onClick={() => onDecide('reject')} style={btn('var(--color-state-killed-bg)', 'var(--color-state-killed-border)', 'var(--color-state-killed-text)')}>
           <X size={14} /> Reject (D)
         </button>
       </div>
@@ -260,12 +261,12 @@ export const ApprovalsView: React.FC = () => {
   const { data: calls, isLoading: loadingCalls, error: errorCalls, refetch: refetchCalls } = useQuery({
     queryKey: ['tool-calls', 'pending'],
     queryFn: () => api.getToolCalls('pending'),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
   const { data: heals, isLoading: loadingHeals, error: errorHeals, refetch: refetchHeals } = useQuery({
     queryKey: ['heal-proposals', 'pending'],
     queryFn: () => api.getHealProposals('pending'),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const pendingCalls = useMemo(

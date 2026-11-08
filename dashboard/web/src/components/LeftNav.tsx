@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -8,13 +9,13 @@ export const LeftNav: React.FC = () => {
   const { data: pendingCalls } = useQuery({
     queryKey: ['tool-calls', 'pending'],
     queryFn: () => api.getToolCalls('pending'),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const { data: pendingHeals } = useQuery({
     queryKey: ['heal-proposals', 'pending'],
     queryFn: () => api.getHealProposals('pending'),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const pendingCount = (pendingCalls?.items?.length || 0) + (pendingHeals?.items?.length || 0);

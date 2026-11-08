@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "shots": "playwright test shots.spec.ts",
-    "e2e": "playwright test e2e.spec.ts"
+    "e2e": "playwright test e2e.spec.ts a11y.spec.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.1.1",
@@ -24,6 +24,7 @@
     "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.49.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",

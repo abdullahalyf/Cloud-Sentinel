@@ -43,6 +43,9 @@
   --color-state-probation-border: rgba(6, 182, 212, 0.35);
 
   --color-state-killed: #f43f5e;
+  /* lighter variants for TEXT on tinted backgrounds (WCAG AA 4.5:1) */
+  --color-state-killed-text: #fda4af;
+  --color-state-paused-text: #a5b4fc;
   --color-state-killed-bg: rgba(244, 63, 94, 0.16);
   --color-state-killed-border: rgba(244, 63, 94, 0.4);
 

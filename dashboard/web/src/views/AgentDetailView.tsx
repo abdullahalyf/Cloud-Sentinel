@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -69,14 +70,14 @@ export const AgentDetailView: React.FC = () => {
   } = useQuery({
     queryKey: ['agent', id],
     queryFn: () => api.getAgent(id),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Query Execution Graph Nodes
   const { data: nodesData } = useQuery({
     queryKey: ['agent-nodes', id],
     queryFn: () => api.getAgentNodes(id),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Query Memory History
@@ -90,7 +91,7 @@ export const AgentDetailView: React.FC = () => {
   const { data: toolCallsData, refetch: refetchToolCalls } = useQuery({
     queryKey: ['tool-calls'],
     queryFn: () => api.getToolCalls(),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Initialize Memory Editor once agent memory is loaded
@@ -579,7 +580,7 @@ export const AgentDetailView: React.FC = () => {
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-sm)',
               backgroundColor: 'var(--color-state-killed-bg)',
-              color: 'var(--color-state-killed)',
+              color: 'var(--color-state-killed-text)',
               border: '1px solid var(--color-state-killed-border)',
               fontSize: 'var(--type-body-sm-size)',
               fontWeight: 600,
@@ -834,7 +835,7 @@ export const AgentDetailView: React.FC = () => {
                           padding: '4px 10px',
                           borderRadius: 'var(--radius-sm)',
                           backgroundColor: 'var(--color-accent)',
-                          color: '#FFFFFF',
+                          color: 'var(--color-canvas)',
                           border: 'none',
                           fontSize: 'var(--type-micro-size)',
                           fontFamily: 'var(--font-mono)',

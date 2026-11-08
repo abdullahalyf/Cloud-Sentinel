@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DollarSign, RotateCcw, ChevronRight } from 'lucide-react';
@@ -356,23 +357,23 @@ export const CostView: React.FC = () => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['roi'],
     queryFn: api.getRoi,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const { data: metricsData } = useQuery({
     queryKey: ['metrics', 30],
     queryFn: () => api.getMetrics(30),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
   const { data: actionsData } = useQuery({
     queryKey: ['actions'],
     queryFn: () => api.getActions(50),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
   const { data: fleetData } = useQuery({
     queryKey: ['fleet'],
     queryFn: api.getFleet,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
   const taskRows = useMemo(() => taskRowsByWasted(data?.tasks_by_agent), [data]);
 

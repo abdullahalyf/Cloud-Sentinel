@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WifiOff } from 'lucide-react';
@@ -8,7 +9,7 @@ export const ConnectionBanner: React.FC = () => {
   const { isError, error } = useQuery({
     queryKey: ['health'],
     queryFn: api.getHealth,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
   if (!isError) return null;
   return (

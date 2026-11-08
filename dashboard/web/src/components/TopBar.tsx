@@ -1,3 +1,4 @@
+import { livePoll } from '../lib/live';
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, Play, Cpu, DollarSign } from 'lucide-react';
@@ -21,13 +22,13 @@ export const TopBar: React.FC = () => {
   const { data: health } = useQuery({
     queryKey: ['health'],
     queryFn: api.getHealth,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const { data: roi } = useQuery({
     queryKey: ['roi'],
     queryFn: api.getRoi,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const isDemo =

@@ -1,4 +1,5 @@
-import React from 'react';
+import { livePoll, startLiveStream } from './lib/live';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopBar } from './components/TopBar';
@@ -17,7 +18,7 @@ import './styles/base.css';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchInterval: 1000,
+      refetchInterval: livePoll,
       retry: 1,
       refetchOnWindowFocus: false,
     },
@@ -65,6 +66,7 @@ const LayoutShell: React.FC = () => {
 };
 
 export const App: React.FC = () => {
+  useEffect(() => startLiveStream(queryClient), []);
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
