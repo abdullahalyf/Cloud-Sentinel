@@ -1013,3 +1013,88 @@ def tool_risk_from_history(calls: list[dict], threshold: int = TOOL_RISK_AUTO_AP
         entries.append(entry)
     entries.sort(key=lambda e: (-e["approvals"], e["agent_id"], e["tool_name"]))
     return entries
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 7. The policy backtest (CONTRACTS §6, B5)
+# ─────────────────────────────────────────────────────────────────────────────
+# "Would the new policy have caught it?" is the question an operator asks before
+# shipping a policy change. The only honest way to answer it is to **replay what
+# actually happened** against the candidate policy and count.
+#
+# The report says three things, and all three matter:
+#
+#   catches         — the times the candidate policy would have caught a runaway
+#                     that the running policy did not;
+#   false_positives — the times the candidate policy would have stopped an agent
+#                     that was fine. **Counted, not hidden** — a backtest that only
+#                     reports the good news is an advertisement, not a measurement;
+#   usd_saved       — the money the catches would have saved, by the **same** ROI
+#                     formula the live system uses (ROI_FORMULA).
+#
+# Like the postmortem, the *shape* lives here so the mock and the real API say
+# the same thing, and the *builder* lives in the brain.
+
+# The action types that count as "the policy caught it". A WARN is not a catch:
+# warning about a runaway is not stopping it.
+BACKTEST_CATCH_ACTIONS = ("PAUSE", "KILL", "TOOL_DENY", "TOOL_REWRITE")
+
+
+def backtest_catch(rule: str, agent_id: str, at: float, action: str,
+                   reason: str = "", usd_saved: float = 0.0) -> dict:
+    """One thing the candidate policy would have caught."""
+    return {"rule": rule, "agent_id": agent_id, "at": at, "action": action,
+            "reason": reason, "usd_saved": round(float(usd_saved or 0.0), 4)}
+
+
+def backtest_false_positive(rule: str, agent_id: str, at: float, reason: str = "") -> dict:
+    """One thing the candidate policy would have wrongly stopped."""
+    return {"rule": rule, "agent_id": agent_id, "at": at, "reason": reason}
+
+
+def backtest_report(catches: Optional[list] = None,
+                    false_positives: Optional[list] = None,
+                    policy_version: str = "",
+                    agents_tested: Optional[list] = None,
+                    spans_replayed: int = 0,
+                    usd_saved: float = 0.0,
+                    horizon_minutes: float = 60.0,
+                    as_of: Optional[float] = None) -> dict:
+    """
+    The backtest report (CONTRACTS §6, BacktestReport).
+
+    A store with no history reports **zeroes, not an error**: "we have no traces,
+    so we cannot tell you anything" is a fact, and a backtest that fails on an
+    empty store teaches the operator to distrust it.
+    """
+    catches = list(catches or [])
+    false_positives = list(false_positives or [])
+    agents = list(agents_tested or [])
+    return {
+        "catches": catches,
+        "false_positives": false_positives,
+        "usd_saved": round(float(usd_saved or 0.0), 4),
+        "policy_version": policy_version,
+        "agents_tested": agents,
+        "spans_replayed": int(spans_replayed or 0),
+        "horizon_minutes": horizon_minutes,
+        "counts": {
+            "catches": len(catches),
+            "false_positives": len(false_positives),
+            "agents": len(agents),
+            "total": len(catches) + len(false_positives),
+        },
+        "as_of": as_of,
+    }
+
+
+def backtest_summary(report: dict) -> str:
+    """
+    The report as one plain line, for the CLI and for a dashboard caption.
+
+    It says the false positives out loud, next to the catches. A summary that
+    only shows the catches is a summary that hides half the answer.
+    """
+    counts = report.get("counts") or {}
+    return (f"{counts.get('catches', 0)} caught, {counts.get('false_positives', 0)} false positive(s), "
+            f"${report.get('usd_saved', 0.0):.2f} saved")

@@ -78,6 +78,8 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_VERIFIED_HEAL` *(added 8 Nov, B1)* | `false` | brain | before a judge patch is applied, replay the agent's recent context against it in a **shadow dry-run**; apply automatically only if the shadow is healthy **and** the confidence is at least `CS_AUTOHEAL_MIN_CONFIDENCE`, otherwise the patch goes to the approvals inbox. `false` → every patch waits for a human (the A3 behaviour, exactly) |
 | `CS_DEGRADATION_ENABLED` *(added 8 Nov, B4)* | `false` | brain | step a runaway agent down the ladder — throttle → cheaper model → pause → kill — one rung at a time. `false` → the old behaviour exactly (pause or kill, straight away, no throttle) |
 | `CS_BUDGET_WARN_USD_PER_MIN` *(added 8 Nov, B4)* | `0` | brain | the burn rate at which the brain warns that a budget is going to run out; `0` → no warning |
+| `CS_BACKTEST_ENABLED` *(added 8 Nov, B5)* | `false` | brain | serve `GET /v1/backtest` — replay the stored traces against a candidate policy. `false` → the endpoint does not exist (the CLI still works: it only reads) |
+| `CS_BACKTEST_WINDOW_MINUTES` *(added 8 Nov, B5)* | `60` | brain | how many minutes of stored traces the backtest replays |
 | `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
 | `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
@@ -264,6 +266,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `POST /v1/policy/reload` *(added 8 Nov)* | → `{"ok": true, "policy": PolicyView}` — re-reads the file now; `ok:false` + the errors in `policy.last_error` if it is broken | dashboard, mcp |
 | `POST /v1/policy/validate` *(added 8 Nov)* | `{"yaml": "..."}` → `{"ok": bool, "errors": ["tools[2].when.op: must be one of …"]}` — validates YAML text, changes nothing | dashboard, mcp |
 | `GET /v1/budgets` *(added 8 Nov, B4)* | → `BudgetReport` (below) — the org → team → agent budget tree, with a burn-rate forecast at every level | dashboard, mcp |
+| `GET /v1/backtest?policy_path=` *(added 8 Nov, B5)* | → `BacktestReport` (below) — what a candidate policy would have caught, the false positives, and the money saved. Behind `CS_BACKTEST_ENABLED` | dashboard, mcp |
 | `WS /v1/stream` | server pushes `{"type": "metric"|"verdict"|"action"|"alert"|"tool_call","data":{...}}` | optional clients |
 
 **`PolicyView`** *(added 8 Nov)* — the policy actually in force:
@@ -383,6 +386,49 @@ Agents **without a container** (a LangGraph/CrewAI process, any external OTel ag
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
 
+**`BacktestReport`** *(added 8 Nov, B5)* — what a candidate policy would have caught:
+
+```
+{
+  "catches": [                   # the runaways the candidate policy would have stopped
+    {"rule": str,                # the rule that fired
+     "agent_id": str,
+     "at": float,                # when, on the agent's own clock
+     "action": str,              # PAUSE | KILL | TOOL_DENY | TOOL_REWRITE
+     "reason": str,
+     "usd_saved": float}
+  ],
+  "false_positives": [           # the agents the candidate policy would have stopped WRONGLY
+    {"rule": str, "agent_id": str, "at": float, "reason": str}
+  ],
+  "usd_saved": float,            # the money the catches would have saved
+  "policy_version": str,         # sha256 of the candidate policy file [:12]; "" = the running policy
+  "agents_tested": [str],
+  "spans_replayed": int,
+  "horizon_minutes": float,      # the ROI horizon the money is projected over
+  "counts": {"catches": int, "false_positives": int, "agents": int, "total": int},
+  "as_of": float|null
+}
+```
+
+**The false positives are in the report on purpose.** A backtest that shows only the catches is
+an advertisement, not a measurement — the operator needs to see what the candidate policy would
+have broken as well as what it would have saved. `false_positives` is therefore counted out loud
+and it is never subtracted from `catches`.
+
+**The money is the same money the live system counts.** `usd_saved` uses the **ROI formula**
+(§8) — `$/min at the moment of action × horizon` for a PAUSE or a KILL — so a backtest and the
+live ROI report cannot disagree about what a saved dollar is worth.
+
+**A store with no history reports zeroes, not an error.** "We have no traces, so we cannot tell
+you anything" is a fact, and a backtest that fails on an empty store teaches the operator to
+distrust it. The report is then `catches: []`, `false_positives: []`, `usd_saved: 0.0`,
+`spans_replayed: 0`.
+
+**The backtest is deterministic.** The same traces and the same candidate policy always give the
+same report — the same catches, in the same order, with the same numbers. A backtest that varied
+run to run could not be used to compare two policies.
+
 **`PostmortemReport`** *(added 8 Nov, B2)* — the postmortem of one incident:
 
 ```
@@ -492,7 +538,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| _(none — the mock and the real API are in step)_ | | |
+| `GET /v1/backtest` | the whole endpoint | the brain side (B5) |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
