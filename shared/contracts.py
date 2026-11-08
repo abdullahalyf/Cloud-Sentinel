@@ -57,12 +57,13 @@ JUDGE_ACTIONS = ("KILL", "PAUSE", "WARN", "IGNORE")
 
 ActionType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
                      "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
-                     "POLICY_RELOAD", "TOOL_INJECTION_DENY"]
+                     "POLICY_RELOAD", "TOOL_INJECTION_DENY", "TOOL_AUTO_ALLOW"]
 ACTION_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
                 "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
-                "POLICY_RELOAD", "TOOL_INJECTION_DENY")
+                "POLICY_RELOAD", "TOOL_INJECTION_DENY", "TOOL_AUTO_ALLOW")
 
-Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp", "brain:autoheal"]
+Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp",
+                "brain:autoheal", "brain:toolrisk"]
 
 CommandType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "GO_ROGUE", "SET_BUDGET"]
 COMMAND_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "GO_ROGUE", "SET_BUDGET")
@@ -555,3 +556,121 @@ def explain_report(agent_id: str, state: str, events: list[dict], minutes: float
         "cost": {"spend_usd": float(spend_usd or 0.0), "budget_usd": float(budget_usd or 0.0),
                  "saved_usd": float(saved_usd or 0.0)},
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. The learned tool risk (CONTRACTS §6, A14)
+# ─────────────────────────────────────────────────────────────────────────────
+# A human approves the same refund five times a day. The fifth time, asking again
+# is friction, not safety: the person has already answered the same question five
+# times. A14 learns that — and records *why* it decided on its own.
+#
+# The builder is here, in the contract folder, for the same reason the explain
+# builder is: the mock and the real API must say the same thing.
+
+# How many human approvals of the *identical* call are needed before the brain
+# stops asking. Five is the number the task names.
+TOOL_RISK_AUTO_APPROVE_AFTER = 5
+
+
+def tool_risk_signature(tool_name: str, args: Any) -> str:
+    """
+    The identity of a tool call: the tool plus its arguments, canonically.
+
+    Two calls with the same arguments in a different order are the same call —
+    a refund of 500 BDT for order 4471 is a refund of 500 BDT for order 4471,
+    however the JSON was written. The signature is what the approvals are counted
+    against, so it must not depend on the order of the keys.
+    """
+    payload = json.dumps(args if isinstance(args, dict) else {}, sort_keys=True, default=str)
+    return f"{str(tool_name or '').strip()}:{payload}"
+
+
+def tool_risk_entry(agent_id: str, tool_name: str, args: Any, approvals: int, denials: int,
+                    threshold: int = TOOL_RISK_AUTO_APPROVE_AFTER) -> dict:
+    """One (agent, tool, args) — how many times a human said yes, and no."""
+    approvals = int(approvals or 0)
+    denials = int(denials or 0)
+    return {
+        "agent_id": agent_id,
+        "tool_name": tool_name,
+        "args": args if isinstance(args, dict) else {},
+        "signature": tool_risk_signature(tool_name, args),
+        "approvals": approvals,
+        "denials": denials,
+        "threshold": int(threshold),
+        # The one thing a client needs: may this call go through without a human?
+        "auto_approved": approvals >= int(threshold),
+        # Why the score is what it is — a client should never have to guess.
+        "reason": (f"{approvals} human approval(s) of this exact call; "
+                   f"auto-approve after {int(threshold)}"
+                   if approvals >= int(threshold)
+                   else f"{approvals} human approval(s) of this exact call; "
+                        f"{int(threshold) - approvals} more needed to auto-approve"),
+    }
+
+
+def tool_risk_view(entries: list[dict], threshold: int = TOOL_RISK_AUTO_APPROVE_AFTER) -> dict:
+    """The whole `ToolRiskReport` (CONTRACTS §6)."""
+    entries = list(entries or [])
+    return {
+        "entries": entries,
+        "counts": {
+            "entries": len(entries),
+            "auto_approved": sum(1 for e in entries if e.get("auto_approved")),
+            "denied": sum(1 for e in entries if int(e.get("denials") or 0) > 0),
+        },
+        "threshold": int(threshold),
+    }
+
+
+def tool_risk_from_history(calls: list[dict], threshold: int = TOOL_RISK_AUTO_APPROVE_AFTER) -> list[dict]:
+    """
+    Count the human answers in the tool-call history, grouped by the exact call.
+
+    Only a **human** answer counts. A `policy` allow is the rules doing their job, and
+    an `mcp` answer is another agent's opinion — neither is a person saying "yes, this
+    is fine", so neither may teach the brain to stop asking.
+
+    A **denial counts against** the score: a person who refused this call three times
+    has said something about it, and the score must not go up because a fifth approval
+    happened to arrive. The entry keeps both counts so a client can show the whole
+    history, and the auto-approve decision needs the approvals to outweigh the denials.
+    """
+    tally: dict[str, dict] = {}
+    for call in calls or []:
+        if not isinstance(call, dict):
+            continue
+        decided_by = str(call.get("decided_by") or "")
+        if decided_by != "human":
+            continue
+        decision = str(call.get("decision") or "")
+        if decision not in ("allow", "deny"):
+            continue
+        args = call.get("args") if isinstance(call.get("args"), dict) else {}
+        agent_id = str(call.get("agent_id") or "")
+        tool_name = str(call.get("tool_name") or "")
+        signature = tool_risk_signature(tool_name, args)
+        key = f"{agent_id}\x00{signature}"
+        row = tally.setdefault(key, {
+            "agent_id": agent_id, "tool_name": tool_name, "args": args,
+            "signature": signature, "approvals": 0, "denials": 0,
+        })
+        if decision == "allow":
+            row["approvals"] += 1
+        else:
+            row["denials"] += 1
+    entries = []
+    for row in tally.values():
+        entry = tool_risk_entry(row["agent_id"], row["tool_name"], row["args"],
+                                row["approvals"], row["denials"], threshold)
+        # A denial is a veto: a call a human refused is never auto-approved, however
+        # many times somebody else later said yes. The counts stay — a client must be
+        # able to show that five people said yes and one said no.
+        if row["denials"] > 0:
+            entry["auto_approved"] = False
+            entry["reason"] = (f"{row['approvals']} human approval(s) and {row['denials']} denial(s) of "
+                               f"this exact call; a denial vetoes auto-approve")
+        entries.append(entry)
+    entries.sort(key=lambda e: (-e["approvals"], e["agent_id"], e["tool_name"]))
+    return entries

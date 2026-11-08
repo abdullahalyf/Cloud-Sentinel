@@ -218,6 +218,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/tool-calls/{call_id}` | → `ToolCallRow` | sdk (polls ≤1/s) |
 | `GET /v1/tool-calls?status=pending` | → `{"items": [ToolCallRow]}` | dashboard, mcp |
 | `POST /v1/tool-calls/{call_id}/decision` | `{"decision": "allow"|"deny"|"rewrite","final_args":{}|null,"decided_by","reason"}` → `ToolCallRow` | dashboard, mcp |
+| `GET /v1/tool-risk?agent_id=` *(added 8 Nov, A14)* | → `ToolRiskReport` (below) — what a human has approved, per (agent, tool, args) | dashboard, mcp |
 | `GET /v1/heal-proposals?status=&agent_id=&limit=50` *(added 8 Nov)* | → `{"items": [HealProposalRow]}` | dashboard, mcp |
 | `POST /v1/heal-proposals/{id}/decision` *(added 8 Nov)* | `{"decision": "apply"|"reject","reason","requested_by"}` → `HealProposalRow` | dashboard, mcp |
 | `GET /v1/roi` | → `RoiReport` (see §8) | dashboard, mcp |
@@ -282,6 +283,44 @@ Agents **without a container** (a LangGraph/CrewAI process, any external OTel ag
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
 
+**`ToolRiskReport`** *(added 8 Nov, A14)* — what a human has approved, per (agent, tool, args):
+
+```
+{
+  "entries": [
+    {
+      "agent_id": str,
+      "tool_name": str,
+      "args": {},                  # the arguments the approvals were for
+      "signature": str,           # tool + args, canonical (key order does not matter)
+      "approvals": int,           # how many humans said yes to this exact call
+      "denials": int,             # how many humans said no
+      "threshold": int,           # how many approvals auto-approve (5)
+      "auto_approved": bool,      # may this call go through without a human?
+      "reason": str               # why — a client must never have to guess
+    }
+  ],
+  "counts": {"entries": int, "auto_approved": int, "denied": int},
+  "threshold": int
+}
+```
+
+**Only a human answer counts.** A `policy` allow is the rules doing their job, and an `mcp`
+answer is another agent's opinion — neither is a person saying "yes, this is fine", so neither
+may teach the brain to stop asking. Only `decided_by: "human"` with `decision: "allow"` counts as
+an approval; `decision: "deny"` counts as a denial.
+
+**A denial is a veto.** A call a human refused is never auto-approved, however many approvals
+arrive later — the counts stay in the entry, so a client can show "five said yes, one said no",
+but `auto_approved` is false. `threshold` is 5: five approvals of the *identical* call (the same
+tool, the same arguments) and the brain stops asking.
+
+**The learned score never loosens a deny.** It only turns a call that would have been held for
+approval into one that is allowed. A policy rule that says `deny`, and the injection gate, both
+still win — the brain learns to stop asking about *safe* calls, never to wave a dangerous one
+through. Every auto-approval is written to the audit log as a `TOOL_AUTO_ALLOW` action by the
+`brain:toolrisk` actor, so an operator can always see which calls went through on their own.
+
 `SET_BUDGET` params: `{"budget_usd": float}`. `GO_ROGUE` params: `{"kind": "loop"|"paraphrase_loop"|"token_bomb"|"memory_leak"|"bad_tool_call"|"prompt_injection"|"tool_storm"|"memory_poisoning"|"slow_budget_leak"}` (the last 4 added 5 Nov; implemented by the telemetry simulator, FakeFleet keeps them healthy).
 
 ### The mock may lead the real API
@@ -299,10 +338,12 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| `GET /v1/agents/{id}/explain` *(A13)* | the whole endpoint — the mock has it, the real API does not yet | the A13 brain branch |
+| `GET /v1/tool-risk` *(A14)* | the whole endpoint — the mock has it, the real API does not yet | the A14 brain branch |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
+A13's gap (`GET /v1/agents/{id}/explain`: the whole endpoint) closed when the brain side landed
+as PR #47.
 
 ---
 
@@ -326,6 +367,7 @@ so it installs on its own (a laptop, Claude Desktop, a container that has never 
 | `set_budget` | `agent_id`, `budget_usd` | command id | yes |
 | `get_memory` / `edit_memory` | `agent_id` / `agent_id, content, reason` | MemoryRow | edit: yes |
 | `list_pending_tool_calls` | — | pending ToolCallRows | no |
+| `get_tool_risk` *(added 8 Nov, A14)* | `agent_id?` | ToolRiskReport — what a human has approved, per (agent, tool, args) | no |
 | `decide_tool_call` | `call_id, decision, final_args?, reason` | ToolCallRow | yes |
 | `list_heal_proposals` *(added 8 Nov)* | — | pending HealProposalRows | no |
 | `decide_heal` *(added 8 Nov)* | `proposal_id, decision, reason` | HealProposalRow | **yes** (annotated `destructiveHint`) |
