@@ -56,9 +56,11 @@ JudgeAction = Literal["KILL", "PAUSE", "WARN", "IGNORE"]
 JUDGE_ACTIONS = ("KILL", "PAUSE", "WARN", "IGNORE")
 
 ActionType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
-                     "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL"]
+                     "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
+                     "POLICY_RELOAD"]
 ACTION_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
-                "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL")
+                "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
+                "POLICY_RELOAD")
 
 Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp", "brain:autoheal"]
 

@@ -78,6 +78,8 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
 | `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
+| `CS_POLICY_RELOAD_ENABLED` *(added 8 Nov)* | `true` | brain | pick up a changed `CS_POLICY_FILE` while running; false → the policy is read once at startup |
+| `CS_POLICY_RELOAD_INTERVAL_SECONDS` *(added 8 Nov)* | `1` | brain | how often the policy file's mtime is checked |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
 | `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
@@ -199,7 +201,16 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/heal-proposals?status=&agent_id=&limit=50` *(added 8 Nov)* | → `{"items": [HealProposalRow]}` | dashboard, mcp |
 | `POST /v1/heal-proposals/{id}/decision` *(added 8 Nov)* | `{"decision": "apply"|"reject","reason","requested_by"}` → `HealProposalRow` | dashboard, mcp |
 | `GET /v1/roi` | → `RoiReport` (see §8) | dashboard, mcp |
+| `GET /v1/policy` *(added 8 Nov)* | → `PolicyView` (below) | dashboard, mcp |
+| `POST /v1/policy/reload` *(added 8 Nov)* | → `{"ok": true, "policy": PolicyView}` — re-reads the file now; `ok:false` + the errors in `policy.last_error` if it is broken | dashboard, mcp |
+| `POST /v1/policy/validate` *(added 8 Nov)* | `{"yaml": "..."}` → `{"ok": bool, "errors": ["tools[2].when.op: must be one of …"]}` — validates YAML text, changes nothing | dashboard, mcp |
 | `WS /v1/stream` | server pushes `{"type": "metric"|"verdict"|"action"|"alert"|"tool_call","data":{...}}` | optional clients |
+
+**`PolicyView`** *(added 8 Nov)* — the policy actually in force:
+`{version: str, loaded_at: str, source: str, defaults: {...}, agents: {...}, tools: [...], last_error: str}`.
+`version` is `sha256(policy file)[:12]` — it changes whenever the file changes. `last_error` is empty while
+the policy is good, and holds the validation errors of the **rejected** file otherwise (the last good
+policy stays in force).
 
 **`AgentView`** = `agents` row + latest metric:
 `{agent_id, display_name, runtime, state, budget_usd, spend_usd, total_tokens, tokens_per_min, usd_per_min,
@@ -241,6 +252,8 @@ Every tool calls the C2 API (§6) — so it works against the mock API.
 | `list_heal_proposals` *(added 8 Nov)* | — | pending HealProposalRows | no |
 | `decide_heal` *(added 8 Nov)* | `proposal_id, decision, reason` | HealProposalRow | **yes** (annotated `destructiveHint`) |
 | `get_roi_report` | — | RoiReport | no |
+| `get_policy` *(added 8 Nov)* | — | PolicyView (the policy in force) | no |
+| `validate_policy` *(added 8 Nov)* | `yaml: str` | `{"ok": bool, "errors": [...]}` | no |
 
 `requested_by` / `decided_by` / `edited_by` = `"mcp"` for everything sent through MCP (audit trail).
 
@@ -325,3 +338,21 @@ tools:                      # first match wins; glob on tool name
   - { match: "*",            action: allow }
 ```
 `op` ∈ `gt, gte, lt, lte, eq, ne, contains`. No `eval()` — ever.
+
+**Validation** *(added 8 Nov)* — every file is checked before it is allowed to replace the running policy.
+The checks are explicit and pure Python (no new dependency). Each error names the exact path, so the
+person who edited the file knows what to fix:
+
+```
+defaults.budget_usd: must be a number > 0
+defaults.on_trip: must be one of pause, kill
+tools[2].when.op: must be one of gt, gte, lt, lte, eq, ne, contains
+tools[2].action: must be one of allow, deny, approval
+agents.delta.budget_usd: must be a number > 0
+```
+
+**Hot reload** *(added 8 Nov)* — the brain checks the policy file's mtime every
+`CS_POLICY_RELOAD_INTERVAL_SECONDS` (1 s). A change is loaded and validated; a **valid** file is
+swapped in atomically and a `POLICY_RELOAD` action is recorded. An **invalid** file is rejected: the
+last good policy stays in force and a critical `policy_invalid` alert carries the errors. The policy
+in force is `GET /v1/policy`; `version` is `sha256(file)[:12]`.
