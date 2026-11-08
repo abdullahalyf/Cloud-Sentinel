@@ -278,3 +278,27 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
   It is the folder guard's own file, so it is Taseen's to change — Alif's agent cannot edit it. Until it lands the
   demo runner writes its report to `docs/research/demo_run.md` instead, and the other evidence tasks write theirs
   next to it. Nothing about the code depends on the change: only where the report file lands.
+- 2026-11-08 · **B10 — two more lines in `.github/folder_guard.py`: allow `scripts/` and `docs/STATUS_BN.md` for `alif/`.**
+  The B10 task asks for `scripts/status.py` (new) and `docs/STATUS_BN.md` (new). Neither path is allowed for
+  `alif/` today: the guard allows `brain/`, `docs/tasks/alif.md`, `docs/SUMMARY_BN.md` and `docs/research/`.
+  So the change is two lines in the same `PREFIX_RULES` entry:
+  ```python
+  "alif/": lambda path: (
+      path.startswith("brain/")
+      or path == "docs/tasks/alif.md"
+      or path == "docs/SUMMARY_BN.md"
+      or path.startswith("docs/research/")
+      or path.startswith("docs/evidence/")     # ← from the B3 request above
+      or path.startswith("scripts/")           # ← this line
+      or path == "docs/STATUS_BN.md"           # ← this line
+  ),
+  ```
+  Two notes on why these are worth allowing, not just making the guard lax:
+  - **`scripts/` is where a repository's own tools live**, and `scripts/demo.py` is already there — Taseen's
+    own demo script, referenced in his own task file at line 100. A second script there is not a new
+    category; it is the same category. The guard currently allows `alif/` to write a *tool* but only
+    under `brain/`, which is the one directory the guard already owns on Alif's behalf.
+  - **`docs/STATUS_BN.md` is a report, not code**, and it is the file Alif is meant to read instead of
+    twenty task files. Putting it in `docs/` root is what makes it the obvious "read this one file".
+  Until it lands, the status script lives in `brain/status.py` and writes `docs/research/STATUS_BN.md` —
+  both already allowed. Nothing about the code depends on the change: only where the two files land.

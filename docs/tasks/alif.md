@@ -944,10 +944,29 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > the machine: **215.9 calls per agent at 100 agents and 215.1 at 1000**, flat to within 0.4%. The
 > wall-clock ratio is a budget question, not a shape question, and it is tested as one.
 >
+> **The correction to the correction (8 Nov, after the merge).** The 8.5×–27.6× spread above was
+> **not the machine — it was a bug in the benchmark**, and the CI caught it: the B9 merge went red
+> because the published p95 at 100 agents was 9.2 ms and a CI runner measured 118 ms. The
+> benchmark meant to delete its throwaway database before each repeat and **the deletion never
+> worked**: `LocalStore` opens a connection and never closes it, and on Windows an open file cannot
+> be deleted — so `os.remove` failed, the failure was swallowed, and each repeat ran against the
+> *previous* repeat's rows. The rows written went 2300 → 4600 → 6900 at 100 agents, and that drift
+> is what the "noise" was. On Linux the unlink succeeds but the orphan `-wal` file is recovered by
+> the next connection, so the bug was on every platform — it just failed differently. The
+> benchmark now closes its own store and removes the database, the `-wal` and the `-shm`. With
+> that, the rows written are constant and the spread across five identical runs falls from 5.1×
+> to **1.16× at 100 agents, 1.17× at 500 and 1.56× at 1000**. The published numbers were
+> regenerated, the test now compares the published number against the *same estimator* it was
+> produced with (the minimum across the repeats — a minimum compared against a single draw is not a
+> comparison), and the deterministic half (the rows written, the agents seen) is checked exactly.
+> Five regression tests pin it: the store must be fresh between repeats, the repeats must measure
+> the same store size, the throwaway files must be gone, and the benchmark must close what it
+> opened.
+>
 > **Contract:** `CS_BASELINE_RECOMPUTE_EVERY` — PR #88 (contract), merged first.
 > **Needs Taseen:** `docs/evidence/` is still not a folder `alif/` may write.
 
-### B10 · [ ] 🟡 SHOULD · The team status report
+### B10 · [x] 🟡 SHOULD · The team status report
 > Prompt:
 > *A script reads the git log, the task files and the CI results and writes `docs/STATUS_BN.md`:
 > per person, what is done versus what is planned, and who is behind or blocked. Run it after every
@@ -965,6 +984,51 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Done (8 Nov).** The script is `brain/status.py` and the report is `docs/research/STATUS_BN.md`.
+> Both paths are inside the folders the folder guard already gives `alif/` (`brain/` and
+> `docs/research/`), because `scripts/` and `docs/STATUS_BN.md` are still not allowed — the
+> request for those two lines is written up in `docs/tasks/taseen.md`. The command is
+> `python -m brain.status --write docs/research/STATUS_BN.md`, and `--json` prints the same numbers
+> machine-readably so a CI job can read them.
+>
+> **Four signals, because no one signal was enough.** The task files' boxes (`[x]`, `[!]`, `[ ]`)
+> exist only in Alif's file, so they cannot be the definition. The report reads **four** things and
+> combines them:
+>
+> - **the box** — `[x]` done, `[!]` blocked. Only some files have it.
+> - **the git log on `main`** — a commit whose message names a task id means that task is done,
+>   whether or not anyone remembered to tick a box. This is the signal that makes the report work
+>   for the people whose files have no boxes.
+> - **the branches that are not on `main`** — a commit on a branch but not on `main` means the work
+>   is done but never submitted. That is a *different* problem from "not started", and it needs a
+>   different word: the fix is "open the PR", not "do the work". This signal found Tamjid's D1
+>   and D2.
+> - **the open pull requests** (`gh pr list`) — submitted and waiting for a merge. This found
+>   Fojle's F2 and F3 on PR #60.
+>
+> **"Behind" is a rule, not a feeling.** A person is behind when they have a task that is planned
+> and not started on a day that has already passed, or a task marked `[!]`. The day comes from the
+> task's own label (`### T2 (Day 1)`), read against Day 1 = 5 Nov 2026 from `docs/PLAN.md`. A task
+> with no day label is **never** behind on that count — there is nothing to compare it to. Being
+> due today is not being late. The rule is written into the report itself, in Bangla, so a reader
+> can check it instead of trusting it.
+>
+> **CI is read through `gh`, and "unknown" is an answer.** The newest workflow run on `main` gives
+> green / red / running / grey. When `gh` is missing, unauthenticated, or there is no run, the
+> report says **"অজানা"** and says why — it never crashes and never guesses, because a status
+> report that lies about CI is worse than one that admits it does not know. There is a test that
+> removes `gh` from under it and checks the report still renders.
+>
+> **Two bugs the report found in its own inputs.** Alif's task file uses the id `A10` twice — once
+> to open a recurring task and once to write its completion detail — and the report counted it
+> twice, overstating the work done. One id is now one task. And the ids were listed in
+> lexicographic order (`A0, A1, A10, A11, A2`), so the numbers are compared as numbers now.
+>
+> 30 tests, no network and no `gh` required for the core ones: every person is named and counted,
+> the counts add up, the day arithmetic is checked against known dates, the behind rule is tested
+> case by case, the report is in Bangla, it is byte-for-byte deterministic, the command exits 0,
+> and `--json` is machine-readable.
 
 ### B11 · [ ] 🟢 STRETCH · Packaging
 > Prompt:
