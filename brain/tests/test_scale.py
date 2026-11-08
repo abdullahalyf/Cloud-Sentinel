@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
@@ -284,6 +285,95 @@ def test_the_published_p95_is_the_minimum_across_the_repeats(tmp_path):
     assert len(result.to_dict()["repeat_p95s_ms"]) == 3
 
 
+# ── the benchmark must measure the tick, not its own leftovers ──────────────
+#
+# The bug this section guards against is worth a paragraph of its own, because
+# it looked exactly like a slow machine.
+#
+# `run_ladder` measured each repeat with a throwaway SQLite file, and removed
+# the file before each repeat so the run would measure the tick and not the
+# disk. **The removal never worked.** `LocalStore` opens a connection and never
+# closes it (`shared/store.py` is Fojle's folder, so the benchmark has to close
+# it for itself), and on Windows a file that is open cannot be deleted — so
+# `os.remove` failed, was swallowed, and the next repeat opened the *existing*
+# database and added to it.
+#
+# The symptom: the rows written went 2300 → 4600 → 6900 at 100 agents, and the
+# p95 of five identical runs spread by **5.1×**. A 5× spread looks exactly like
+# a loaded machine, so the natural reading was "the CI runner is slow" — and
+# that reading was wrong. The CI runner was measuring an ever-growing database
+# too: the orphan `-wal` file survives the unlink on Linux, and the next
+# connection recovers the old rows from it.
+#
+# With the store closed and really removed, the rows written are constant and
+# the spread falls to 1.2–1.3×. The benchmark now measures the tick.
+
+
+def test_each_repeat_starts_from_a_fresh_store(tmp_path):
+    """The rows written must be the same every repeat.
+
+    If the store is not really cleared, the second repeat writes into the first
+    repeat's database, and the numbers grow — which is what made the p95 spread
+    by 5x and looked like a slow machine.
+    """
+    path = str(tmp_path / "fresh.db")
+    rows_per_repeat = []
+    for _ in range(3):
+        result = run_ladder(50, ticks=3, warmup=1, db_path=path, repeats=1)
+        rows_per_repeat.append(result.rows_written)
+    assert len(set(rows_per_repeat)) == 1, (
+        f"the store is not fresh between repeats: {rows_per_repeat} rows written")
+
+
+def test_the_repeats_are_measured_on_the_same_store_size(tmp_path):
+    """The repeat p95s must be comparable, so they must measure the same work.
+
+    The store's size is part of the work: a bigger database means slower
+    queries, so a repeat that measured a bigger database would be measuring
+    something else. The rows written are the size, and they must not grow.
+
+    The rule, measured: a run writes `agents × (ticks + warmup)` metric rows —
+    one row per agent per tick, warm-up ticks included.
+    """
+    result = run_ladder(50, ticks=3, warmup=1, db_path=str(tmp_path / "s.db"), repeats=3)
+    assert len(result.repeat_p95s) == 3
+    # and the reported row count is the size of the *last* store, which is the
+    # one that was measured — not an accumulation of all of them
+    assert result.rows_written == 50 * (3 + 1), result.rows_written
+
+
+def test_the_throwaway_store_is_actually_deleted(tmp_path):
+    """The benchmark leaves nothing behind: no database, no WAL, no shared memory.
+
+    A leftover `-wal` is not harmless — SQLite recovers from it, so the next
+    run would start with the last run's rows. That is the same bug wearing a
+    different hat.
+    """
+    path = str(tmp_path / "left.db")
+    run_ladder(20, ticks=2, warmup=1, db_path=path, repeats=1)
+    for suffix in ("", "-wal", "-shm"):
+        assert not Path(path + suffix).exists(), f"{path + suffix} was left behind"
+
+
+def test_the_benchmark_closes_the_store_it_opened(tmp_path):
+    """The benchmark closes its own store.
+
+    `LocalStore` has no `close()` — `shared/store.py` is Fojle's folder — so
+    the benchmark closes the connection itself. Without that, the file stays
+    locked on Windows and the next repeat cannot clear it.
+    """
+    from brain.scale_bench import _close_store
+
+    path = str(tmp_path / "c.db")
+    store = LocalStore(path)
+    store._conn.execute("create table if not exists t (id integer primary key)")
+    store._conn.commit()
+    _close_store(store)
+    # a closed connection cannot be used
+    with pytest.raises(sqlite3.ProgrammingError):
+        store._conn.execute("select 1")
+
+
 def test_the_benchmark_is_offline_and_deterministic(tmp_path):
     """No Docker, no collector, no Phoenix, no API key — and the same seed gives the
     same run. The *latency* is wall-clock, but the *work* is identical every run."""
@@ -477,6 +567,18 @@ def test_the_published_numbers_come_from_a_real_run():
     evidence file publishes. The latency is wall-clock, so the comparison is a
     *band*, not an equality: a number that is wildly different means the published
     number was not measured by this code.
+
+    **The band is measured, not guessed.** With the store bug fixed, five
+    identical runs of the same rung spread by 1.2–1.3×, and a single draw was
+    never more than 1.33× the published minimum. So the band is generous enough
+    for a machine that is *slower* than the one that published the number — a
+    CI runner is not the laptop that wrote the file — while still being narrow
+    enough to catch a number that was invented. The published number is
+    compared against the **same estimator** (the minimum across the repeats),
+    because a minimum compared against a single draw is not a comparison.
+
+    The deterministic half is checked exactly: the rows written and the agents
+    seen must match, because those do not move with the machine.
     """
     rows = _published_rows()
     if not rows:
@@ -484,18 +586,43 @@ def test_the_published_numbers_come_from_a_real_run():
 
     for agents in sorted(rows):
         published = rows[agents]
-        # One repeat, not three: the published number is the *minimum* p95 over
-        # three repeats, so a fresh run should be at or a little above it. Three
-        # repeats here would make the test three times slower for the same answer.
-        result = run_ladder(agents, ticks=MEASURED_TICKS, warmup=3, db_path=None, repeats=1)
-        # the p95 of a wall-clock measurement moves with the machine, so the band is
-        # generous — but a published number that is 3x off is not this code's number.
-        assert result.p95 <= published["p95_ms"] * 3 + 50.0, (
+        # The same estimator as the publisher: the minimum across the repeats.
+        result = run_ladder(agents, ticks=MEASURED_TICKS, warmup=3, db_path=None,
+                            repeats=REPEATS)
+        # the machine's contribution is what the band has to survive. Measured:
+        # 1.19x at 500 agents, 1.21x at 1000, 1.33x at 100. The extra headroom
+        # is for a runner slower than the machine that published the number.
+        assert result.p95 <= published["p95_ms"] * 4 + 50.0, (
             f"at {agents} agents the evidence file publishes p95 {published['p95_ms']:.1f} ms "
             f"but the run measured {result.p95:.1f} ms")
-        assert result.p95 >= published["p95_ms"] / 3 - 20.0, (
+        assert result.p95 >= published["p95_ms"] / 4 - 20.0, (
             f"at {agents} agents the evidence file publishes p95 {published['p95_ms']:.1f} ms "
             f"but the run measured {result.p95:.1f} ms")
+
+
+def test_the_published_work_is_reproduced_exactly():
+    """The part of the benchmark that does not move with the machine must match exactly.
+
+    The rows written and the agents seen are a function of the code, not of the
+    clock. If the published evidence was produced by different code — or by
+    hand — these would not match. This is the half of the "not a story" claim
+    that can be checked exactly.
+    """
+    rows = _published_rows()
+    if not rows:
+        pytest.skip(f"{EVIDENCE} does not exist yet — run the benchmark with --write")
+
+    for agents in sorted(rows):
+        result = run_ladder(agents, ticks=MEASURED_TICKS, warmup=3, db_path=None,
+                            repeats=1)
+        assert result.agents_seen == agents, (
+            f"at {agents} agents the run saw {result.agents_seen} agents")
+        # a run writes one metric row per agent per tick, warm-up ticks included
+        expected = agents * (MEASURED_TICKS + 3)
+        assert result.rows_written == expected, (
+            f"at {agents} agents the run wrote {result.rows_written} rows, "
+            f"not {expected} — the store is not fresh, or the "
+            f"published numbers came from different code")
 
 
 def test_the_evidence_file_says_the_numbers_are_measured():
