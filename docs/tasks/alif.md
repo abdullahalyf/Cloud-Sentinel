@@ -342,7 +342,7 @@ The tick is close to the line: `sqlite3.Connection.commit` is 64% of it, because
 commits once per write and the brain writes two rows per agent per tick. The fix is a batched write
 in `shared/store.py` (Fojle's folder) — noted in `docs/tasks/fojle.md`.
 
-### A9 · [ ] IN PROGRESS (Puku) Full-stack E2E + chaos suite (runs nightly in CI)
+### A9 · [x] (alif/puku-a9-e2e-chaos, 2026-11-08) Full-stack E2E + chaos suite (runs nightly in CI)
 **Owns:** `brain/tests/e2e/`, `brain/tests/chaos/` (new). The nightly workflow `.github/workflows/nightly.yml` already exists and runs
 `-m "e2e or chaos"`. Only Taseen edits it: if it needs a change, ask under "Requests from Alif's agent" in taseen.md.
 > Prompt:
@@ -369,6 +369,33 @@ in `shared/store.py` (Fojle's folder) — noted in `docs/tasks/fojle.md`.
 > The whole suite must finish in < 6 min.*
 
 **Acceptance:** `python -m pytest -q -m "e2e or chaos"` is green locally, and the nightly workflow is green on its next run.
+
+**Done.** 11 E2E tests and 14 chaos tests, green, in **2m13s** (budget 6 min). The nightly workflow already ran
+`-m "e2e or chaos or perf"` and installed the langgraph extra — **no change was needed**, so nothing was asked of Taseen.
+
+The E2E suite drives the real thing: a real brain process, a real collector, a real LangGraph agent, on free ports
+with a temp database, killed afterwards however the test ended. The harness is `brain/tests/e2e_harness.py`, not
+`brain/tests/e2e/conftest.py` — two conftests with the same module name in two non-package directories means pytest
+loads the first and silently ignores the second, and every test failed with "fixture 'harness' not found".
+
+**The chaos suite found two real bugs, both fixed here:**
+
+1. **A throwing executor killed the tick.** `_apply` called the runtime directly, so a raised exception escaped
+   instead of becoming an alert — and it escaped at the exact moment the runtime broke, which is the moment the brain
+   most needs to be watching. A silently failed pause is the worst outcome of all: the brain believes the agent is
+   stopped, and it is running. Now the exception is caught, alerted as `executor_failed`, and the action is still
+   audited. (`brain/engine.py`)
+2. **A locked database stalled the brain for 3.9 s per tick.** The store's busy timeout is 5 s — generous, so a second
+   worker waits rather than fails — but the brain writes two rows per agent, four agents is eight writes, and 5 s × 8
+   is a brain that goes silent for a minute. The brain now shortens the timeout on *its own* connection to 50 ms
+   (`brain/__main__.py`): a collision costs one skipped write, which the next tick writes again. The store's own
+   default is unchanged for everything else. The p95 under a lock went from **3914 ms to under 200 ms**.
+
+The engine now also logs how long each tick took (`tick took N ms`), so the brain's own log is the honest record of
+the loop's health.
+
+**For Fojle:** the busy timeout in `shared/store.py` is still 5 s for everyone else. A `CS_STORE_BUSY_TIMEOUT_MS`
+knob would let the store's own users shorten it too. Noted in `docs/tasks/fojle.md`.
 
 ---
 
