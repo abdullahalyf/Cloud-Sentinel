@@ -113,6 +113,9 @@ class Settings:
     baseline_enabled: bool
     baseline_warmup_seconds: float
     baseline_k: float
+    # ── Policy hot reload (A5): pick up a changed policies.yaml without a restart ──
+    policy_reload_enabled: bool
+    policy_reload_interval_seconds: float
     # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
     export_phoenix: bool = False
     phoenix_endpoint: str = "http://localhost:6006"
@@ -177,6 +180,8 @@ def load_settings() -> Settings:
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
+        policy_reload_enabled=_bool("CS_POLICY_RELOAD_ENABLED", True),
+        policy_reload_interval_seconds=_float("CS_POLICY_RELOAD_INTERVAL_SECONDS", 1.0),
         export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),

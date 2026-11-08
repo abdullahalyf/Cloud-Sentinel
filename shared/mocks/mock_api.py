@@ -19,6 +19,7 @@ import asyncio
 import math
 import random
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -308,6 +309,62 @@ def _policy(tool_name: str, args: dict) -> tuple[str, str]:
         return Policy.load("brain/policies.yaml").decide_tool(tool_name, args)
     except Exception:
         return "allow", "mock allows everything"
+
+
+# ── policy (CONTRACTS §6, added 8 Nov) ──
+POLICY_SOURCE = "brain/policies.yaml"
+
+
+def _policy_view() -> dict:
+    """
+    The mock serves the real policy file, so the dashboard shows the same rules.
+
+    The mock must work on its own (dashboard development, no brain), so it falls back to
+    reading the YAML directly when the brain is not importable.
+    """
+    try:
+        from brain.policy import Policy
+
+        p = Policy.load(POLICY_SOURCE)
+        return p.to_dict() | {"source": POLICY_SOURCE, "last_error": ""}
+    except Exception:
+        pass
+    try:
+        import yaml
+
+        data = yaml.safe_load(Path(POLICY_SOURCE).read_text(encoding="utf-8")) or {}
+        defaults = data.get("defaults") or {}
+        return {"version": "mock", "loaded_at": utc_now_iso(), "source": POLICY_SOURCE,
+                "defaults": {"budget_usd": defaults.get("budget_usd", 0.5),
+                             "on_trip": defaults.get("on_trip", "pause"),
+                             "on_hard_limit": defaults.get("on_hard_limit", "kill")},
+                "agents": data.get("agents") or {}, "tools": data.get("tools") or [], "last_error": ""}
+    except Exception as exc:
+        return {"version": "unknown", "loaded_at": utc_now_iso(), "source": POLICY_SOURCE,
+                "defaults": {}, "agents": {}, "tools": [], "last_error": str(exc)}
+
+
+@app.get("/v1/policy")
+def policy() -> dict:
+    return _policy_view()
+
+
+@app.post("/v1/policy/reload")
+def policy_reload() -> dict:
+    """The mock has no engine to reload: it just re-reads the file."""
+    return {"ok": True, "policy": _policy_view()}
+
+
+@app.post("/v1/policy/validate")
+def policy_validate(body: dict[str, Any]) -> dict:
+    """Validate a YAML policy without touching the running one."""
+    try:
+        from brain.policy_schema import validate_yaml
+
+        errors = validate_yaml(str(body.get("yaml") or ""))
+    except Exception as exc:
+        errors = [f"policy: {exc}"]
+    return {"ok": not errors, "errors": errors}
 
 
 @app.post("/v1/agents/{agent_id}/tool-calls")
