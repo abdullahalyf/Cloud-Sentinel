@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopBar } from './components/TopBar';
 import { LeftNav } from './components/LeftNav';
+import { CursorAura } from './components/CursorAura';
 import { FleetView } from './views/FleetView';
 import { AgentDetailView } from './views/AgentDetailView';
 import { ApprovalsView } from './views/ApprovalsView';
@@ -22,19 +23,36 @@ const queryClient = new QueryClient({
 
 const LayoutShell: React.FC = () => {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        width: '100%',
+        position: 'relative',
+        zIndex: 1,
+      }}
+    >
+      {/* Cybernetic Telemetry Design Overlays (from tamjid/dashboard-ui) */}
+      <CursorAura />
+      <div className="aurora-glow" aria-hidden="true" />
+      <div className="cyber-grid" aria-hidden="true" />
+      <div className="cyber-scanner-laser" aria-hidden="true" />
+
       <TopBar />
-      <div style={{ display: 'flex', flex: 1, width: '100%' }}>
+      <div style={{ display: 'flex', flex: 1, width: '100%', position: 'relative', zIndex: 2 }}>
         <LeftNav />
         <main
           role="main"
           style={{
             flex: 1,
             padding: 'var(--space-6)',
-            backgroundColor: 'var(--color-canvas)',
+            backgroundColor: 'transparent',
             maxWidth: '1680px',
             margin: '0 auto',
             width: '100%',
+            position: 'relative',
+            zIndex: 2,
           }}
         >
           <Outlet />
