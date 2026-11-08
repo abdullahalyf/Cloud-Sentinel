@@ -148,6 +148,11 @@ class Settings:
     # The brain falls back to the deterministic judge above this, and writes an alert.
     # 0 = no cap.
     judge_max_usd_per_hour: float = 0.0
+    # ── Verified auto-heal (B1): prove the patch works before it touches the agent ──
+    # The shadow dry-run replays the agent's recent context against the patch; a patch is
+    # applied automatically only when the shadow is healthy AND the judge is confident.
+    # Off = the A3 behaviour exactly (every patch waits for a human).
+    verified_heal: bool = False
 
     @property
     def use_supabase(self) -> bool:
@@ -201,6 +206,7 @@ def load_settings() -> Settings:
         roi_horizon_minutes=_float("ROI_HORIZON_MINUTES", 60.0),
         autoheal=_bool("CS_AUTOHEAL", True),
         autoheal_min_confidence=_float("CS_AUTOHEAL_MIN_CONFIDENCE", 0.85),
+        verified_heal=_bool("CS_VERIFIED_HEAL", False),
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
