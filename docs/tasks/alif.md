@@ -312,7 +312,7 @@ plus 9 in `shared/tests/test_mcp_contract.py` (the two that compare the repo aga
 server skip until the package is in the tree — they are the ones that catch the two readers
 drifting apart). `brain/MCP.md` has the Claude Desktop, Claude Code and Codex snippets.
 
-### A8 · [ ] Horizontal scaling: shard agents across brain workers
+### A8 · [ ] IN PROGRESS (Puku) Horizontal scaling: shard agents across brain workers
 **Owns:** `brain/sharding.py` (new), `brain/engine.py`, `brain/__main__.py`, plus a contract branch for the `workers` table, `CS_WORKER_ID` and the health fields.
 > Prompt:
 > *Goal: N brain worker processes share the fleet, and one dies → the others take its agents within 15 s.
