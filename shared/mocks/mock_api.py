@@ -26,12 +26,21 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
-                              ToolCallRow, VerdictRow, agent_view, explain_event, explain_report, load_json,
+                              ToolCallRow, VerdictRow, agent_view, budget_forecast, budget_node, budget_report,
+                              explain_event, explain_report, load_json,
                               postmortem_event, postmortem_markdown, postmortem_report, postmortem_root_cause,
                               tool_risk_from_history, tool_risk_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
+# The teams the agents belong to (B4). The budget tree is org → team → agent,
+# and every level is the sum of the level below it — so one runaway agent eats
+# its own team's share, not the whole fleet's money.
+TEAMS = {"alpha": "core", "beta": "core", "gamma": "ml", "delta": "ml"}
+# The org budget is the sum of the team budgets, which are themselves the sum
+# of their agents'. It is *computed*, never hand-set: a hand-set org budget
+# would let the tree disagree with itself, and the tree is the whole point.
+ORG_BUDGET = sum(BUDGETS.values())
 T0 = time.time()
 OVERRIDE_SECONDS = 20.0
 OVERRIDES: dict[str, tuple[str, float]] = {}   # agent → (state, until) set by commands
@@ -654,6 +663,45 @@ def roi() -> dict:
                 for a, n, ok, spend in [("alpha", 12, 12, 0.0216), ("beta", 14, 6, 0.0198), ("gamma", 12, 12, 0.0222),
                                         ("delta", 13, 12, 0.0251)]},
             "horizon_minutes": 60.0, "formula": ROI_FORMULA}
+
+
+@app.get("/v1/budgets")
+def budgets() -> dict:
+    """
+    The budget tree (B4): org → team → agent, with a forecast at every level.
+
+    The tree is the point — **the org's budget is the sum of the teams', and a
+    team's is the sum of its agents'** — so one runaway agent eats its own
+    share first and the rest of the fleet's money is still there.
+    """
+    fleet = {row["agent_id"]: row for row in _fleet()}
+    now = time.time()
+
+    agents = []
+    for agent_id in AGENTS:
+        row = fleet.get(agent_id, {})
+        spend = float(row.get("spend_usd") or 0.0)
+        budget = float(BUDGETS.get(agent_id, 0.0))
+        # The mock's burn rate is a fixed number, so the forecast is a function
+        # of the spend and never changes from one call to the next.
+        burn = 0.002
+        agents.append(budget_node("agent", agent_id, budget, spend,
+                                  forecast=budget_forecast(budget, spend, burn)))
+
+    teams = []
+    for team_id in sorted(set(TEAMS.values())):
+        members = [a for a in AGENTS if TEAMS.get(a) == team_id]
+        budget = sum(BUDGETS.get(a, 0.0) for a in members)
+        spend = sum(float(fleet.get(a, {}).get("spend_usd") or 0.0) for a in members)
+        teams.append(budget_node("team", team_id, budget, spend,
+                                 children=[a["id"] for a in agents if a["id"] in members],
+                                 forecast=budget_forecast(budget, spend, 0.002 * len(members))))
+
+    org_spend = sum(float(row.get("spend_usd") or 0.0) for row in fleet.values())
+    org = budget_node("org", "org", ORG_BUDGET, org_spend,
+                      children=[t["id"] for t in teams],
+                      forecast=budget_forecast(ORG_BUDGET, org_spend, 0.002 * len(AGENTS)))
+    return budget_report(org, teams, agents, as_of=now)
 
 
 if __name__ == "__main__":

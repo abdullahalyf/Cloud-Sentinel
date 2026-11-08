@@ -261,6 +261,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/policy` *(added 8 Nov)* | → `PolicyView` (below) | dashboard, mcp |
 | `POST /v1/policy/reload` *(added 8 Nov)* | → `{"ok": true, "policy": PolicyView}` — re-reads the file now; `ok:false` + the errors in `policy.last_error` if it is broken | dashboard, mcp |
 | `POST /v1/policy/validate` *(added 8 Nov)* | `{"yaml": "..."}` → `{"ok": bool, "errors": ["tools[2].when.op: must be one of …"]}` — validates YAML text, changes nothing | dashboard, mcp |
+| `GET /v1/budgets` *(added 8 Nov, B4)* | → `BudgetReport` (below) — the org → team → agent budget tree, with a burn-rate forecast at every level | dashboard, mcp |
 | `WS /v1/stream` | server pushes `{"type": "metric"|"verdict"|"action"|"alert"|"tool_call","data":{...}}` | optional clients |
 
 **`PolicyView`** *(added 8 Nov)* — the policy actually in force:
@@ -318,6 +319,63 @@ reads *why* the agent is in this state instead of guessing from the current metr
 **An unknown agent is a 404**, the same on both sides: an explanation of nothing would be a
 confident paragraph about an agent nobody has ever heard of. `minutes` is a real window — an event
 older than the window is not in the report — and it is clamped to 24 hours.
+
+**`BudgetReport`** *(added 8 Nov, B4)* — the budget tree and the forecast on it:
+
+```
+{
+  "org": BudgetNode,
+  "teams": [BudgetNode],
+  "agents": [BudgetNode],
+  "as_of": float|null
+}
+
+BudgetNode = {
+  "level": "org"|"team"|"agent",
+  "id": str,
+  "budget_usd": float,
+  "spend_usd": float,
+  "remaining_usd": float,     # max(0, budget - spend) — never negative
+  "children": [str],          # the ids one level down; [] at the agent level
+  "forecast": BudgetForecast
+}
+
+BudgetForecast = {
+  "remaining_usd": float,
+  "usd_per_min": float,
+  "minutes_to_exhausted": float|null,   # null when the burn rate is 0
+  "horizon_minutes": float,
+  "sentence": str,                      # "" when there is nothing to say
+  "exhausted_within_horizon": bool
+}
+```
+
+**The budget is a tree, and every level is the sum of the level below.** The org budget is the sum
+of the team budgets, and a team budget is the sum of its agents' budgets. That is not decoration:
+it is what stops one runaway agent from eating the whole fleet's money — the agent overruns its
+*own* share, and the tree says so out loud.
+
+**The forecast only speaks when it can.** `minutes_to_exhausted` is `remaining / burn_rate`. A burn
+rate of **zero** has no forecast: the answer would be "in 0 minutes", which is a lie, or "in
+infinity", which is not a number. So `minutes_to_exhausted` is `null` and `sentence` is `""` —
+the endpoint still answers, it just says nothing it cannot know. A budget already spent is a
+different case: `remaining_usd` is `0.0`, `minutes_to_exhausted` is `0.0`, and the sentence says
+so plainly.
+
+**The degradation ladder** *(added 8 Nov, B4)* — how a budget is defended, gentlest first:
+
+```
+DEGRADATION_LADDER = ("THROTTLE", "DOWNGRADE", "PAUSE", "KILL")
+```
+
+`THROTTLE` slows the agent down, `DOWNGRADE` moves it to a cheaper model, `PAUSE` stops it, `KILL`
+ends it. **The ladder never skips a rung.** An agent that has not been throttled is not
+downgraded; the plan says which rung comes next and which rungs must be walked first. A step that
+is not on the ladder (`WARN`, say) is not a rung and must not move the ladder along.
+
+`THROTTLE` and `DOWNGRADE` are new action types, so `ACTION_TYPES` grows to include them. Every
+new behaviour is behind a config flag, default **off**: with the flag off the old behaviour
+(pause / kill, no throttle) is exactly what happens.
 
 Agents **without a container** (a LangGraph/CrewAI process, any external OTel agent) are still controllable:
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
@@ -432,7 +490,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| _(none — the mock and the real API are in step)_ | | |
+| `GET /v1/budgets` *(B4)* — the whole endpoint | the budget tree, the forecast, the ladder | the B4 brain PR |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
