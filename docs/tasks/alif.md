@@ -776,8 +776,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B5 · [ ] 🟡 SHOULD · Policy backtesting
-> 🔄 2026-11-08 · IN PROGRESS · branch `alif/b5-policy-backtest` · contract PR [#71](https://github.com/abdullahalyf/Cloud-Sentinel/pull/71)
+### B5 · [x] 🟡 SHOULD · Policy backtesting
+> ✅ 2026-11-08 · contract PR [#71](https://github.com/abdullahalyf/Cloud-Sentinel/pull/71) (the shapes) · brain PR [#72](https://github.com/abdullahalyf/Cloud-Sentinel/pull/72) · gap PR [#73](https://github.com/abdullahalyf/Cloud-Sentinel/pull/73) · 23 brain tests + 15 contract tests
 >
 > Prompt:
 > *Replay stored historical traces against a new or a changed policy and report what it would have
