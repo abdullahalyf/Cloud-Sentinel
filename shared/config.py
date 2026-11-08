@@ -109,6 +109,10 @@ class Settings:
     # ── Auto-heal (A3): the judge proposes a patch, a confident one is applied ──
     autoheal: bool
     autoheal_min_confidence: float
+    # ── Adaptive baselines (A4): per-agent limits learned from healthy behaviour ──
+    baseline_enabled: bool
+    baseline_warmup_seconds: float
+    baseline_k: float
     # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
     export_phoenix: bool = False
     phoenix_endpoint: str = "http://localhost:6006"
@@ -170,6 +174,9 @@ def load_settings() -> Settings:
         roi_horizon_minutes=_float("ROI_HORIZON_MINUTES", 60.0),
         autoheal=_bool("CS_AUTOHEAL", True),
         autoheal_min_confidence=_float("CS_AUTOHEAL_MIN_CONFIDENCE", 0.85),
+        baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
+        baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
+        baseline_k=_float("CS_BASELINE_K", 4.0),
         export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),

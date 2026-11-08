@@ -13,6 +13,7 @@ create table if not exists agents (
     spend_usd     real        not null default 0,
     total_tokens  integer     not null default 0,
     last_seen_ts  double precision not null default 0,
+    baseline      json        not null default '{}'::json,   -- adaptive per-agent limits (A4)
     updated_at    timestamptz not null default now()
 );
 

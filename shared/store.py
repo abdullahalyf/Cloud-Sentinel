@@ -23,7 +23,7 @@ from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealPro
 
 TABLES = ("agents", "spans", "agent_metrics", "alerts", "verdicts", "actions", "commands",
           "agent_memory", "tool_calls", "heal_proposals")
-JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail", "patch")
+JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail", "patch", "baseline")
 
 
 def _since_iso(minutes: float) -> str:
@@ -91,7 +91,8 @@ class LocalStore:
     _SCHEMA = """
     create table if not exists agents (
         agent_id text primary key, display_name text, runtime text, runtime_id text, state text,
-        budget_usd real, spend_usd real, total_tokens integer, last_seen_ts real, updated_at text);
+        budget_usd real, spend_usd real, total_tokens integer, last_seen_ts real, baseline text,
+        updated_at text);
     create table if not exists spans (
         id integer primary key autoincrement, trace_id text, span_id text, parent_span_id text,
         agent_id text, operation text, name text, provider text, model text, input_tokens integer,
@@ -165,7 +166,12 @@ class LocalStore:
         d = row.to_row()
         cols = ", ".join(d)
         marks = ", ".join("?" for _ in d)
-        updates = ", ".join(f"{c}=excluded.{c}" for c in d if c != "agent_id")
+        update_cols = [c for c in d if c != "agent_id"]
+        # An empty baseline means "the caller has no new baseline" (the brain writes the agent row every
+        # tick), so the learned baseline already in the row must survive. Writing "{}" would wipe it.
+        if not (d.get("baseline") or "{}").strip("{}").strip():
+            update_cols = [c for c in update_cols if c != "baseline"]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
         self._exec(f"insert into agents ({cols}) values ({marks}) "
                    f"on conflict(agent_id) do update set {updates}", tuple(d.values()))
 
@@ -174,6 +180,10 @@ class LocalStore:
         cols = {r[1] for r in self._conn.execute("pragma table_info(spans)")}
         if "detail" not in cols:
             self._conn.execute("alter table spans add column detail text")
+            self._conn.commit()
+        agent_cols = {r[1] for r in self._conn.execute("pragma table_info(agents)")}
+        if "baseline" not in agent_cols:
+            self._conn.execute("alter table agents add column baseline text not null default '{}'")
             self._conn.commit()
 
     def insert_spans(self, rows: list[SpanRow]) -> None:
