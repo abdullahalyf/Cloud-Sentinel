@@ -11,16 +11,18 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from brain import service
 from brain import explain as brain_explain
+from brain import postmortem as brain_postmortem
 from brain.policy import Policy
 from brain.policy_reload import PolicyManager
 from brain.policy_schema import validate_yaml as policy_schema_validate
 from shared.config import Settings
-from shared.contracts import CONTRACT_VERSION, HEAL_DECISIONS, HEAL_STATUSES, TOOL_DECISIONS
+from shared.contracts import (CONTRACT_VERSION, HEAL_DECISIONS, HEAL_STATUSES,
+                              TOOL_DECISIONS, postmortem_markdown as postmortem_md)
 
 log = logging.getLogger("brain.api")
 
@@ -165,10 +167,39 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
             report = brain_explain.polish(report, cfg=cfg)
         return report
 
+    # ── the incident postmortem (CONTRACTS §6, B2) ──
+    @app.get("/v1/incidents/{incident_id}/postmortem", dependencies=[Depends(auth)])
+    def postmortem(incident_id: int) -> dict:
+        """
+        The postmortem of one incident (B2).
+
+        An incident *is* an alert — the moment the brain flagged an agent — so
+        the incident id is the alert id. An id no alert ever had is a 404, the
+        way the mock answers it: a postmortem of nothing would be a confident
+        account of a thing that never happened.
+        """
+        report = brain_postmortem.build_postmortem(store, incident_id)
+        if report is None:
+            raise HTTPException(404, f"incident {incident_id} not found")
+        return report
+
+    @app.get("/v1/incidents/{incident_id}/postmortem.md", dependencies=[Depends(auth)])
+    def postmortem_markdown(incident_id: int) -> PlainTextResponse:
+        """
+        The same postmortem, as markdown.
+
+        The markdown renders the JSON and never recomputes it, so the two
+        endpoints can never disagree about a number.
+        """
+        report = brain_postmortem.build_postmortem(store, incident_id)
+        if report is None:
+            raise HTTPException(404, f"incident {incident_id} not found")
+        return PlainTextResponse(postmortem_md(report),
+                                 media_type="text/markdown; charset=utf-8")
+
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
         return {"metrics": store.recent_metrics(minutes=clamp_minutes(minutes), agent_id=agent_id)}
-
     @app.get("/v1/graph", dependencies=[Depends(auth)])
     def graph(minutes: float = 2) -> dict:
         return service.graph(store, clamp_minutes(minutes), cfg.loop_score_threshold)
