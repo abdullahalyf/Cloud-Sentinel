@@ -119,10 +119,14 @@ repository can never be un-leaked by a scanner.
 
 ---
 
-## 4. The judge — accuracy, and the number that is missing
+## 4. The judge — accuracy, offline and on the real API
 
-The offline (deterministic fallback) judge over **70 labelled incidents**
-(34 positive, 36 negative):
+Two judges, and they are not interchangeable. The **offline (deterministic
+fallback)** judge is a rule-based scorer with no model call; the **Claude**
+judge is the real thing that runs in production. Both are measured, and both
+numbers are here.
+
+**Offline judge**, over **70 labelled incidents** (34 positive, 36 negative):
 
 | | |
 | --- | --- |
@@ -140,13 +144,14 @@ python -m brain.judge_eval --judge fallback --runs 1 --write docs/research/judge
 ```
 
 **The 0 ms latency and $0.00 cost are not a performance claim.** They are
-what the *fallback* judge costs — it is a rule-based scorer with no model
-call. The real numbers come from the Claude judge, and they have **never been
-measured**, because there is no API key in this environment.
+what the *fallback* judge costs. The real numbers come from the Claude judge,
+and the block below is written by CI from a real run — never by hand.
 
+<!-- claude-judge:start -->
 > **Needs a human:** run `python -m brain.judge_eval --judge claude --runs 3`
 > with an `ANTHROPIC_API_KEY` to get the latency, cost and accuracy of the
 > real judge. Until then, this file quotes **no** Claude number.
+<!-- claude-judge:end -->
 
 **Why the negative half matters.** 36 of the 70 incidents are negatives — a
 judge that pauses every busy agent is **worse than no judge**, because
