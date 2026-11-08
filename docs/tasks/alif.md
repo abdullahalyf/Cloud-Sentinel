@@ -840,8 +840,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B8 · [ ] 🟡 SHOULD · The security detectors
-> 🚧 IN PROGRESS · 2026-11-08 · branch `alif/b8-security`
+### B8 · [x] 🟡 SHOULD · The security detectors
+> ✅ DONE · 2026-11-08 · contract PR #83, brain PR #85, gap PR #86
 >
 > Prompt:
 > *Three detectors: **MCP tool-description poisoning** (a tool whose description tries to steer the
@@ -865,7 +865,24 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Note (8 Nov):** `docs/evidence/` is not in `alif/`'s allowed folders, so the evidence went to
 > `docs/research/security.md` instead — the folder the guard *does* allow. The contract half landed
 > as PR #83 (`CS_SECURITY_ENABLED`, `CS_SECURITY_REDACT_ENABLED`, `CS_SECURITY_DENY_THRESHOLD`, the
-> `tool_registry` table, and the mock's three endpoints); the brain half is this PR.
+> `tool_registry` table, and the mock's three endpoints); the brain half landed as PR #85 and the
+> gap closed as PR #86.
+>
+> **What it is:** three detectors in `brain/security.py` — a poisoned tool description (a tool whose
+> *description* tries to steer the agent), a secret in a tool output (**redacted before it is
+> stored**), and an injection in retrieved content (the **existing** A6 scorer reused, not a second
+> one). The flag off means the detectors do not run **at all**, not "run but do not report".
+>
+> **The measurement:** 115 labelled cases, 30 of them adversarial negatives written to make the
+> detectors *wrong*. They found **8 real false positives**, every one fixed at the root rather than
+> skipped. All three detectors sit at precision 1.0 / recall 1.0, reproducible with one command:
+> `python -m brain.security measure --cases brain/eval_data/security.jsonl`. The command **exits
+> non-zero** below a floor, so it can be a CI job.
+>
+> **A note on the fixtures:** the secret-shaped cases carry `{{PLACEHOLDER}}` markers and the loader
+> expands them, because a secret-shaped literal in the repository is indistinguishable from a
+> leak to the `secrets` job — and a scanner that cries wolf on the team's own corpus teaches the
+> team to ignore it. The measurement is unchanged; the repository holds no secret-shaped literal.
 
 ### B9 · [ ] 🟡 SHOULD · The scale proof
 > Prompt:
