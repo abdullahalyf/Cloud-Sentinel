@@ -416,6 +416,22 @@ an advertisement, not a measurement — the operator needs to see what the candi
 have broken as well as what it would have saved. `false_positives` is therefore counted out loud
 and it is never subtracted from `catches`.
 
+**The ground truth is the store's own record of what happened.** An agent with a recorded
+**alert** really did go wrong; an agent with none was healthy. So:
+
+| the candidate fires a rule on… | the running policy… | and the agent… | → |
+|---|---|---|---|
+| an agent | fired **that same rule** and stopped it | was going wrong | *not a catch* — already handled |
+| an agent | never fired that rule | was going wrong (it has another alert) | **a catch** |
+| an agent | fired nothing | had **no alert at all** | **a false positive** |
+
+The third row is the whole reason the backtest reads the alerts and not only the spans: without
+them there is no way to tell "the candidate stopped a healthy agent" from "the candidate stopped a
+runaway a moment too late". A backtest that guesses is an advertisement.
+
+**One runaway is one catch, not a hundred.** The same rule firing again as the agent keeps going
+is the same mistake, counted once — otherwise one incident would inflate the numbers.
+
 **The money is the same money the live system counts.** `usd_saved` uses the **ROI formula**
 (§8) — `$/min at the moment of action × horizon` for a PAUSE or a KILL — so a backtest and the
 live ROI report cannot disagree about what a saved dollar is worth.
@@ -538,7 +554,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| `GET /v1/backtest` | the whole endpoint | the brain side (B5) |
+| _(none — the mock and the real API are in step)_ | | |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
@@ -548,6 +564,7 @@ A14's gap (`GET /v1/tool-risk`: the whole endpoint) closed when the brain side l
 B2's gap (`GET /v1/incidents/{id}/postmortem` · `.md`: the whole endpoint) closed when the brain
 side landed as PR #63.
 B4's gap (`GET /v1/budgets`: the whole endpoint) closed when the brain side landed as PR #67.
+B5's gap (`GET /v1/backtest`: the whole endpoint) closed when the brain side landed as PR #72.
 
 ---
 
