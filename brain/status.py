@@ -96,6 +96,25 @@ COMMIT_TASK = re.compile(r"\b([A-Z])(\d+)\b")
 # report cannot tell "submitted" from "not submitted" — never that it crashes.
 SUBMITTED: set = set()
 
+# ── the things that need a person ────────────────────────────────────────────
+# Some work cannot be done by an agent at all: it needs an account, a key, a
+# GitHub setting, a credit card. Those live in a section of the task file that
+# is not a list of `### <ID>` headings, so the task parser above never sees
+# them — and a status report that omits them is the report that lets a blocking
+# secret sit undone for two days.
+#
+# The section is read from the human-only items heading in the task file. Every
+# `- [ ] **H<n> ...**` line in it is one item.
+HUMAN_ITEMS_HEADING = "Human-only items"
+
+# `- [ ] **H1 (Day 1, first thing): revoke the leaked Gemini key** (aistudio...)`
+HUMAN_ITEM = re.compile(r"^\s*-\s*\[([ x!])\]\s*\*\*(H\d+)\b(.*?)\*\*\s*(.*)$")
+
+# The person who does the human-only work. The team has exactly one person who
+# can add a repository secret, and this report says so by name rather than
+# making the reader hunt for it.
+HUMAN_OWNER = "Taseen"
+
 
 # ── the model ────────────────────────────────────────────────────────────────
 @dataclass
@@ -179,6 +198,8 @@ class Report:
     # Whether the git history could actually be read. `False` means "I do not
     # know" — which must never be printed as "nobody has done anything".
     git_readable: bool = True
+    # The items only a person can do — a key, an account, a GitHub setting.
+    human_items: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -186,6 +207,7 @@ class Report:
             "ci_detail": self.ci_detail,
             "commits_scanned": self.commits_scanned,
             "git_readable": self.git_readable,
+            "human_items": self.human_items,
             "people": [
                 {
                     "name": p.name,
@@ -267,6 +289,65 @@ def parse_task_file(path: Path) -> list:
             tasks.append(Task(task_id=task_id, owner=path.stem, title=title,
                               day=day, box=box))
     return tasks
+
+
+def parse_human_items(path: Path) -> list:
+    """
+    The items in the "Human-only items" section — the ones no agent can do.
+
+    They are the opposite of everything else in this report: they need an
+    account, a key, a GitHub setting or a credit card. A status report that
+    leaves them out is the report that lets a blocking secret sit undone for
+    two days, so they get their own section, at the top, with a name on them.
+
+    **The section ends at the next `##` heading.** Without that, every request
+    in the file's "Requests from Alif's agent" section would be read as a
+    human-only item too, and the list would double-count the same work.
+
+    **An item is more than its first line.** The files write an item as a
+    `- [ ] **H<n> ...**` line followed by indented continuation lines — the
+    steps, the URLs, the exact menu path. A reader who needs to *do* the thing
+    needs those steps, so they are collected into the item and printed with it.
+    A continuation line is one that is indented and is not a new item.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    items = []
+    in_section = False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if in_section:
+                break               # the next `##` ends the human-only section
+            in_section = HUMAN_ITEMS_HEADING.lower() in line.lower()
+            continue
+        if not in_section:
+            continue
+
+        match = HUMAN_ITEM.match(line)
+        if match:
+            box, item_id, title, detail = match.groups()
+            # The title often carries a day label and a colon: "H1 (Day 1,
+            # first thing): revoke the leaked Gemini key". Keep the whole
+            # thing — the person reading it needs the day, not a tidied-up
+            # sentence.
+            title = title.strip(" ·:—-")
+            items.append({
+                "id": item_id,
+                "done": box.lower() == "x",
+                "title": title,
+                "detail": detail.strip(),
+                "steps": [],
+            })
+            continue
+
+        if items and line.strip() and line.startswith((" ", "\t")):
+            # A continuation of the item above: a step, a URL, a menu path.
+            items[-1]["steps"].append(line.strip())
+
+    return items
 
 
 # ── reading the git log ──────────────────────────────────────────────────────
@@ -563,8 +644,16 @@ def build_report(repo: Path = None, today: tuple = None) -> Report:
         people.append(person)
 
     ci, ci_detail = read_ci(repo)
+    # The human-only items: the work that needs an account, a key or a GitHub
+    # setting. They are read from every task file that has such a section, so
+    # a second person's human-only work is not silently dropped.
+    human_items = []
+    for name, slug, prefix in PEOPLE:
+        for item in parse_human_items(TASKS_DIR / f"{slug}.md"):
+            human_items.append(dict(item, owner=name))
     return Report(people=people, ci=ci, ci_detail=ci_detail,
-                  commits_scanned=commits, git_readable=git_readable)
+                  commits_scanned=commits, git_readable=git_readable,
+                  human_items=human_items)
 
 
 # ── the Bangla report ────────────────────────────────────────────────────────
@@ -613,6 +702,33 @@ def render(report: Report) -> str:
         add(f"| {person.name} | {person.done} | {person.in_progress} | "
             f"{person.planned} | {person.blocked} | {behind} |")
     add("")
+
+    # The work only a person can do. It goes here — above every per-person
+    # section — because it is the thing that blocks the most: one key, one
+    # account, one GitHub setting, and a whole measurement is stuck behind it.
+    pending_human = [i for i in report.human_items if not i.get("done")]
+    if pending_human:
+        add(f"## মানুষের দরকার — {HUMAN_OWNER} ({len(pending_human)}টা)")
+        add("")
+        add("এগুলো **কোনো agent করতে পারে না** — key, account, বা GitHub setting "
+            "লাগে। এগুলো বাকি থাকলে পুরো কাজ আটকে থাকে।")
+        add("")
+        for item in pending_human:
+            add(f"- **`{item['id']}`** — {item['title']}")
+            if item.get("detail"):
+                add(f"  - {item['detail']}")
+            for step in item.get("steps", []):
+                # A step that is itself a bullet keeps its bullet; the two-space
+                # indent plus the dash would otherwise print "- - Require a
+                # pull request", which reads like a typo.
+                text = step[2:].strip() if step.startswith("- ") else step
+                add(f"  - {text}")
+        add("")
+    done_human = [i for i in report.human_items if i.get("done")]
+    if done_human:
+        add(f"**মানুষের কাজ হয়ে গেছে ({len(done_human)}):** "
+            + ", ".join(f"`{i['id']}`" for i in done_human))
+        add("")
 
     for person in report.people:
         add(f"## {person.name}")
@@ -683,6 +799,10 @@ def render(report: Report) -> str:
     add("**\"কাজ হয়ে গেছে কিন্তু PR খোলা হয়নি\"** — commit আছে branch-এ, কিন্তু "
         "`main`-এ নেই, আর PR-ও নেই। এটা \"শুরুই হয়নি\" থেকে আলাদা সমস্যা: কাজটা "
         "শেষ, শুধু চাওয়ার দরকার।")
+    add("")
+    add("**\"মানুষের দরকার\"** — task file-এর \"Human-only items\" সেকশন থেকে "
+        "আসে, `### <ID>` হেডিং না, তাই উপরের task গণনায় ধরা পড়ে না। এগুলো key, "
+        "account বা GitHub setting লাগে — কোনো agent করতে পারে না।")
     add("")
     add("**CI না পড়া গেলে report ভাঙে না** — সেটা \"অজানা\" লেখে, কারণ CI-এর "
         "খবর না জেনে কিছু বলা ভুল; আর যা জানা যায় তা-ই লেখা হয়।")
