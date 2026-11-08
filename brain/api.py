@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from brain import service
+from brain import budget as brain_budget
 from brain import explain as brain_explain
 from brain import postmortem as brain_postmortem
 from brain.policy import Policy
@@ -70,6 +72,29 @@ def clamp_limit(limit: int, top: int = 1000) -> int:
 
 def clamp_minutes(minutes: float, top: float = 24 * 60) -> float:
     return max(0.1, min(float(minutes), top)) if minutes == minutes else 5.0  # NaN → default
+
+
+def _burn_rates(store) -> dict[str, float]:
+    """
+    What each agent is burning right now, in $/min.
+
+    It comes from the newest metric row per agent — the same number the
+    dashboard shows. An agent with no recent metric burns nothing, and it is
+    left out rather than reported as zero, so the forecast says nothing about
+    it instead of claiming it will never run out.
+    """
+    rates: dict[str, float] = {}
+    for row in store.recent_metrics(minutes=1):
+        agent_id = row.get("agent_id")
+        if not agent_id:
+            continue
+        try:
+            rate = float(row.get("usd_per_min") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if rate > 0:
+            rates[agent_id] = rate
+    return rates
 
 
 def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
@@ -196,6 +221,25 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
             raise HTTPException(404, f"incident {incident_id} not found")
         return PlainTextResponse(postmortem_md(report),
                                  media_type="text/markdown; charset=utf-8")
+
+    # ── the budget tree (CONTRACTS §6, B4) ──
+    @app.get("/v1/budgets", dependencies=[Depends(auth)])
+    def budgets() -> dict:
+        """
+        The budget tree, with a forecast at every level (B4).
+
+        The org → team → agent tree is what stops one runaway agent from
+        eating the fleet's money: the agent overruns its own share, and the
+        tree says so out loud.
+
+        The forecast only speaks when it can. An agent that is burning nothing
+        has no "exhausted in X minutes" — the answer would be a lie — so its
+        forecast says nothing rather than something wrong.
+        """
+        burn_rates = _burn_rates(store)
+        tree = brain_budget.tree_from_store(store, policy, cfg, agent_burn_rates=burn_rates,
+                                            as_of=time.time())
+        return tree.to_report()
 
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
