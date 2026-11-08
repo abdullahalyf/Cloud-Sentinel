@@ -436,7 +436,7 @@ themselves.
 
 ## 🟡 SHOULD
 
-### A11 · [ ] Engine performance at 100 agents
+### A11 · IN PROGRESS (Puku) · Engine performance at 100 agents
 Profile `tick()` with 100 FakeFleet agents (cProfile). Make the loop similarity incremental (cache shingles per prompt hash, compare only new
 prompts) and batch the store reads. **Acceptance:** tick p95 < 200 ms at 100 agents, a test with a timing budget (marked `perf`, run nightly), and
 `docs/research/brain-perf.md`.
