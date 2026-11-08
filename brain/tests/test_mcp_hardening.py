@@ -123,7 +123,7 @@ def test_the_wheel_builds_and_has_the_console_script(tmp_path):
 def test_the_annotations_are_audited(cs):
     """Every tool's readOnlyHint/destructiveHint must match what it actually does."""
     tools = {t.name: t for t in asyncio.run(cs.mcp.list_tools())}
-    assert len(tools) == 16, sorted(tools)
+    assert len(tools) == 17, sorted(tools)
     for name, tool in tools.items():
         destructive = name in cs.DESTRUCTIVE_TOOLS
         assert tool.annotations.destructive_hint == destructive, name

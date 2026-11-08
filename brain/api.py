@@ -231,6 +231,18 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         return call(service.decide_tool_call, store, call_id, body.decision, body.final_args, body.decided_by,
                     body.reason)
 
+    @app.get("/v1/tool-risk", dependencies=[Depends(auth)])
+    def tool_risk(agent_id: Optional[str] = None) -> dict:
+        """
+        The learned tool risk (A14): what a human has approved, per (agent, tool, args).
+
+        The counting rule is the shared one, so this endpoint and the mock's say the
+        same thing about what counts as an approval.
+        """
+        from brain import tool_risk as brain_tool_risk
+
+        return brain_tool_risk.learn(store, agent_id=agent_id)
+
     @app.get("/v1/roi", dependencies=[Depends(auth)])
     def roi() -> dict:
         return service.roi(store, cfg.roi_horizon_minutes)
