@@ -436,10 +436,46 @@ themselves.
 
 ## 🟡 SHOULD
 
-### A11 · IN PROGRESS (Puku) · Engine performance at 100 agents
+### A11 · [x] (alif/puku-a9-e2e-chaos-v2, 2026-11-08) Engine performance at 100 agents
 Profile `tick()` with 100 FakeFleet agents (cProfile). Make the loop similarity incremental (cache shingles per prompt hash, compare only new
 prompts) and batch the store reads. **Acceptance:** tick p95 < 200 ms at 100 agents, a test with a timing budget (marked `perf`, run nightly), and
 `docs/research/brain-perf.md`.
+
+**Done.** Tick p95 at 100 agents: **513 ms → 13.2 ms** (budget 200 ms). The profile named both
+culprits and neither of them was the brain doing its job.
+
+**84% of the tick was `sqlite3.Connection.commit`.** The tick writes two rows per agent and the
+store commits after each one, so 100 agents = 200 disk syncs per tick. `brain/write_batch.py`
+collects the tick's rows and writes them in one transaction, on the store's own connection, under
+the store's own lock. Commits per tick: 200 → 1. It is in the brain and not the store because the
+store cannot know that the rows it is handed all belong to one tick — only the brain knows that —
+so `shared/store.py` did not change at all.
+
+**The second cost was re-doing work whose answer was known.** `semantic_loop_score` re-tokenized
+and re-clustered all 16 recent prompts every tick, for every agent, but the window slides by one
+prompt at a time — 15 of the 16 word sets are unchanged. `loops.IncrementalLoopScore` keeps the
+clusters between calls and places only the new prompt. And `score_text` was called on the same 12
+prompts twice per tick (once for the count, once for the maximum), so `AgentWindow` now caches it
+by the text. `re.Pattern.search`: 32,256 calls → 945.
+
+**The one thing the fast path must not get wrong.** The loop score is what the detectors act on,
+so it has to be the *same number* the plain scorer gives. The greedy clustering is order-dependent,
+so the fast path only runs when the new window is a suffix-extension of the old one; anything else
+falls back to recomputing. `brain/tests/test_perf.py` checks the two agree prompt for prompt, as
+the window slides, as it shrinks, and after a mid-window change.
+
+**The three rules a batch must not break**, each one a test: the same rows are written; a learned
+baseline survives (an empty baseline means "no new baseline" — and in a batch one agent may have a
+baseline and another may not, which a single upsert cannot express); and a failed batch loses
+nothing, because the rows are then written one at a time exactly as before.
+
+Scaling curve (one worker, one store, 20 ticks after 3 warm-ups): 10 agents 4.1 ms p95, 25 → 6.9,
+50 → 8.2, **100 → 13.2**, 200 → 25.1. Close to linear with a small constant.
+
+**For Fojle:** the A8 bulk-write request is now solved on the brain's side, so it is only worth
+having in the store for the *other* users — a `store.transaction()` context manager would let any
+caller batch and would be a nicer API than the brain reaching into `store._conn`. Noted in
+`docs/tasks/fojle.md`, with the rule about baselines that a general version has to keep.
 
 ### A12 · [ ] Judge v2: cost cap + model comparison
 - An hourly judge spend cap (`CS_JUDGE_MAX_USD_PER_HOUR`, contract). Above it, use the fallback and write an alert.

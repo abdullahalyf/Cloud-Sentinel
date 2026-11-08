@@ -26,6 +26,7 @@ from brain.policy import Policy
 from brain.policy_reload import PolicyManager
 from brain.sharding import Shard
 from brain.state import AgentWindow, Snapshot
+from brain.write_batch import WriteBatch
 from shared.config import Settings
 from shared.contracts import (ActionRow, AgentRow, AlertRow, Executor, MetricRow, RuntimeInfo, VerdictRow,
                               load_json, utc_now_iso)
@@ -62,6 +63,9 @@ class Engine:
         # (the single-process default), so nothing else changes for the ordinary case.
         self.shard = shard
         self.owned: Optional[set[str]] = None   # None = "everything" (no shard)
+        # A11: the tick's writes, held until the tick is over so they cost one commit
+        # instead of two per agent.
+        self.batch = WriteBatch(store)
 
     def owns(self, agent_id: str) -> bool:
         """Does this worker act on this agent?
@@ -122,6 +126,9 @@ class Engine:
                 continue   # somebody else's agent — do not touch it
             self._safe(self._watch, agent_id, runtime.get(agent_id), now)
         self._safe(self._expire_tool_calls, now)
+        # A11: the metric and agent rows for every agent are written in one transaction.
+        # The flush is last so that everything the tick observed is in the batch.
+        self._safe(self.batch.flush)
 
     def _reshard(self, now: float) -> None:
         """
@@ -429,7 +436,9 @@ class Engine:
         self.store.insert_alert(AlertRow(agent_id, "critical" if critical else "warning", ",".join(f.rules), f.text))
 
     def _record(self, agent_id: str, br: Breaker, snap: Snapshot, rt: Optional[RuntimeInfo]) -> None:
-        self.store.insert_metric(MetricRow(
+        # A11: both rows go into the tick's batch instead of straight to the store, so
+        # the whole tick costs one commit instead of two per agent.
+        self.batch.metric(MetricRow(
             agent_id, br.state, snap.tokens_per_min, snap.usd_per_min, snap.calls_per_sec, snap.total_tokens,
             snap.spend_usd, snap.budget_usd, snap.exact_repeats, snap.loop_score, int(snap.tool_cycle),
             round(snap.memory_mb, 1), round(snap.memory_pct, 1)))
@@ -437,7 +446,7 @@ class Engine:
         # baseline means "nothing learned yet" and leaves the stored one alone.
         baseline = self.baselines.get(agent_id)
         payload = baseline.to_dict() if baseline else {}
-        self.store.upsert_agent(AgentRow(
+        self.batch.agent(AgentRow(
             agent_id, agent_id, rt.runtime if rt else self.runtime_name, rt.runtime_id if rt else "", br.state,
             snap.budget_usd, snap.spend_usd, snap.total_tokens, self.windows[agent_id].last_seen,
             baseline=payload, updated_at=utc_now_iso()))
