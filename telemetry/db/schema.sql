@@ -190,5 +190,26 @@ create table if not exists audit_log (
 );
 create index if not exists audit_log_seq on audit_log (seq);
 
+-- The tool registry (added 8 Nov, B8). A registry (an MCP server, a tool hub)
+-- reports the tools it serves and the descriptions it serves them with. The brain
+-- checks the descriptions for steering — a description is what the agent reads
+-- before it decides, so a poisoned one is an attack on the agent's instructions.
+-- The description is kept as it was served, so a human can see what the registry
+-- actually said.
+create table if not exists tool_registry (
+    id           bigint generated always as identity primary key,
+    registry     text not null default '',              -- which registry reported the tool
+    tool_name    text not null,                         -- the tool's name, as the agent calls it
+    description  text not null default '',              -- the description, as the registry served it
+    reported_by  text not null default 'mcp',           -- who reported it
+    status       text not null default 'clean',         -- clean | poisoned
+    reasons      text not null default '',              -- why the detector said what it said
+    score        double precision not null default 0,    -- how sure the detector was
+    created_at   timestamptz not null default now(),
+    updated_at   timestamptz not null default now(),
+    unique (registry, tool_name)
+);
+create index if not exists tool_registry_status on tool_registry (status);
+
 -- Hackathon note: the service-role key is used from trusted laptops only.
 -- Never put it in a publicly deployed dashboard (the dashboard talks to the API, not the DB).

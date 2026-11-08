@@ -371,6 +371,35 @@ class ToolCallRow(_Row):
         return d
 
 
+@dataclass
+class ToolRegistryRow(_Row):
+    """
+    One tool a registry serves, with the description the brain checked (B8).
+
+    Table: tool_registry.
+
+    A registry (an MCP server, a tool hub) reports what it offers. The brain
+    checks the **descriptions** — a description is what the agent reads before
+    it decides, so a poisoned one is an attack on the agent's instructions.
+
+    The row keeps the description as it was served (so a human can see what the
+    registry actually said) and the finding the brain made about it. A finding
+    of `poisoned` means the description tried to steer the agent.
+    """
+    registry: str
+    tool_name: str
+    description: str = ""
+    reported_by: str = "mcp"
+    status: str = "clean"            # clean | poisoned
+    reasons: str = ""                # the human-readable reasons the detector gave
+    score: float = 0.0
+    created_at: str = field(default_factory=utc_now_iso)
+    updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_row(self) -> dict:
+        return asdict(self)
+
+
 class MemoryConflict(Exception):
     """An agent tried to overwrite memory that a human/MCP changed after the agent last read it."""
 
@@ -1323,3 +1352,72 @@ def audit_hash(entry: dict) -> str:
         str(entry.get("prev_hash") or AUDIT_GENESIS),
     ]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
+# ── the tool registry (B8) ───────────────────────────────────────────────────
+def security_tool(tool_name: str, description: str = "", registry: str = "",
+                  status: str = "clean", reasons: Optional[list] = None,
+                  score: float = 0.0, reported_by: str = "mcp",
+                  updated_at: Optional[float] = None) -> dict:
+    """
+    One tool a registry serves, with what the brain found about its description.
+
+    `status` is `clean` or `poisoned`. `reasons` is the list of human-readable
+    reasons the detector gave — a detector that only says "yes" is a detector
+    nobody can tune, so the reasons travel with the verdict.
+    """
+    return {
+        "tool_name": str(tool_name or ""),
+        "description": str(description or ""),
+        "registry": str(registry or ""),
+        "status": str(status or "clean"),
+        "reasons": [str(r) for r in (reasons or [])],
+        "score": float(score or 0.0),
+        "reported_by": str(reported_by or "mcp"),
+        "updated_at": updated_at,
+    }
+
+
+def security_tools_view(tools: Optional[list] = None, enabled: bool = True,
+                        as_of: Optional[float] = None) -> dict:
+    """
+    What the brain found in the tools the registries serve.
+
+    `enabled` says whether the detectors are running at all. With the flag off
+    the view is still served — an operator asking "is a tool poisoned?" deserves
+    an answer rather than a 404 — but it says `enabled: false`, and the list is
+    empty because nothing was ever checked.
+    """
+    tools = list(tools or [])
+    return {
+        "tools": tools,
+        "enabled": bool(enabled),
+        "counts": {"total": len(tools),
+                   "clean": sum(1 for t in tools if t.get("status") == "clean"),
+                   "poisoned": sum(1 for t in tools if t.get("status") == "poisoned")},
+        "as_of": as_of,
+    }
+
+
+def security_report_view(findings: Optional[list] = None, enabled: bool = True,
+                         as_of: Optional[float] = None) -> dict:
+    """
+    The findings of one scan: what fired, and why.
+
+    `by_detector` and `by_severity` are the counts an operator reads first —
+    "is anything poisoned" is a count, not a list.
+    """
+    findings = list(findings or [])
+    by_detector: dict = {}
+    by_severity: dict = {}
+    for f in findings:
+        by_detector[f.get("detector", "")] = by_detector.get(f.get("detector", ""), 0) + 1
+        by_severity[f.get("severity", "")] = by_severity.get(f.get("severity", ""), 0) + 1
+    return {
+        "findings": findings,
+        "enabled": bool(enabled),
+        "counts": {"total": len(findings),
+                   "by_detector": by_detector,
+                   "by_severity": by_severity},
+        "as_of": as_of,
+    }
