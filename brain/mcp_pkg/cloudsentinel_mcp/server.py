@@ -106,7 +106,32 @@ def get_agent(agent_id: str) -> dict:
 
 @mcp.tool(annotations=SAFE)
 def explain_agent(agent_id: str) -> str:
-    """Plain-English explanation of why an agent is in its current state."""
+    """
+    Plain-English explanation of why an agent is in its current state.
+
+    A13: the story is built by the API (`GET /v1/agents/{id}/explain`) — the alert, the
+    verdict, the action and the heal, in order — so the MCP answer and the dashboard
+    say the same thing. The server used to assemble its own sentence from the agent
+    view, which showed the *current* metrics but not what led to them.
+    """
+    path = f"{_agent_path(agent_id)}/explain"
+    try:
+        data = client.get(path)
+    except Exception:
+        # A server that predates A13 does not have /explain. Fall back to the old
+        # assembly so the tool still answers instead of failing.
+        return _explain_agent_legacy(agent_id)
+    summary = data.get("polished_summary") or data.get("summary") or ""
+    if not summary:
+        return _explain_agent_legacy(agent_id)
+    outcome = data.get("outcome")
+    if outcome and outcome not in summary:
+        summary = f"{summary} (outcome: {outcome})"
+    return summary
+
+
+def _explain_agent_legacy(agent_id: str) -> str:
+    """The pre-A13 explanation, for a server that does not have /explain yet."""
     data = client.get(_agent_path(agent_id))
     agent, verdicts = data["agent"], data.get("verdicts", [])
     text = (f"{agent['agent_id']} is {agent['state'].upper()}. "

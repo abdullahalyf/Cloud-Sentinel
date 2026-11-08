@@ -184,6 +184,27 @@ def _retrying_key(memory: dict) -> str:
     return keys[0] if len(keys) == 1 else ""
 
 
+# A number in a monitoring summary: 12, 3.5, 0.85, 85%. The dollar amounts and the
+# percentages are the facts an operator acts on.
+_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
+
+
+def _lost_a_number(original: str, polished: str) -> bool:
+    """
+    Did the rewrite drop a number?
+
+    A rewrite that loses "$0.2500" or "85%" is worse than no rewrite at all: the
+    operator would read a confident, fluent sentence that says something subtly
+    different from what happened. So the numbers are checked, and the original is kept
+    when the rewrite does not have them all.
+    """
+    want = set(_NUMBER_RE.findall(original or ""))
+    if not want:
+        return False
+    have = set(_NUMBER_RE.findall(polished or ""))
+    return bool(want - have)
+
+
 def _memory_patch(ctx: JudgeContext) -> Optional[dict]:
     """
     The patch the fallback judge proposes: the one memory key whose belief says "retry until
@@ -394,3 +415,59 @@ class Judge:
         if not isinstance(data, dict):
             raise RuntimeError("judge reply was not a JSON object")
         return parse_verdict(data, "gemini")
+
+    def polish_explanation(self, report: dict) -> str:
+        """
+        Rewrite an incident explanation in smoother English (A13).
+
+        The deterministic summary is the answer; this is the icing. The facts are not
+        negotiable, so the prompt says plainly: keep every number, every action and
+        every name, and only change how it reads. If the model returns something that
+        dropped a fact, the caller keeps the original.
+
+        Returns `""` when there is nothing to polish, so the caller leaves
+        `polished_summary` as `None`.
+        """
+        if self.provider not in ("claude", "gemini"):
+            return ""
+        summary = str(report.get("summary") or "").strip()
+        if not summary:
+            return ""
+        events = report.get("events") or []
+        lines = "\n".join(
+            f"- {e.get('kind')}: {e.get('title')} — {e.get('detail')}" for e in events)
+        prompt = (f"Here is what happened to an AI agent that our circuit breaker is "
+                  f"monitoring:\n\n{summary}\n\nThe events, in order:\n{lines or '- none'}\n\n"
+                  f"Rewrite the summary in two or three clear sentences for a human operator. "
+                  f"Keep EVERY number, action name, agent name and dollar amount exactly as it is — "
+                  f"change only how it reads. Do not add any fact that is not here. "
+                  f"Reply with the rewritten summary and nothing else.")
+        try:
+            if self.provider == "claude":
+                response = self._client.messages.create(
+                    model=self.cfg.claude_model,
+                    max_tokens=400,
+                    system="You rewrite monitoring summaries for a human operator. "
+                           "You never invent a fact and you never change a number.",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                text = next((b.text for b in response.content if getattr(b, "type", "") == "text"), "")
+            else:
+                response = self._client.models.generate_content(
+                    model=self.cfg.gemini_model,
+                    contents=prompt,
+                    config={"system_instruction": "You rewrite monitoring summaries for a human "
+                                                  "operator. You never invent a fact and you never "
+                                                  "change a number."},
+                )
+                text = str(response.text or "")
+        except Exception as exc:
+            log.warning("could not polish an explanation: %s", exc)
+            return ""
+        polished = (text or "").strip()
+        # A rewrite that lost a number is worse than no rewrite: the operator would read a
+        # confident sentence that says something subtly different from what happened.
+        if polished and _lost_a_number(summary, polished):
+            log.warning("the polished explanation dropped a number — keeping the original")
+            return ""
+        return polished

@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from brain import service
+from brain import explain as brain_explain
 from brain.policy import Policy
 from brain.policy_reload import PolicyManager
 from brain.policy_schema import validate_yaml as policy_schema_validate
@@ -140,6 +141,29 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.get("/v1/agents/{agent_id}/nodes", dependencies=[Depends(auth)])
     def nodes(agent_id: str, minutes: float = 10, limit: int = 100) -> dict:
         return service.node_feed(store, agent_id, clamp_minutes(minutes), clamp_limit(limit, 500))
+
+    @app.get("/v1/agents/{agent_id}/explain", dependencies=[Depends(auth)])
+    def explain(agent_id: str, minutes: float = 10) -> dict:
+        """
+        What happened to this agent, and why (A13).
+
+        The summary is deterministic — no key, no network. The Claude polish is an
+        extra: when there is a key it fills in `polished_summary`, and when there is
+        not, `polished_summary` stays null and `summary` is the whole answer. A slow
+        third-party call must not be able to take this endpoint down, so the polish
+        happens after the deterministic report is already built, and any failure in it
+        is swallowed.
+
+        An agent that does not exist is a 404, the way the mock answers it: an
+        explanation of nothing would be a confident paragraph about an agent nobody
+        has ever heard of.
+        """
+        report = brain_explain.build_explanation(store, agent_id, minutes=clamp_minutes(minutes))
+        if report is None:
+            raise HTTPException(404, f"agent {agent_id} not found")
+        if judge != "fallback" and report.get("summary"):
+            report = brain_explain.polish(report, cfg=cfg)
+        return report
 
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
