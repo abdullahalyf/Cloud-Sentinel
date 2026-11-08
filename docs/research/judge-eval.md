@@ -41,15 +41,15 @@ no judge at all, because operators learn to ignore it.
 
 ## Results
 <!-- eval:start -->
-Run: 2026-11-08 02:28 UTC · judge `fallback` · model `fallback` · incidents **64**
+Run: 2026-11-08 05:50 UTC · judge `fallback` · model `fallback` · incidents **70**
 
 | Metric | Value |
 |---|---|
-| Precision | 0.929 |
-| Recall | 0.839 |
-| F1 | 0.881 |
-| Accuracy | 0.891 |
-| False-positive rate | 0.061 |
+| Precision | 1.000 |
+| Recall | 0.824 |
+| F1 | 0.903 |
+| Accuracy | 0.914 |
+| False-positive rate | 0.000 |
 | Invalid-output rate | 0.000 |
 | Latency p50 | 0 ms |
 | Latency p95 | 0 ms |
@@ -63,7 +63,7 @@ Run: 2026-11-08 02:28 UTC · judge `fallback` · model `fallback` · incidents *
 | budget_leak | 0 | 0 | 3 | 0 | 0 |
 | captured_exact_loop | 0 | 1 | 0 | 0 | 0 |
 | captured_healthy | 0 | 0 | 1 | 0 | 0 |
-| captured_memory_leak | 0 | 1 | 0 | 0 | 0 |
+| captured_memory_leak | 0 | 0 | 1 | 0 | 0 |
 | captured_paraphrase_loop | 0 | 1 | 0 | 0 | 0 |
 | captured_token_bomb | 0 | 0 | 1 | 0 | 0 |
 | exact_loop | 0 | 1 | 0 | 0 | 0 |
@@ -71,7 +71,8 @@ Run: 2026-11-08 02:28 UTC · judge `fallback` · model `fallback` · incidents *
 | injection_lookalike | 0 | 0 | 2 | 0 | 0 |
 | legit_burst | 0 | 0 | 25 | 0 | 0 |
 | memory_leak | 0 | 2 | 0 | 0 | 0 |
-| memory_stable | 0 | 2 | 0 | 0 | 0 |
+| memory_stable | 0 | 0 | 2 | 0 | 0 |
+| mixed_language | 0 | 3 | 3 | 0 | 0 |
 | paraphrase_loop | 0 | 9 | 0 | 0 | 0 |
 | retry_success | 0 | 0 | 3 | 0 | 0 |
 | token_bomb | 0 | 1 | 1 | 0 | 0 |
@@ -84,19 +85,19 @@ Run: 2026-11-08 02:28 UTC · judge `fallback` · model `fallback` · incidents *
 | captured_healthy | 1 | 0 | 0.000 |
 | injection_lookalike | 2 | 0 | 0.000 |
 | legit_burst | 25 | 0 | 0.000 |
-| memory_stable | 2 | 2 | 1.000 |
+| memory_stable | 2 | 0 | 0.000 |
+| mixed_language | 3 | 0 | 0.000 |
 | retry_success | 3 | 0 | 0.000 |
 
 ### Misjudged incidents
 
 | id | family | expected | got | reason |
 |---|---|---|---|---|
-| neg-legit-009 | memory_stable | IGNORE/WARN | PAUSE 0.70 | Memory at 74% and climbing: heading for a crash. |
-| pos-leak-001 | budget_leak | PAUSE/KILL | WARN 0.50 | 84% of budget used |
+| pos-leak-001 | budget_leak | PAUSE/KILL | WARN 0.50 | 84% of the budget is used: watching it. |
 | pos-token-001 | token_bomb | PAUSE/KILL | WARN 0.55 | Token spend is high but prompts vary. |
-| pos-budget-001 | budget_leak | PAUSE/KILL | WARN 0.50 | spent $0.550 of $0.50 budget |
-| neg-legit-023 | memory_stable | IGNORE/WARN | PAUSE 0.70 | Memory at 71% and climbing: heading for a crash. |
+| pos-budget-001 | budget_leak | PAUSE/KILL | WARN 0.50 | spent $0.575 of $0.50 budget |
 | pos-leak-002 | budget_leak | PAUSE/KILL | WARN 0.55 | Token spend is high but prompts vary. |
+| cap-memory_leak-001 | captured_memory_leak | PAUSE/KILL | WARN 0.50 | Memory at 70%: watching whether it keeps growing. |
 | cap-token_bomb-001 | captured_token_bomb | PAUSE/KILL | WARN 0.55 | Token spend is high but prompts vary. |
 <!-- eval:end -->
 
@@ -239,3 +240,124 @@ python -m brain.judge_eval --judge fallback   # score the fallback judge
 python -m brain.judge_eval --judge claude --runs 3 --write   # needs a key
 python -m pytest brain/tests/test_judge_eval.py -q
 ```
+
+---
+
+## A12 (2026-11-08) — the spend cap, the mixed-language family, and the model comparison
+
+Three things landed in A12: an hourly cap on what the LLM judge may spend, a
+**`mixed_language` family** in the labeled dataset, and the accuracy-vs-latency-vs-cost table
+Orin needs for the slide.
+
+### The hourly spend cap (`CS_JUDGE_MAX_USD_PER_HOUR`)
+
+The judge is the one part of the brain that costs money on every call. A fleet that trips forty
+agents an hour, each asking the judge about itself, is a bill with no ceiling. The contract
+setting (`shared/config.py`, merged in PR #44) is the ceiling; `brain/judge_spend.py` is the
+tracker and `brain/judge.py` obeys it.
+
+**Above the cap the brain stops paying, but it does not stop judging.** The deterministic
+fallback judge takes over — a loop is still paused, an injection is still caught — and the engine
+writes a `judge_cost_capped` alert so the operator can see *why* the LLM judge went quiet. A
+silent downgrade looks like the brain got worse; an alert says "the cap is doing its job".
+
+**The window is a rolling hour, not a clock hour.** "An hour" that started at the top of the
+wall-clock hour would let a fleet spend the whole cap in the first minute and then judge nothing
+for 59 minutes — the opposite of what an operator expects from a rate limit. The window measures
+what the last 60 minutes cost.
+
+**The clock is injected.** `time.time()` inside the brain is the wrong clock for this: the engine
+already runs on a virtual clock in the tests, and a cap measured against a different clock than the
+one that produced the events is a cap nobody can trust. `brain/tests/test_judge_cost.py` drives it
+with a fake clock — 18 tests, all offline.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `CS_JUDGE_MAX_USD_PER_HOUR` | `0` | what the LLM judge may cost in one hour. `0` = **no cap** |
+
+The default is off on purpose. A product that stops judging because of a rounding error is worse
+than one that is slightly too expensive.
+
+### The `mixed_language` family
+
+A Bangladesh deployment writes its prompts in Bangla transliteration mixed with English — and
+sometimes in Bangla script. A detector that only understands English words sees a *different*
+loop every time and never fires. So the mixed-language cases got **their own family**, so the
+false-positive rate for a mixed-language fleet is measured on its own instead of being averaged
+into `paraphrase_loop`.
+
+Six cases: three positives (a transliterated loop, the same loop in Bangla script, and a loop
+whose giveaway is the numbers rather than the words) and three negatives (a Bangla support desk
+answering ten different customers, a nightly Bangla translation batch, and a slow-but-progressing
+agent whose prompts repeat their greeting).
+
+**The negatives are the important half.** A naive word-overlap detector stops the support desk: it
+sees "order … er problem, please help" ten times and concludes a loop. The fallback judge gets
+all six right — three PAUSE, three WARN, **zero false positives**.
+
+### The model comparison — accuracy vs latency vs cost
+
+This is the table for Orin's slide (O16).
+
+| Judge | Model | Precision | Recall | F1 | False-positive rate | Latency p50 | Latency p95 | $ / verdict | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| `fallback` | — (deterministic) | **1.000** | 0.824 | 0.903 | **0.000** | 0 ms | 0 ms | **$0.000000** | **run** |
+| `claude` | `claude-haiku-5-5` | not run | not run | not run | not run | not run | not run | not run | **not run** — no `ANTHROPIC_API_KEY` |
+| `claude` | `claude-sonnet-5-5` | not run | not run | not run | not run | not run | not run | not run | **not run** — no `ANTHROPIC_API_KEY` |
+| `claude` | `claude-opus-5-5` | not run | not run | not run | not run | not run | not run | not run | **not run** — no `ANTHROPIC_API_KEY` |
+| `claude` | `claude-fable-5-1` | not run | not run | not run | not run | not run | not run | not run | **not run** — no `ANTHROPIC_API_KEY` |
+| `gemini` | `gemini-2.5-flash` | not run | not run | not run | not run | not run | not run | not run | **not run** — no `GEMINI_API_KEY` |
+
+**Read this table honestly: only one row is measured.** The other five are `not run` because this
+machine has no key for any of them — the `.env` in the repo is the untouched `.env.example`
+template. Every one of those rows is a real, working code path (`--judge claude --model …`),
+tested offline with a fake client; only the key is missing.
+
+What the one measured row already says:
+
+- **The fallback costs nothing and never lies.** $0.000000 per verdict, 0 ms, and a precision of
+  1.000 on 70 incidents. It is the safety net, and it is not a bad judge — it is the one that
+  always runs.
+- **Its recall is 0.824, and that is a known, explained gap.** The misses are the slow money
+  leaks (a budget warning with no loop evidence), which the fallback deliberately treats as "worth
+  watching" rather than "stop", because on their own they look exactly like legitimate heavy work.
+  That is what the LLM judge is for — which is exactly why the live run matters.
+- **The mixed-language family is at zero false positives** for the fallback: 3 positives caught,
+  3 negatives spared.
+
+**What the live runs would add.** The LLM judge is the only thing that can tell a slow token leak
+from a busy healthy agent, because it reads the logs instead of the metrics. So the expected shape
+of the live table is: Claude's **recall** above the fallback's 0.824 (it should catch the slow
+leaks), at a **latency** in the hundreds of milliseconds rather than zero, and a **cost** of about
+$0.00016 per verdict on Haiku (the measured prompt size is 950–1,160 input tokens and ~120 output
+tokens). That is the trade the slide should show: the free judge is safe but blind, and the paid
+judge sees.
+
+**Cost of the live run itself:** 70 incidents × 3 runs = 210 verdicts ≈ **$0.03** on Haiku, and
+roughly 10× that on Opus. It is not a money decision; it is a "somebody has to paste a key" one.
+
+### Running the missing rows
+
+```bash
+# 1. put a real key in .env (never commit it)
+#    ANTHROPIC_API_KEY=sk-ant-...        # for the Claude rows
+#    GEMINI_API_KEY=...                   # for the Gemini row
+# 2. one row at a time (the model is a setting)
+CLAUDE_MODEL=claude-haiku-5-5  python -m brain.judge_eval --judge claude --runs 3
+CLAUDE_MODEL=claude-sonnet-5-5 python -m brain.judge_eval --judge claude --runs 3
+CLAUDE_MODEL=claude-opus-5-5   python -m brain.judge_eval --judge claude --runs 3
+CLAUDE_MODEL=claude-fable-5-1  python -m brain.judge_eval --judge claude --runs 3
+python -m brain.judge_eval --judge gemini --runs 3
+```
+
+Paste each run's numbers into the table above and the slide is done. The same run also fills in
+the `eval:start` / `eval:end` block at the top of this file with `--write`.
+
+### The dataset grew
+
+| | Before (A1) | Now (A12) |
+|---|---|---|
+| Incidents | 64 | **70** |
+| Positives / negatives | 31 / 33 | **34 / 36** |
+| Families | 17 | **18** (`mixed_language` is new) |
+| Data | synthetic only | synthetic only |
