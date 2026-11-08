@@ -153,6 +153,14 @@ class Settings:
     # applied automatically only when the shadow is healthy AND the judge is confident.
     # Off = the A3 behaviour exactly (every patch waits for a human).
     verified_heal: bool = False
+    # ── Budget forecasting and graceful degradation (B4): the budget tree and the ladder ──
+    # With the ladder on, a runaway agent is stepped down gently before it is stopped:
+    # throttle → cheaper model → pause → kill, one rung at a time, never skipping one.
+    # Off = the old behaviour exactly (pause or kill, straight away, no throttle).
+    degradation_enabled: bool = False
+    # The burn rate at which the brain starts warning that a budget is going to run out.
+    # 0 = no warning.
+    budget_warn_usd_per_min: float = 0.0
 
     @property
     def use_supabase(self) -> bool:
@@ -207,6 +215,8 @@ def load_settings() -> Settings:
         autoheal=_bool("CS_AUTOHEAL", True),
         autoheal_min_confidence=_float("CS_AUTOHEAL_MIN_CONFIDENCE", 0.85),
         verified_heal=_bool("CS_VERIFIED_HEAL", False),
+        degradation_enabled=_bool("CS_DEGRADATION_ENABLED", False),
+        budget_warn_usd_per_min=max(0.0, _float("CS_BUDGET_WARN_USD_PER_MIN", 0.0)),
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
