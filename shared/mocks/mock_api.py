@@ -27,7 +27,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
                               ToolCallRow, VerdictRow, agent_view, explain_event, explain_report, load_json,
-                              utc_now_iso)
+                              tool_risk_from_history, tool_risk_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
@@ -93,6 +93,20 @@ def seed() -> None:
     TOOL_CALLS[1] = ToolCallRow("delta", "issue_refund", {"order_id": 4471, "amount": 50000}, "pending", {}, "",
                                 "refunds over 5,000 BDT need a human", 410.0).to_row() | {
         "id": 1, "args": {"order_id": 4471, "amount": 50000}, "final_args": {}}
+    # A14: a human has approved the *same* small refund five times, so the sixth one
+    # would be auto-approved. The mock shows both sides of the line: this call is past
+    # the threshold, the one below it is not.
+    for i in range(2, 7):
+        TOOL_CALLS[i] = ToolCallRow("delta", "issue_refund", {"order_id": 9001, "amount": 1000}, "allow",
+                                    {"order_id": 9001, "amount": 1000}, "human",
+                                    "a small refund, the same one as last time", 12.0).to_row() | {
+            "id": i, "args": {"order_id": 9001, "amount": 1000},
+            "final_args": {"order_id": 9001, "amount": 1000}}
+    TOOL_CALLS[7] = ToolCallRow("delta", "issue_refund", {"order_id": 9100, "amount": 2000}, "allow",
+                                {"order_id": 9100, "amount": 2000}, "human",
+                                "another small refund", 24.0).to_row() | {
+        "id": 7, "args": {"order_id": 9100, "amount": 2000},
+        "final_args": {"order_id": 9100, "amount": 2000}}
     # one pending heal proposal for beta, so the approvals inbox has something in it
     # the real API decodes the JSON `patch` column, so the mock serves a decoded patch too
     _proposal = HealProposalRow(
@@ -434,6 +448,22 @@ def get_tool_call(call_id: int) -> dict:
     if call_id not in TOOL_CALLS:
         _bad(404, f"tool call {call_id} not found")
     return TOOL_CALLS[call_id]
+
+
+@app.get("/v1/tool-risk")
+def tool_risk(agent_id: Optional[str] = None) -> dict:
+    """
+    The learned tool risk (A14): what a human has approved, per (agent, tool, args).
+
+    The mock leads the real API here — the contract lands the mock first, and the brain
+    branch follows. The counting is done by `shared.contracts.tool_risk_from_history`, the
+    same function the real API uses, so the two cannot drift on what counts as an approval.
+    """
+    calls = list(TOOL_CALLS.values())
+    if agent_id:
+        calls = [c for c in calls if c.get("agent_id") == agent_id]
+    entries = tool_risk_from_history(calls)
+    return tool_risk_view(entries)
 
 
 @app.post("/v1/tool-calls/{call_id}/decision")
