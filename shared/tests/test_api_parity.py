@@ -250,6 +250,70 @@ def test_the_audit_endpoint_exists_even_with_the_flag_off(sim, cfg):
     assert r.json()["enabled"] is False
 
 
+def test_the_security_endpoints_have_the_same_shape_on_both_sides(sim, cfg):
+    """`/v1/security/*` (B8) — the mock and the real API must say the same thing.
+
+    The brain side landed as PR #85, so both serve the three endpoints now.
+    Unlike the backtest and the cascade, they do not 404 when
+    `CS_SECURITY_ENABLED` is off: they say `enabled: false` and serve what
+    they have. A security posture is worth reporting even when the detectors
+    are switched off — "off" and "nothing found" are different facts, and only
+    one of them is a reason to worry.
+    """
+    from dataclasses import replace
+
+    sim.run(3)
+    on = replace(cfg, security_enabled=True)
+    real = TestClient(create_app(sim.store, sim.policy, on, "fake", "fallback"))
+    mock = TestClient(mock_app)
+
+    for path in ("/v1/security/tools", "/v1/security/report"):
+        r, m = real.get(path), mock.get(path)
+        assert m.status_code == 200, f"the mock must serve {path}"
+        assert r.status_code == 200, f"the real API must serve {path} now the brain side has landed"
+        rb, mb = r.json(), m.json()
+        missing = keys(rb) - keys(mb)
+        assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+        assert keys(rb["counts"]) == keys(mb["counts"])
+        if rb.get("tools") and mb.get("tools"):
+            assert set(rb["tools"][0]) == set(mb["tools"][0])
+        if rb.get("findings") and mb.get("findings"):
+            assert set(rb["findings"][0]) == set(mb["findings"][0])
+
+
+def test_the_security_endpoints_exist_even_with_the_flag_off(sim, cfg):
+    """The flag decides whether the detectors *run*, not whether the findings are *read*.
+
+    An operator asking "is anything trying to steer my agents?" deserves an
+    answer rather than a 404 — and `enabled: false` says the honest thing:
+    nobody looked.
+    """
+    from dataclasses import replace
+
+    sim.run(3)
+    off = replace(cfg, security_enabled=False)
+    real = TestClient(create_app(sim.store, sim.policy, off, "fake", "fallback"))
+    for path in ("/v1/security/tools", "/v1/security/report"):
+        r = real.get(path)
+        assert r.status_code == 200, path
+        assert r.json()["enabled"] is False, path
+
+
+def test_both_sides_reject_the_same_bad_status_filter(sim, cfg):
+    """A filter that is not a status is a 400 on both sides — not a 400 on one
+    and a silently empty list on the other. A dashboard that asks for
+    `status=poisoned` learns to handle the answer; it must not learn two."""
+    from dataclasses import replace
+
+    sim.run(3)
+    on = replace(cfg, security_enabled=True)
+    real = TestClient(create_app(sim.store, sim.policy, on, "fake", "fallback"))
+    mock = TestClient(mock_app)
+    for client in (real, mock):
+        r = client.get("/v1/security/tools?status=bogus")
+        assert r.status_code == 400, r.status_code
+
+
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
 BEHAVIOUR = [
     ("post", "/v1/agents/beta/commands", {"command": "NUKE"}),
