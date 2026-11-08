@@ -76,6 +76,8 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_AUTOHEAL` *(added 8 Nov)* | `true` | brain | apply a confident judge patch automatically; false → every patch waits for a human |
 | `CS_AUTOHEAL_MIN_CONFIDENCE` *(added 8 Nov)* | `0.85` | brain | judge confidence at or above which a patch is applied without a human |
 | `CS_VERIFIED_HEAL` *(added 8 Nov, B1)* | `false` | brain | before a judge patch is applied, replay the agent's recent context against it in a **shadow dry-run**; apply automatically only if the shadow is healthy **and** the confidence is at least `CS_AUTOHEAL_MIN_CONFIDENCE`, otherwise the patch goes to the approvals inbox. `false` → every patch waits for a human (the A3 behaviour, exactly) |
+| `CS_DEGRADATION_ENABLED` *(added 8 Nov, B4)* | `false` | brain | step a runaway agent down the ladder — throttle → cheaper model → pause → kill — one rung at a time. `false` → the old behaviour exactly (pause or kill, straight away, no throttle) |
+| `CS_BUDGET_WARN_USD_PER_MIN` *(added 8 Nov, B4)* | `0` | brain | the burn rate at which the brain warns that a budget is going to run out; `0` → no warning |
 | `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
 | `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
