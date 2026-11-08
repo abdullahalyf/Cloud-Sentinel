@@ -482,3 +482,80 @@ def test_a_person_with_no_tasks_is_still_reported():
     report = Report(people=people, ci="unknown", ci_detail="", commits_scanned=0)
     text = render(report)
     assert "Ghost" in text
+
+
+# ── the human-only items ────────────────────────────────────────────────────
+def test_the_human_items_are_read():
+    """
+    The human-only items — a key, an account, a GitHub setting — are the work
+    no agent can do, and they are the work that blocks the most.
+    """
+    from brain.status import parse_human_items
+    items = parse_human_items(Path("docs/tasks/taseen.md"))
+    assert items, "the human-only items were not read"
+    ids = [i["id"] for i in items]
+    assert "H1" in ids, f"the human-only items do not include H1: {ids}"
+    assert len(ids) == len(set(ids)), f"a human-only item is listed twice: {ids}"
+
+
+def test_the_human_items_keep_their_steps():
+    """
+    An item is more than its title: the files write the exact menu path and
+    the exact steps underneath it. A reader who has to *do* the thing needs
+    those, and a report that drops them sends the reader back to the file.
+    """
+    from brain.status import parse_human_items
+    items = parse_human_items(Path("docs/tasks/taseen.md"))
+    by_id = {i["id"]: i for i in items}
+    steps = " ".join(by_id["H3"]["steps"])
+    assert "ANTHROPIC_API_KEY" in steps, "the key step was dropped"
+
+
+def test_the_human_items_section_stops_at_the_next_heading():
+    """
+    The file also has a "Requests from Alif's agent" section. If the parser
+    did not stop at the next `##`, every request would be counted as a
+    human-only item too, and the same work would be listed twice.
+    """
+    from brain.status import parse_human_items
+    items = parse_human_items(Path("docs/tasks/taseen.md"))
+    assert len(items) < 30, "the parser ran past the end of the section"
+
+
+def test_a_human_only_item_that_is_done_is_not_in_the_pending_list():
+    """A finished item is a fact, but it is not a thing to do today."""
+    from brain.status import parse_human_items
+    items = parse_human_items(Path("docs/tasks/taseen.md"))
+    assert all(isinstance(i["done"], bool) for i in items)
+
+
+def test_the_report_has_a_section_for_the_work_that_needs_a_person():
+    """
+    The report's whole job is to say who needs what. A blocking secret that
+    is not in the report is a secret that sits undone for two days.
+    """
+    report = build_report()
+    assert report.human_items, "the report has no human-only items"
+    text = render(report)
+    assert "মানুষের দরকার" in text, "the report has no section for the human-only work"
+    assert "Taseen" in text
+
+
+def test_the_report_never_says_alif_needs_anything():
+    """
+    Alif's work is run by an agent. A line saying "Alif needs to do X" is
+    either noise or a lie, and it pushes the work onto a human who is not
+    there.
+    """
+    text = render(build_report())
+    assert "Alif-এর দরকার" not in text, "the report asks Alif for something"
+    assert "আলিফের দরকার" not in text, "the report asks Alif for something"
+
+
+def test_the_human_items_are_in_the_json():
+    """The JSON is the machine-readable twin of the report; it must agree."""
+    payload = build_report().to_dict()
+    assert "human_items" in payload
+    assert payload["human_items"], "the JSON has no human-only items"
+    for item in payload["human_items"]:
+        assert "id" in item and "title" in item and "done" in item
