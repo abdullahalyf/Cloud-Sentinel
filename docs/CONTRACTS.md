@@ -91,6 +91,7 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
 | `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
+| `CS_BASELINE_RECOMPUTE_EVERY` *(added 8 Nov, B9)* | `1` | brain | how many healthy observations between recomputes of the learned median/MAD. `1` = every observation (the behaviour before B9). A larger number is **cheaper and safer**: the learned limit then stands on the older, healthier samples for longer, so a runaway crosses it sooner instead of the limit climbing after it |
 | `CS_POLICY_RELOAD_ENABLED` *(added 8 Nov)* | `true` | brain | pick up a changed `CS_POLICY_FILE` while running; false → the policy is read once at startup |
 | `CS_POLICY_RELOAD_INTERVAL_SECONDS` *(added 8 Nov)* | `1` | brain | how often the policy file's mtime is checked |
 | `CS_INJECTION_ENABLED` *(added 8 Nov)* | `true` | brain | score agent text and tool arguments for prompt injection; false → the gate trusts the policy only |
