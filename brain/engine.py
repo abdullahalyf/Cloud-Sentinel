@@ -352,6 +352,10 @@ class Engine:
         A confident, valid patch is applied right away and the agent goes back to work on probation.
         Anything less — a low confidence, an invalid patch, a recent auto-heal — becomes a proposal
         for a human. The agent stays paused either way: a human (or the next auto-heal) resumes it.
+
+        When `CS_VERIFIED_HEAL` is on, the patch must also *prove* itself first: the agent's
+        recent context is replayed against it in a shadow dry-run, and the patch is applied only
+        if the patched agent would be healthy. A shadow can only veto — it never authorises.
         """
         memory_row = self.store.get_memory(agent_id) or {}
         memory = memory_row.get("content") or {}
@@ -368,9 +372,12 @@ class Engine:
             propose_heal(self.store, agent_id, patch, v.confidence, verdict_id, base_version,
                          reason=v.reason or "auto-heal needs a human")
             return
-        if v.confidence < self.cfg.autoheal_min_confidence:
-            propose_heal(self.store, agent_id, patch, v.confidence, verdict_id, base_version,
-                         reason=v.reason or "not confident enough to apply without a human")
+
+        # B1: the shadow dry-run. It runs before the patch touches the agent, on copies only.
+        # With the flag off it is not run at all and every patch waits for a human — the A3
+        # behaviour, exactly.
+        decision = self._shadow_decide(agent_id, patch, memory, v, verdict_id, base_version, now)
+        if not decision.apply:
             return
 
         # confident and valid: apply it
@@ -397,6 +404,60 @@ class Engine:
         resume = br.on_command("RESUME", "brain:autoheal", f"auto-heal: {v.reason or 'patch applied'}", now)
         if resume:
             self._apply(agent_id, resume, None)
+
+    # ── the shadow dry-run (B1) ──────────────────────────────────────────────
+    def _shadow_decide(self, agent_id: str, patch, memory: dict, v: Verdict,
+                       verdict_id: int, base_version: int, now: float):
+        """
+        Ask the shadow whether the patch works, before it touches the agent.
+
+        The decision is a `verified_heal.HealDecision`: apply, or a human. Either way the whole
+        flow — the shadow's verdict, the numbers behind it — goes onto the agent's own trace,
+        so a reader can see the proof and the decision side by side.
+        """
+        from brain import verified_heal
+
+        win = self.windows.get(agent_id)
+        prompts = [str(c.get("prompt_preview") or "") for c in list(win.chats) if win is not None] \
+            if win is not None else []
+        snap = win.snapshot(now, self.budget(agent_id)) if win is not None else None
+
+        decision = verified_heal.decide(
+            patch, memory, prompts, snap, self.cfg,
+            confidence=v.confidence, finding=self.last_finding.get(agent_id),
+            baseline=self.baselines.get(agent_id),
+        )
+
+        if decision.shadow is not None:
+            self._emit_shadow(agent_id, decision.shadow, v.confidence, decision.apply, decision.reason)
+
+        if not decision.apply:
+            # the patch waits for a human. The reason says why — the shadow's own words.
+            reason = decision.reason or v.reason or "the patch did not prove itself"
+            log.warning("the patch for %s waits for a human: %s", agent_id, reason)
+            propose_heal(self.store, agent_id, patch, v.confidence, verdict_id, base_version, reason=reason)
+        return decision
+
+    def _emit_shadow(self, agent_id: str, shadow, confidence: float, applied: bool, reason: str) -> None:
+        """Put the shadow flow on the agent's own trace, next to the behaviour that caused it.
+
+        Best-effort by construction: a lost span is a nuisance, a lost tick is an outage.
+        """
+        sender = getattr(self, "verdict_emitter", None)
+        if sender is None:
+            return
+        try:
+            from brain import verified_heal
+
+            win = self.windows.get(agent_id)
+            spans = list(win.chats) + list(win.tools) if win is not None else []
+            trace_id, span_id = verdict_span.trace_of(spans)
+            verified_heal.emit_shadow_span(sender, agent_id=agent_id, trace_id=trace_id,
+                                            parent_span_id=span_id, shadow=shadow,
+                                            confidence=confidence, applied=applied, reason=reason)
+        except Exception as exc:
+            log.warning("could not put the shadow flow for %s on the agent's trace: %s", agent_id, exc)
+
 
     # ── actions ──────────────────────────────────────────────────────────────
     def _apply(self, agent_id: str, e: Effect, snap: Optional[Snapshot]) -> None:

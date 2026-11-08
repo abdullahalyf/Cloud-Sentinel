@@ -11,6 +11,11 @@ The rules under test:
   - an injection-like patch is refused
   - the mock API and the real API behave the same
   - the MCP tool reaches the API
+
+**B1 note.** Since B1, an automatic heal has to pass two gates: the judge's confidence *and*
+a healthy shadow dry-run (`CS_VERIFIED_HEAL`). The flag is off by default, and with it off
+every patch waits for a human — so the two tests below that expect a heal to *happen* switch
+it on explicitly. The shadow itself is tested in `brain/tests/test_verified_heal.py`.
 """
 from __future__ import annotations
 
@@ -230,7 +235,23 @@ def test_a_decided_proposal_cannot_be_decided_again(store):
 
 
 # ── the engine flow ─────────────────────────────────────────────────────────
-def test_a_confident_patch_is_applied_and_the_agent_goes_back_to_work(sim, cfg):
+@pytest.fixture
+def cfg_heal(cfg):
+    """The auto-heal tests need the shadow dry-run on (B1): a patch is applied only if the
+    patched agent would be healthy."""
+    return replace(cfg, verified_heal=True)
+
+
+@pytest.fixture
+def sim_heal(cfg_heal):
+    """A brain with the shadow dry-run on. The `sim` fixture carries the default settings,
+    and the default for the shadow is off."""
+    from brain.tests.conftest import Sim
+
+    return Sim(cfg_heal)
+
+
+def test_a_confident_patch_is_applied_and_the_agent_goes_back_to_work(sim_heal):
     """
     The whole point: a sick agent that can be fixed by one belief gets fixed and comes back,
     instead of staying paused until a human notices.
@@ -242,17 +263,17 @@ def test_a_confident_patch_is_applied_and_the_agent_goes_back_to_work(sim, cfg):
         return Verdict("PAUSE", 0.95, "semantic_loop", "the belief 'retry until success' keeps it looping",
                        "fallback", "set the belief to cancelled", patch=dict(PATCH))
 
-    sim.engine.judge.judge = confident
-    sim.store.write_memory("beta", dict(MEMORY), "agent")
-    sim.fleet.go_rogue("beta", "paraphrase_loop", sim.now)
-    sim.run(40)
-    assert sim.state("beta") in ("paused", "suspicious"), sim.state("beta")
+    sim_heal.engine.judge.judge = confident
+    sim_heal.store.write_memory("beta", dict(MEMORY), "agent")
+    sim_heal.fleet.go_rogue("beta", "paraphrase_loop", sim_heal.now)
+    sim_heal.run(40)
+    assert sim_heal.state("beta") in ("paused", "suspicious"), sim_heal.state("beta")
     # let the judge see the loop and propose the patch
-    sim.run(30)
-    actions = [a for a in sim.store.recent_actions(50) if a["action"] == "AUTO_HEAL"]
+    sim_heal.run(30)
+    actions = [a for a in sim_heal.store.recent_actions(50) if a["action"] == "AUTO_HEAL"]
     assert actions, "the confident patch was not applied"
     assert actions[0]["actor"] == "brain:autoheal"
-    assert sim.store.get_memory("beta")["content"]["order_4471"] == "cancelled - skip it and move on"
+    assert sim_heal.store.get_memory("beta")["content"]["order_4471"] == "cancelled - skip it and move on"
 
 
 def test_a_low_confidence_patch_becomes_a_proposal_and_nothing_changes(sim, cfg):
@@ -294,7 +315,7 @@ def test_autoheal_can_be_switched_off(sim, cfg):
     assert sim.store.get_memory("beta")["content"]["order_4471"] == "orders API returned 500 - retry until success"
 
 
-def test_an_agent_that_trips_again_during_probation_escalates_to_a_human(sim, cfg):
+def test_an_agent_that_trips_again_during_probation_escalates_to_a_human(sim_heal):
     """
     The first patch did not work. The agent is NOT auto-healed a second time: it is paused and
     a human is asked to look — a kill would destroy the state the human needs.
@@ -305,21 +326,22 @@ def test_an_agent_that_trips_again_during_probation_escalates_to_a_human(sim, cf
         return Verdict("PAUSE", 0.95, "semantic_loop", "the belief keeps it looping", "fallback", "",
                        patch=dict(PATCH))
 
-    sim.engine.judge.judge = confident
-    sim.store.write_memory("beta", dict(MEMORY), "agent")
-    sim.fleet.go_rogue("beta", "paraphrase_loop", sim.now)
-    sim.run(40)
-    sim.run(30)
-    assert any(a["action"] == "AUTO_HEAL" for a in sim.store.recent_actions(50)), "the first heal did not happen"
+    sim_heal.engine.judge.judge = confident
+    sim_heal.store.write_memory("beta", dict(MEMORY), "agent")
+    sim_heal.fleet.go_rogue("beta", "paraphrase_loop", sim_heal.now)
+    sim_heal.run(40)
+    sim_heal.run(30)
+    assert any(a["action"] == "AUTO_HEAL" for a in sim_heal.store.recent_actions(50)), \
+        "the first heal did not happen"
 
     # it keeps misbehaving: the second trip must NOT be auto-healed again
-    sim.run(60)
-    heals = [a for a in sim.store.recent_actions(80) if a["action"] == "AUTO_HEAL"]
+    sim_heal.run(60)
+    heals = [a for a in sim_heal.store.recent_actions(80) if a["action"] == "AUTO_HEAL"]
     assert len(heals) == 1, f"the agent was auto-healed {len(heals)} times in a row"
-    assert sim.state("beta") == "paused", sim.state("beta")
+    assert sim_heal.state("beta") == "paused", sim_heal.state("beta")
     # and a human was asked to look
     assert any("tripped again after an auto-heal" in (p["reason"] or "")
-               for p in sim.store.list_heal_proposals())
+               for p in sim_heal.store.list_heal_proposals())
 
 
 def test_a_rejected_proposal_leaves_the_agent_paused(sim, cfg):
