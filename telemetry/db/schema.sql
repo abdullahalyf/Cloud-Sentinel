@@ -23,7 +23,7 @@ create table if not exists spans (
     span_id        text not null default '',
     parent_span_id text not null default '',
     agent_id       text not null,
-    operation      text not null,                 -- invoke_agent | chat | execute_tool | graph_node
+    operation      text not null,                 -- invoke_agent | chat | execute_tool | graph_node | cs_verdict
     name           text not null default '',
     provider       text not null default '',
     model          text not null default '',

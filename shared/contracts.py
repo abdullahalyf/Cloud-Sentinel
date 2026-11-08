@@ -122,9 +122,18 @@ class Attr:
     CS_NODE_FRAMEWORK = "cloudsentinel.node.framework"
     CS_NODE_STATE_DELTA = "cloudsentinel.node.state_delta"   # JSON {key: short preview} of what the node changed
     CS_NODE_NEXT = "cloudsentinel.node.next"                 # where the graph routed next (if known)
+    # The brain's own verdict spans (A15) — CloudSentinel extension, see CONTRACTS §4.
+    # The brain emits these on the *agent's* trace, so an operator watching the agent
+    # in Phoenix sees the verdict on the same trace as the behaviour that caused it.
+    CS_VERDICT_ACTION = "cloudsentinel.verdict.action"        # PAUSE | KILL | WARN | ...
+    CS_VERDICT_SOURCE = "cloudsentinel.verdict.source"        # claude | gemini | fallback
+    CS_VERDICT_CONFIDENCE = "cloudsentinel.verdict.confidence"
+    CS_VERDICT_REASON = "cloudsentinel.verdict.reason"
+    CS_LOOP_SCORE = "cloudsentinel.loop.score"                # the semantic loop score, 0..1
+    CS_EXACT_REPEATS = "cloudsentinel.loop.exact_repeats"     # the same prompt repeated N times
 
 
-OPERATIONS = ("invoke_agent", "chat", "execute_tool", "graph_node")
+OPERATIONS = ("invoke_agent", "chat", "execute_tool", "graph_node", "cs_verdict")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -139,7 +148,7 @@ class _Row:
 class SpanRow(_Row):
     """One normalized OTel span. Table: spans"""
     agent_id: str
-    operation: str                 # invoke_agent | chat | execute_tool | graph_node
+    operation: str                 # invoke_agent | chat | execute_tool | graph_node | cs_verdict
     name: str
     trace_id: str = ""
     span_id: str = ""
