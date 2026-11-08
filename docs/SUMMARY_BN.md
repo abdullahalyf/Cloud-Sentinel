@@ -69,3 +69,8 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 - করা হয়েছে: `brain/heal.py` — patch validate (শুধু memory-র key, budget key নয়, instruction-মতো লেখা নয়), confident patch সরাসরি memory-তে লেখা হয় আর agent probation-এ ফিরে যায়, অন্য সব proposal হয়ে human-এর approvals inbox-এ যায়। Re-trip হলে agent kill না করে pause হয় (human-এর জন্য state বাঁচে)। ৩৮টা acceptance test (`brain/tests/test_heal.py`)। Contract PR #28 merge হয়েছে। `tamjid.md` আর `orin.md`-তে note লেখা হয়েছে।
 - এরপর: A4 Adaptive per-agent baseline, তারপর A5 Policy-as-code hot reload।
 - কেউ আটকে আছে?: না — Tamjid ও Orin এখন heal proposal দেখতে/পরীক্ষা করতে পারে।
+
+### 2026-11-08 · A4 Adaptive per-agent baseline (প্রতি agent-এর নিজস্ব সীমা)
+- করা হয়েছে: `brain/baseline.py` — প্রতি agent-এর **সুস্থ** আচরণ থেকে rolling median + MAD শিখে নিজস্ব soft limit বানায় (`median + 4 × 1.4826 × MAD`)। Suspicious/paused/probation agent থেকে কখনো শেখা হয় না, নইলে brain ভুল করে "runaway = normal" শিখে নিত। Hard limit একদম অপরিবর্তিত। Finding-এ এখন লেখা থাকে "3.4× above this agent's normal"। Baseline `agents.baseline` JSON কলামে সেভ হয় (contract PR #30), তাই brain restart করলেও ভুলে যায় না। ১৮টা acceptance test + API test। Harness এখনো সব ✅।
+- এরপর: A5 Policy-as-code hot reload, তারপর A6 Prompt-injection detection।
+- কেউ আটকে আছে?: না — Tamjid ড্যাশবোর্ডে প্রতি agent-এর "normal" দেখাতে পারে (`AgentView.baseline` এসে গেছে, `baseline` field ইতিমধ্যে আসে — শুধু দেখানো বাকি)।

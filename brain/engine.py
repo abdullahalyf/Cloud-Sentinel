@@ -17,6 +17,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 
+from brain.baseline import AgentBaseline
 from brain.breaker import Breaker, Effect
 from brain.detectors import Finding, evaluate
 from brain.heal import PatchRejected, decide as decide_heal, may_autoheal, propose as propose_heal, validate
@@ -46,6 +47,26 @@ class Engine:
         self.cursor = 0
         self.runtime_ids: Optional[set] = None
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
+        # A4: per-agent baselines. Loaded from the store, so a restart keeps them.
+        self.baselines: dict[str, AgentBaseline] = {}
+        self.first_seen: dict[str, float] = {}   # agent → when we first saw it (the warmup clock)
+        self._load_baselines()
+
+    def _load_baselines(self) -> None:
+        """Restore what the store kept: a brain restart must not forget what an agent is like."""
+        try:
+            rows = self.store.list_agents()
+        except Exception:
+            log.exception("could not read the agents table — starting without baselines")
+            return
+        for row in rows or []:
+            agent_id = str(row.get("agent_id") or "")
+            if not agent_id:
+                continue
+            baseline = AgentBaseline.from_json(agent_id, row.get("baseline"))
+            if baseline.metrics:
+                self.baselines[agent_id] = baseline
+                log.info("restored the baseline of %s", agent_id)
 
     # ── main loop ────────────────────────────────────────────────────────────
     def run_forever(self, before_tick=None) -> None:
@@ -124,7 +145,10 @@ class Engine:
         self._collect_verdict(agent_id, br, snap, now)
         if br.active:
             was_probation = br.state == "probation"
-            finding = evaluate(snap, self.cfg, strict=was_probation)
+            # A4: the agent's own normal, once it has one. During the warmup there is none,
+            # and the fixed soft limits apply.
+            baseline = self._baseline_for(agent_id, now)
+            finding = evaluate(snap, self.cfg, strict=was_probation, baseline=baseline)
             effect, ask = br.on_finding(finding, now)
             if effect:
                 self._alert(agent_id, finding, critical=True)
@@ -136,7 +160,33 @@ class Engine:
                 self._apply(agent_id, effect, snap)
             elif ask:
                 self._ask_judge(agent_id, win, snap, finding, now)
+        self._learn(agent_id, br, snap, now)
         self._record(agent_id, br, snap, rt)
+
+    # ── baselines (A4) ───────────────────────────────────────────────────────
+    def _baseline_for(self, agent_id: str, now: float) -> Optional[AgentBaseline]:
+        """The agent's baseline, or None while it is still warming up."""
+        if not self.cfg.baseline_enabled:
+            return None
+        self.first_seen.setdefault(agent_id, now)
+        if now - self.first_seen[agent_id] < self.cfg.baseline_warmup_seconds:
+            return None
+        return self.baselines.get(agent_id)
+
+    def _learn(self, agent_id: str, br: Breaker, snap: Snapshot, now: float) -> None:
+        """
+        Learn what "normal" means for this agent — from its HEALTHY windows only.
+
+        A suspicious, paused, probation or killed agent is not normal, so learning from it
+        would teach the brain that a runaway is the new normal. The learned limits are kept
+        in the store (agents.baseline) so a restart does not forget them.
+        """
+        if not self.cfg.baseline_enabled or br.state != "healthy":
+            return
+        baseline = self.baselines.setdefault(agent_id, AgentBaseline(agent_id=agent_id))
+        baseline.observe(now, {"tokens_per_min": snap.tokens_per_min, "usd_per_min": snap.usd_per_min,
+                               "calls_per_sec": snap.calls_per_sec})
+        baseline.recompute(self.cfg)
 
     def _escalate(self, agent_id: str, finding: Finding) -> None:
         """An agent that tripped again after an auto-heal needs a human: file a proposal."""
@@ -305,9 +355,14 @@ class Engine:
             agent_id, br.state, snap.tokens_per_min, snap.usd_per_min, snap.calls_per_sec, snap.total_tokens,
             snap.spend_usd, snap.budget_usd, snap.exact_repeats, snap.loop_score, int(snap.tool_cycle),
             round(snap.memory_mb, 1), round(snap.memory_pct, 1)))
+        # A4: the learned baseline goes in the same row, so one write keeps both. An empty
+        # baseline means "nothing learned yet" and leaves the stored one alone.
+        baseline = self.baselines.get(agent_id)
+        payload = baseline.to_dict() if baseline else {}
         self.store.upsert_agent(AgentRow(
             agent_id, agent_id, rt.runtime if rt else self.runtime_name, rt.runtime_id if rt else "", br.state,
-            snap.budget_usd, snap.spend_usd, snap.total_tokens, self.windows[agent_id].last_seen, utc_now_iso()))
+            snap.budget_usd, snap.spend_usd, snap.total_tokens, self.windows[agent_id].last_seen,
+            baseline=payload, updated_at=utc_now_iso()))
 
     # ── commands ─────────────────────────────────────────────────────────────
     def _run_commands(self, now: float) -> None:

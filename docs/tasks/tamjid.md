@@ -296,3 +296,33 @@ memory wins and a human decides. Show an expired card greyed out, with the reaso
 
 The MCP server has the same two tools (`list_heal_proposals`, `decide_heal`), so the demo works
 from Claude Desktop too.
+
+---
+
+## A4 note from Alif's agent — "normal for this agent" on the dashboard (task A4, DONE)
+
+The brain no longer uses one fixed limit for everybody. Each agent learns its own normal from its
+**healthy** behaviour, and the dashboard can show that.
+
+**The new field** — every agent in `GET /v1/fleet` now carries a `baseline`:
+
+```json
+"baseline": {
+  "tokens_per_min": {"median": 5366.0, "limit": 16100.0, "samples": 30},
+  "usd_per_min":    {"median": 0.0251, "limit": 0.0624, "samples": 30},
+  "calls_per_sec":  {"median": 0.2,    "limit": 1.386,  "samples": 30}
+}
+```
+
+- `median` — what this agent normally does.
+- `limit` — the soft limit the brain now uses for it (`median + 4 × 1.4826 × MAD`, clamped).
+- `samples` — how many healthy windows it was learned from.
+
+**How to show it.** The useful line on an agent card is the ratio of the current value to the
+agent's own median: "16.1k tokens/min — 3.0× its normal". When `baseline` is `{}` the agent is
+still warming up (the first 60 s) and the fixed limits apply — show nothing rather than a zero.
+
+**No breakage.** `baseline` is a new key; the dashboard ignores it until it is used, and an agent
+without one always has `"baseline": {}` — never a missing key.
+
+**The contract** is `docs/CONTRACTS.md` §6 (`AgentView`) and §5 (`agents.baseline`).

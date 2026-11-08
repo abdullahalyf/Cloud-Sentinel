@@ -36,12 +36,18 @@ class Finding:
         return "; ".join(self.reasons)
 
 
-def evaluate(s: Snapshot, cfg: Settings, strict: bool = False) -> Finding:
-    """`strict=True` (probation) halves the soft limits."""
+def evaluate(s: Snapshot, cfg: Settings, strict: bool = False, baseline=None) -> Finding:
+    """
+    `strict=True` (probation) halves the soft limits.
+
+    `baseline` (A4) is the agent's own learned normal. When it has one, the soft
+    limits move with it — so a busy analyst is not stopped for being busy, and a
+    quiet agent is stopped for being loud *for it*.
+    """
     f = Finding()
     k = 0.5 if strict else 1.0
 
-    # ── L0 HARD limits ──
+    # ── L0 HARD limits ── (absolute — a baseline never makes these more permissive)
     if s.budget_usd and s.spend_usd >= s.budget_usd:
         f.add(Level.CRITICAL, "budget_exceeded", f"spent ${s.spend_usd:.3f} of ${s.budget_usd:.2f} budget")
     if s.tokens_per_min >= cfg.hard_tokens_per_min:
@@ -55,10 +61,14 @@ def evaluate(s: Snapshot, cfg: Settings, strict: bool = False) -> Finding:
         return f
 
     # ── L1 soft limits ──
-    if s.tokens_per_min >= cfg.soft_tokens_per_min * k:
-        f.add(Level.SUSPICIOUS, "token_spike", f"{s.tokens_per_min:,} tokens/min ≥ soft limit")
-    if s.calls_per_sec >= cfg.soft_calls_per_sec * k:
-        f.add(Level.SUSPICIOUS, "call_spike", f"{s.calls_per_sec:.1f} calls/s ≥ soft limit")
+    token_limit = _adaptive(baseline, "tokens_per_min", cfg.soft_tokens_per_min)
+    call_limit = _adaptive(baseline, "calls_per_sec", cfg.soft_calls_per_sec)
+    if s.tokens_per_min >= token_limit * k:
+        f.add(Level.SUSPICIOUS, "token_spike", _reason(s.tokens_per_min, baseline, "tokens_per_min",
+                                                      f"{s.tokens_per_min:,} tokens/min ≥ soft limit"))
+    if s.calls_per_sec >= call_limit * k:
+        f.add(Level.SUSPICIOUS, "call_spike", _reason(s.calls_per_sec, baseline, "calls_per_sec",
+                                                      f"{s.calls_per_sec:.1f} calls/s ≥ soft limit"))
     if s.memory_pct >= cfg.soft_memory_pct:
         f.add(Level.SUSPICIOUS, "memory_high", f"memory {s.memory_pct:.0f}% ≥ soft limit {cfg.soft_memory_pct:.0f}%")
     if s.budget_usd and s.budget_used_pct >= 80:
@@ -77,3 +87,21 @@ def evaluate(s: Snapshot, cfg: Settings, strict: bool = False) -> Finding:
     if s.injection_hits:
         f.add(Level.SUSPICIOUS, "injection", f"{s.injection_hits} prompt(s) contain text addressed to the monitor")
     return f
+
+
+def _adaptive(baseline, metric: str, fixed_soft: float) -> float:
+    """The soft limit for a metric: the agent's own limit when it has one, else the fixed one."""
+    if baseline is None:
+        return fixed_soft
+    limit = baseline.limit(metric)
+    return limit if limit is not None else fixed_soft
+
+
+def _reason(value: float, baseline, metric: str, fallback: str) -> str:
+    """The finding text says how far above its own normal the agent is (A4)."""
+    if baseline is None:
+        return fallback
+    from brain.baseline import describe
+
+    extra = describe(value, baseline.metrics.get(metric), metric)
+    return f"{fallback} — {extra}" if extra else fallback
