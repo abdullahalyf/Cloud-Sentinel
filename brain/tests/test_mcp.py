@@ -68,5 +68,12 @@ def test_the_policy_tools_work(api):
 
 
 def test_api_errors_become_readable_tool_errors(api):
-    with pytest.raises(RuntimeError, match="400"):
+    """A bad argument is caught locally (A7) — the message says what is wrong, not a 400."""
+    with pytest.raises(m.ToolError, match="budget_usd must be between"):
         m.set_budget("alpha", -1, "bad")
+
+
+def test_an_api_error_still_becomes_a_readable_error(api):
+    """An error from the API itself (the agent does not exist) is still readable."""
+    with pytest.raises(m.ToolError, match="not found"):
+        m.get_agent("no-such-agent")

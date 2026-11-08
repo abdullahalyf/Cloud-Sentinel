@@ -419,7 +419,8 @@ def test_the_mcp_decide_heal_tool_reaches_the_api(sim, cfg, monkeypatch):
     sim.store.write_memory("beta", dict(MEMORY), "agent")
     pid = propose(sim.store, "beta", validate(PATCH, MEMORY), 0.9, 1, 1, reason="keeps looping")
 
-    monkeypatch.setattr(m, "_api", lambda method, path, body=None: api.request(method, path, json=body).json())
+    monkeypatch.setattr(m.httpx, "Client",
+                        lambda **kw: TestClient(api.app, headers=kw.get("headers")))
     row = m.decide_heal(pid, "apply", "looks right")
     assert row["status"] == "applied"
     assert sim.store.get_memory("beta")["content"]["order_4471"] == "cancelled - skip it and move on"
@@ -428,7 +429,7 @@ def test_the_mcp_decide_heal_tool_reaches_the_api(sim, cfg, monkeypatch):
 def test_the_mcp_decide_heal_tool_refuses_a_bad_decision():
     import brain.mcp_server as m
 
-    with pytest.raises(ValueError, match="apply or reject"):
+    with pytest.raises(m.ToolError, match="apply, reject"):
         m.decide_heal(1, "maybe", "hmm")
 
 
