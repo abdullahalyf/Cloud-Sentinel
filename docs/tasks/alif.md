@@ -594,8 +594,50 @@ deny rule never being learned away, a paused agent getting no tools even when le
 being denied even when learned, the real API and the mock saying the same thing, and the store
 failing safe.
 
-## 🟢 STRETCH
-- **A15:** an OpenTelemetry "semantic loop" span event, so external tools (Phoenix) see our verdicts on the agent's trace.
+### A15 · [x] (alif/puku-a15-verdict-span, 2026-11-08) · The verdict on the agent's own trace
+An OpenTelemetry "semantic loop" span event, so external tools (Phoenix) see our verdicts on the
+agent's trace. **Acceptance:** the verdict lands on the agent's own trace, and the collector
+forwards it to Phoenix.
+
+**Done.** The contract side merged first (PR #53, `8213cef`), so the brain branch rebased cleanly
+onto it.
+
+**The problem it solves.** The agent's *behaviour* lives on an OpenTelemetry trace — in Phoenix,
+in Grafana, in whatever the customer already looks at. The brain's *decision* about that behaviour
+lived only in CloudSentinel's own tables: an alert row, a verdict row, an action row. So the cause
+and the effect were on two different screens, and the person asking *"why did CloudSentinel pause
+this agent?"* had to open both and join them by hand.
+
+**It reaches Phoenix without touching anybody else's folder.** Phoenix is fed by the collector,
+and the collector forwards the **raw OTLP body** it received — `phoenix.submit(body, ctype)` — not
+the rows it normalized out of it. A span *event* only exists in that raw body, so the event
+survives the whole way to Phoenix with **one line changed in `telemetry/`** (none) and none in
+`shared/store.py` (Fojle's). The brain therefore emits a real OTel span over OTLP/HTTP to the
+collector, carrying the agent's own `trace_id` and the judged span as its `parent_span_id`.
+
+**The event, and the numbers.** The verdict is a span event named `semantic_loop`, carrying the
+loop score, the repeat count, the confidence, the action and the source. It is an *event* rather
+than only attributes because an event reads as *"something happened at this point in the trace"*,
+which is what a verdict is. The numbers are there because a verdict without its evidence is an
+opinion.
+
+**It cannot break the brain.** Telemetry is the one part of the system allowed to fail: the OTel
+packages may be missing, the collector may be down, Phoenix may be slow. The emitter returns a bool
+and swallows every exception — a lost verdict is a nuisance, a lost tick is an outage. The
+emitter is off unless `CS_VERDICT_OTLP_ENDPOINT` names a collector.
+
+**It cannot judge itself.** The verdict is a span about the agent, so the collector stores it. If
+the brain read it back as behaviour, the brain would be judging its own judgement and the loop
+score would climb because of the verdicts rather than the agent. The window only counts `chat`
+and `execute_tool` spans, so a `cs_verdict` span is ignored — pinned by a test.
+
+**`brain/tests/test_verdict_span.py`** — 24 tests: the verdict on the agent's trace, an
+uninstrumented agent still getting one, the trace found from the agent's spans, the event and its
+numbers, the reason truncated, the trace id lowercased, a broken sender and a missing sender not
+raising, the emitter off without an endpoint, the engine emitting the verdict, the engine surviving
+a broken emitter, the collector forwarding the raw body (so the event survives), the collector
+storing it as a span, the brain not ingesting its own verdict, and the whole journey — brain →
+OTLP → the real collector app → the store — with the trace id and the parent id intact.
 
 ---
 

@@ -17,6 +17,7 @@ import threading
 from dataclasses import replace
 
 from brain import service
+from brain import verdict_span
 from brain.api import create_app
 from brain.engine import Engine
 from brain.judge import Judge
@@ -104,6 +105,13 @@ def main() -> None:
 
     engine = Engine(store, executor, judge, policy, settings, dry_run=args.dry_run or settings.dry_run,
                     runtime_name=kind, policy_path=settings.policy_file, shard=shard)
+    # A15: the verdict goes onto the agent's own OTel trace, through the collector. The
+    # collector forwards the raw OTLP body to Phoenix, so the verdict reaches Phoenix
+    # without a line changing in telemetry/. An unreachable collector is not an error —
+    # the emitter swallows it, because a lost verdict is a nuisance and a lost tick is
+    # an outage. Empty endpoint = off.
+    verdict_span.configure(endpoint=settings.verdict_otlp_endpoint, project=settings.phoenix_project)
+    engine.verdict_emitter = verdict_span.emitter()
     # A6: the injection gate. One gate for the whole process — the fake fleet's tool calls and
     # the API's tool calls must be judged the same way.
     gate = service.InjectionGate(
