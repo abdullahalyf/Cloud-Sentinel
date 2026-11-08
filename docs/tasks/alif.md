@@ -753,7 +753,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > consecutive runs (the numbers are recorded in the PR), the PR is merged, the box is `[x]`, and
 > `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B4 · [ ] 🔴 MUST · Budget forecasting and graceful degradation
+### B4 · [x] 🔴 MUST · Budget forecasting and graceful degradation
+> ✅ 2026-11-08 · contract PR [#66](https://github.com/abdullahalyf/Cloud-Sentinel/pull/66) (the shapes) · flag PR [#68](https://github.com/abdullahalyf/Cloud-Sentinel/pull/68) · brain PR [#67](https://github.com/abdullahalyf/Cloud-Sentinel/pull/67) · gap PR [#69](https://github.com/abdullahalyf/Cloud-Sentinel/pull/69) · 43 brain tests + 19 contract tests
 > Prompt:
 > *Use hierarchical budgets — org → team → agent — so one agent cannot spend the whole fleet's
 > money, and forecast the burn rate ("this budget is exhausted in X minutes"). Before killing an
