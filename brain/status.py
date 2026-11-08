@@ -266,6 +266,14 @@ def git_log_task_ids(repo: Path = None, limit: int = 400) -> tuple:
     of being done. The ids are matched against the *known* task ids, so a
     stray `A1` inside a hash or a version number cannot be mistaken for a
     task.
+
+    **The revision is `main`, not the current branch.** Reading `HEAD` would
+    make a task look done the moment it is *committed on a branch* — which is
+    exactly the "done but not submitted" case that has to stay visible. It
+    would also make the two signals overlap: the branch commit is on `HEAD`
+    and not on `main`, so the id would be in both the done set and the
+    started set at once. "Done" here means **landed**, and only `main` says
+    that.
     """
     known = set()
     for _, slug, _ in PEOPLE:
@@ -274,7 +282,7 @@ def git_log_task_ids(repo: Path = None, limit: int = 400) -> tuple:
 
     try:
         result = subprocess.run(
-            ["git", "log", "--oneline", f"-{limit}"],
+            ["git", "log", "--oneline", f"-{limit}", "main"],
             cwd=str(repo) if repo else None,
             capture_output=True, text=True, timeout=30, check=False,
         )

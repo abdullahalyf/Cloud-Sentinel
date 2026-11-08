@@ -184,6 +184,59 @@ def test_the_started_ids_are_the_ones_not_on_main():
     assert not (started & done), "a task cannot be both on main and off it"
 
 
+def test_a_task_committed_on_a_branch_is_not_done_yet():
+    """
+    "Done" means **landed on `main`**, not "committed somewhere".
+
+    This matters more than it looks: the report is written from a branch as
+    often as from `main`, and if the done-signal read `HEAD` then the branch's
+    own commits would mark their tasks as done — which is precisely the
+    "done but not submitted" case the report exists to make visible. The two
+    signals would also overlap: the same id in both the done set and the
+    started set.
+
+    The check is on the branch that is checked out, because that is where a
+    reader will run the report from.
+    """
+    import subprocess as sp
+
+    try:
+        branch = sp.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                         capture_output=True, text=True, check=False).stdout.strip()
+    except (OSError, sp.SubprocessError):
+        pytest.skip("git is not available here")
+    if not branch or branch == "main":
+        pytest.skip("this check is only meaningful on a branch")
+
+    done, _ = git_log_task_ids()
+    started = git_started_task_ids()
+    assert not (started & done), (
+        f"a task is both on main and off it: {started & done} — the done-signal "
+        f"is reading something other than main")
+
+
+def test_the_done_signal_reads_main_and_not_the_current_branch():
+    """The done-signal must not read `HEAD`, or a branch commit looks landed."""
+    import subprocess as sp
+
+    try:
+        head = sp.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                      check=False).stdout.strip()
+        main = sp.run(["git", "rev-parse", "main"], capture_output=True, text=True,
+                       check=False).stdout.strip()
+    except (OSError, sp.SubprocessError):
+        pytest.skip("git is not available here")
+    if not head or not main or head == main:
+        pytest.skip("HEAD and main are the same commit here")
+
+    # The ids that only the branch's commits mention must be in "started" and
+    # not in "done" — that is the whole point of the second signal.
+    done, _ = git_log_task_ids()
+    started = git_started_task_ids()
+    assert started, "the branch's commits should show up as 'started, not submitted'"
+    assert not (started & done)
+
+
 # ── CI ───────────────────────────────────────────────────────────────────────
 def test_ci_is_read_or_says_unknown_and_never_crashes():
     """
