@@ -12,6 +12,9 @@ It behaves like the real API where a client could notice: the same 400/404/409 e
 change the agent's state for OVERRIDE_SECONDS (so a Pause button visibly works), tool calls follow
 brain/policies.yaml (a 50,000 refund is held as `pending`), memory keeps every version, and
 WS /v1/stream pushes events.
+
+It also shows the two **cascade** scenarios (B6) — alpha → beta → alpha, and delta flooding
+gamma — so the dashboard can be built against a chain before the real brain has seen one.
 """
 from __future__ import annotations
 
@@ -28,6 +31,7 @@ from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, H
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
                               ToolCallRow, VerdictRow, agent_view, backtest_catch, backtest_false_positive,
                               backtest_report, budget_forecast, budget_node, budget_report,
+                              cascade_agent, cascade_edge, cascade_report, cascade_view,
                               explain_event, explain_report, load_json,
                               postmortem_event, postmortem_markdown, postmortem_report, postmortem_root_cause,
                               tool_risk_from_history, tool_risk_view, utc_now_iso)
@@ -737,6 +741,48 @@ def backtest(policy_path: str = "") -> dict:
                            policy_version="mockpolicy01", agents_tested=list(AGENTS),
                            spans_replayed=1284, usd_saved=2.52 + 129.6,
                            horizon_minutes=60.0, as_of=now)
+
+
+@app.get("/v1/cascades")
+def cascades() -> dict:
+    """
+    The cascades (B6): the chains where agents keep each other running.
+
+    The mock has no spans to walk, so the cascades are **fixed** — a mock whose
+    cascades drifted with the clock would be useless for building a dashboard
+    against. What the mock does show is the *shape* and the two kinds:
+
+    - a **loop** — alpha calls beta calls alpha. Two agents, each holding the
+      other up, so pausing one of them would only move the problem.
+    - a **contagion** — delta floods gamma, and gamma's own spike is a symptom.
+
+    Both cascades show the whole chain in `agents` and the part that was
+    actually stopped in `contained`, because the two are different facts: the
+    chain is bigger than the part the brain got to.
+    """
+    now = time.time()
+    loop_cascade = cascade_report(
+        kind="loop",
+        cascade_id="loop-alpha-beta",
+        agents=[cascade_agent("alpha", "source", "calls beta, and beta calls it back"),
+                cascade_agent("beta", "member", "calls alpha, and alpha calls it back")],
+        edges=[cascade_edge("alpha", "beta", calls=14),
+               cascade_edge("beta", "alpha", calls=12)],
+        contained=["alpha", "beta"],
+        detected_at=now - 90.0,
+        reason="alpha → beta → alpha: two agents keeping each other running",
+        usd_saved=4.18)
+    contagion = cascade_report(
+        kind="contagion",
+        cascade_id="contagion-delta-gamma",
+        agents=[cascade_agent("delta", "source", "floods gamma with 60 calls in a minute"),
+                cascade_agent("gamma", "target", "its own spike is a symptom of delta")],
+        edges=[cascade_edge("delta", "gamma", calls=60)],
+        contained=["delta"],
+        detected_at=now - 45.0,
+        reason="delta flooded gamma: 60 calls into one agent in a minute",
+        usd_saved=1.02)
+    return cascade_view(cascades=[contagion, loop_cascade], as_of=now)
 
 
 if __name__ == "__main__":
