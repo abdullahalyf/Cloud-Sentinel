@@ -5,6 +5,7 @@ works only through the Store, so the API stays thin and everything is testable w
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections import defaultdict
 from typing import Optional
@@ -12,6 +13,8 @@ from typing import Optional
 from brain.policy import Policy
 from shared.contracts import (COMMAND_TYPES, ROGUE_KINDS, ActionRow, AlertRow, CommandRow, ToolCallRow,
                               agent_view, load_json)
+
+log = logging.getLogger("brain.service")
 
 
 class ApiError(Exception):
@@ -27,6 +30,30 @@ _SEVERITY = {"": -1, "allow": 0, "approval": 1, "deny": 2}
 
 def _severity(action: str) -> int:
     return _SEVERITY.get(action, 1)
+
+
+# ── the audit chain (B7) ───────────────────────────────────────────────────
+def _record(store, agent_id: str, action: str, actor: str, reason: str,
+            enabled: bool = False, usd_saved: float = 0.0, tokens_saved: int = 0) -> None:
+    """
+    Write the action to the audit log **and** to the tamper-evident chain.
+
+    Every action in this module goes through here, so the chain is *complete* rather
+    than "the decisions somebody remembered to chain". A human's `MEMORY_EDIT` and the
+    policy's `TOOL_DENY` are both in it — the chain says *who* did it, not just *what*.
+
+    The chain that cannot be written must not take the request with it: the edit has
+    already happened, and losing the record of a pause because the record could not be
+    written would be a bug in the brain, not in the agent.
+    """
+    from brain import audit as brain_audit
+
+    try:
+        brain_audit.record_action(store, agent_id=agent_id, action=action, actor=actor,
+                                  reason=reason, enabled=enabled,
+                                  usd_saved=usd_saved, tokens_saved=tokens_saved)
+    except Exception:
+        log.exception("could not chain the action %s for %s", action, agent_id)
 
 
 class InjectionGate:
@@ -112,7 +139,8 @@ def post_command(store, agent_id: str, command: str, params: Optional[dict], req
 
 # ── memory ──
 def save_memory(store, agent_id: str, content: dict, edited_by: str, reason: str,
-                base_version: Optional[int], injection: Optional[InjectionGate] = None) -> dict:
+                base_version: Optional[int], injection: Optional[InjectionGate] = None,
+                audit_enabled: bool = False) -> dict:
     from shared.contracts import MemoryConflict
 
     agent_id = check_agent_id(agent_id)
@@ -133,7 +161,8 @@ def save_memory(store, agent_id: str, content: dict, edited_by: str, reason: str
     except MemoryConflict as exc:
         raise ApiError(409, str(exc))
     if edited_by in ("human", "mcp"):
-        store.insert_action(ActionRow(agent_id, "MEMORY_EDIT", edited_by, reason or "memory edited"))
+        _record(store, agent_id, "MEMORY_EDIT", edited_by, reason or "memory edited",
+                enabled=audit_enabled)
     return row
 
 
@@ -174,7 +203,8 @@ def saved_by_tool_decision(decision: str, args: dict, final_args: dict, value_us
 
 
 def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args: dict,
-                      value_usd: Optional[float], injection: Optional[InjectionGate] = None) -> dict:
+                      value_usd: Optional[float], injection: Optional[InjectionGate] = None,
+                      audit_enabled: bool = False) -> dict:
     """
     Called by the SDK before running a tool. Policy decides now, or leaves it pending for a human.
 
@@ -226,17 +256,18 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
                                                  args if decision == "allow" else {},
                                                  "policy" if decision != "pending" else "", reason, value))
     if decision == "deny":
-        store.insert_action(ActionRow(agent_id, "TOOL_DENY", "policy", f"{tool_name}: {reason}", value))
+        _record(store, agent_id, "TOOL_DENY", "policy", f"{tool_name}: {reason}",
+                enabled=audit_enabled, usd_saved=value)
     if learned_entry is not None and decision == "allow":
         # The audit trail: an operator must be able to see which calls went through on
         # their own, and on what evidence.
-        store.insert_action(ActionRow(agent_id, "TOOL_AUTO_ALLOW", "brain:toolrisk",
-                                      f"{tool_name}: {reason}", value))
+        _record(store, agent_id, "TOOL_AUTO_ALLOW", "brain:toolrisk",
+                f"{tool_name}: {reason}", enabled=audit_enabled, usd_saved=value)
     return store.get_tool_call(call_id)
 
 
 def decide_tool_call(store, call_id: int, decision: str, final_args: Optional[dict], decided_by: str,
-                     reason: str) -> dict:
+                     reason: str, audit_enabled: bool = False) -> dict:
     decision = (decision or "").strip().lower()
     if decision not in ("allow", "deny", "rewrite"):
         raise ApiError(400, "decision must be allow, deny or rewrite")
@@ -252,8 +283,8 @@ def decide_tool_call(store, call_id: int, decision: str, final_args: Optional[di
     final = (final_args if decision == "rewrite" else call["args"] if decision == "allow" else {}) or {}
     store.decide_tool_call(call_id, decision, final, decided_by, reason)
     saved = saved_by_tool_decision(decision, call["args"], final, float(call.get("value_usd") or 0))
-    store.insert_action(ActionRow(call["agent_id"], f"TOOL_{decision.upper()}", actor_for(decided_by),
-                                  f"{call['tool_name']}: {reason or decision}", saved))
+    _record(store, call["agent_id"], f"TOOL_{decision.upper()}", actor_for(decided_by),
+            f"{call['tool_name']}: {reason or decision}", enabled=audit_enabled, usd_saved=saved)
     return store.get_tool_call(call_id)
 
 
@@ -335,7 +366,8 @@ def list_heal_proposals(store, status: Optional[str], agent_id: Optional[str], l
     return store.list_heal_proposals(status=status, agent_id=agent_id, limit=limit)
 
 
-def decide_heal_proposal(store, proposal_id: int, decision: str, requested_by: str, reason: str) -> dict:
+def decide_heal_proposal(store, proposal_id: int, decision: str, requested_by: str, reason: str,
+                         audit_enabled: bool = False) -> dict:
     """
     Apply or reject a heal proposal.
 
@@ -349,7 +381,7 @@ def decide_heal_proposal(store, proposal_id: int, decision: str, requested_by: s
         raise ApiError(400, "requested_by must be one of human, mcp")
     actor = "mcp" if requested_by == "mcp" else "human"
     try:
-        return decide_heal(store, proposal_id, decision, actor, reason)
+        return decide_heal(store, proposal_id, decision, actor, reason, audit_enabled)
     except LookupError as exc:
         raise ApiError(404, str(exc))
     except ValueError as exc:

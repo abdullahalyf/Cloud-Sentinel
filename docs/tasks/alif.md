@@ -817,6 +817,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
 ### B7 · [ ] 🟡 SHOULD · The tamper-evident audit log
+> 🚧 IN PROGRESS · 2026-11-08 · contract PR [#79](https://github.com/abdullahalyf/Cloud-Sentinel/pull/79) (the shapes) · brain PR (the chain)
+>
 > Prompt:
 > *Every decision and every human action goes into a **hash-chained** log, with a verify command
 > and a `GET /v1/audit` endpoint. This is the governance story for the judges.*

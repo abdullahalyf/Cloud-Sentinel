@@ -36,9 +36,29 @@ from typing import Optional
 
 from brain.detectors import Finding
 from shared.config import Settings, settings
-from shared.contracts import ActionRow, HealProposalRow, utc_now_iso
+from shared.contracts import HealProposalRow, utc_now_iso
 
 log = logging.getLogger("brain.heal")
+
+
+# ── the audit chain (B7) ───────────────────────────────────────────────────
+def _record(store, agent_id: str, action: str, actor: str, reason: str,
+            enabled: bool = False, usd_saved: float = 0.0, tokens_saved: int = 0) -> None:
+    """
+    Write the action to the audit log **and** to the tamper-evident chain.
+
+    An auto-heal is the one action nobody clicked, so it is the one that most needs
+    to be provable: an operator must be able to show that the brain changed an
+    agent's memory on its own, and why.
+    """
+    from brain import audit as brain_audit
+
+    try:
+        brain_audit.record_action(store, agent_id=agent_id, action=action, actor=actor,
+                                  reason=reason, enabled=enabled,
+                                  usd_saved=usd_saved, tokens_saved=tokens_saved)
+    except Exception:
+        log.exception("could not chain the action %s for %s", action, agent_id)
 
 # ── the limits the judge must respect ───────────────────────────────────────
 MAX_OPS = 5                 # at most 5 memory ops in one patch
@@ -238,7 +258,8 @@ def propose(store, agent_id: str, patch: Patch, confidence: float, verdict_id: i
     return pid
 
 
-def decide(store, proposal_id: int, decision: str, decided_by: str, reason: str = "") -> dict:
+def decide(store, proposal_id: int, decision: str, decided_by: str, reason: str = "",
+           audit_enabled: bool = False) -> dict:
     """
     Apply or reject a pending proposal.
 
@@ -280,8 +301,8 @@ def decide(store, proposal_id: int, decision: str, decided_by: str, reason: str 
         patch = Patch("tool_policy", tool=str((patch_data.get("tool_policy") or {}).get("tool") or ""),
                       action=str((patch_data.get("tool_policy") or {}).get("action") or ""))
     store.decide_heal_proposal(proposal_id, "applied", decided_by, reason or "applied")
-    store.insert_action(ActionRow(agent_id, "AUTO_HEAL", decided_by,
-                                  reason or f"heal applied: {proposal['reason']}"))
+    _record(store, agent_id, "AUTO_HEAL", decided_by,
+            reason or f"heal applied: {proposal['reason']}", enabled=audit_enabled)
     log.warning("heal proposal %s applied to %s by %s", proposal_id, agent_id, decided_by)
     return store.get_heal_proposal(proposal_id)
 

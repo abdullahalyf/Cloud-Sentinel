@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from brain import service
+from brain import audit as brain_audit
 from brain import backtest as brain_backtest
 from brain import cascade as brain_cascade
 from brain import budget as brain_budget
@@ -109,7 +110,8 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     # report the last error. Without a manager (a test, a script) the API still serves the
     # policy it was given.
     manager = policy_manager or PolicyManager(policy, cfg.policy_file, store=store,
-                                               default_budget=cfg.default_budget_usd)
+                                               default_budget=cfg.default_budget_usd,
+                                               audit_enabled=cfg.audit_enabled)
 
     # A6: the injection gate. It scores a tool call's arguments before the policy looks at them.
     gate = injection_gate or service.InjectionGate(
@@ -287,6 +289,30 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         window = float(minutes if minutes is not None else cfg.cascade_window_minutes)
         return brain_cascade.cascades_from_store(store, minutes=window)
 
+    # ── the audit chain (CONTRACTS §6, B7) ──
+    @app.get("/v1/audit", dependencies=[Depends(auth)])
+    def audit(limit: int = 200) -> dict:
+        """
+        The tamper-evident chain of every decision and every human action. (B7)
+
+        Each entry carries the hash of the entry before it, so an edit in the
+        middle breaks every link after it — and so does a deletion. The endpoint
+        serves the chain **and** the verification of it: `valid` says whether the
+        chain is intact, and `broken_at` names the entry that broke it.
+
+        It is behind `CS_AUDIT_ENABLED` (off by default), but unlike the backtest
+        and the cascade it does **not** disappear when the flag is off: an operator
+        asking "is the log tamper-proof?" deserves an answer rather than a 404.
+
+        The flag decides whether the chain is **written**, not whether it is
+        **read**. So with the flag off the endpoint says `enabled: false` and
+        serves whatever chain already exists — a chain written before the flag
+        was turned off is still a chain, and hiding it would be the one thing a
+        tamper-evident log must never do.
+        """
+        return brain_audit.chain_view(store, limit=clamp_limit(limit),
+                                      enabled=cfg.audit_enabled, as_of=time.time())
+
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
         return {"metrics": store.recent_metrics(minutes=clamp_minutes(minutes), agent_id=agent_id)}
@@ -321,7 +347,7 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.put("/v1/agents/{agent_id}/memory", dependencies=[Depends(auth)])
     def put_memory(agent_id: str, body: MemoryIn) -> dict:
         return call(service.save_memory, store, agent_id, body.content, body.edited_by, body.reason,
-                    body.base_version, gate)
+                    body.base_version, gate, cfg.audit_enabled)
 
     @app.get("/v1/agents/{agent_id}/memory/history", dependencies=[Depends(auth)])
     def memory_history(agent_id: str, limit: int = 10) -> dict:
@@ -332,7 +358,7 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         # the live policy, not the one from startup: A5 lets an operator change the rules
         # without a restart. The injection gate (A6) looks at the arguments first.
         return call(service.request_tool_call, store, live_policy(), agent_id, body.tool_name, body.args,
-                    body.value_usd, gate)
+                    body.value_usd, gate, cfg.audit_enabled)
 
     @app.get("/v1/tool-calls", dependencies=[Depends(auth)])
     def tool_calls(status: Optional[str] = None, limit: int = 50) -> dict:
@@ -350,7 +376,7 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
     @app.post("/v1/tool-calls/{call_id}/decision", dependencies=[Depends(auth)])
     def decide(call_id: int, body: DecisionIn) -> dict:
         return call(service.decide_tool_call, store, call_id, body.decision, body.final_args, body.decided_by,
-                    body.reason)
+                    body.reason, cfg.audit_enabled)
 
     @app.get("/v1/tool-risk", dependencies=[Depends(auth)])
     def tool_risk(agent_id: Optional[str] = None) -> dict:
@@ -407,7 +433,8 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         decision = (body.decision or "").strip().lower()
         if decision not in HEAL_DECISIONS:
             raise HTTPException(400, f"decision must be one of {', '.join(HEAL_DECISIONS)}")
-        return call(service.decide_heal_proposal, store, proposal_id, decision, body.requested_by, body.reason)
+        return call(service.decide_heal_proposal, store, proposal_id, decision, body.requested_by,
+                    body.reason, cfg.audit_enabled)
 
     @app.websocket("/v1/stream")
     async def stream(ws: WebSocket) -> None:

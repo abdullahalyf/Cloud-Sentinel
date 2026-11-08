@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Optional
 
 from brain.policy import Policy
-from shared.contracts import ActionRow, AlertRow, utc_now_iso
+from shared.contracts import AlertRow, utc_now_iso
 
 log = logging.getLogger("brain.policy_reload")
 
@@ -57,11 +57,13 @@ class PolicyManager:
     The manager is the only thing allowed to swap the policy, so the swap happens in one place.
     """
 
-    def __init__(self, policy: Policy, path: str, store=None, default_budget: float = 0.5):
+    def __init__(self, policy: Policy, path: str, store=None, default_budget: float = 0.5,
+                 audit_enabled: bool = False):
         self.policy = policy
         self.path = path
         self.store = store
         self.default_budget = default_budget
+        self.audit_enabled = audit_enabled
         self.last_error: str = ""          # the errors of the last rejected file ("" = the policy is good)
         self.last_mtime: float = 0.0
         self.last_checked: float = 0.0
@@ -145,8 +147,11 @@ class PolicyManager:
         if self.store is None:
             return
         try:
-            self.store.insert_action(ActionRow("", "POLICY_RELOAD", POLICY_ACTOR,
-                                               f"{self.path}: {result.summary}", 0.0, 0))
+            from brain import audit as brain_audit
+
+            brain_audit.record_action(self.store, agent_id="", action="POLICY_RELOAD",
+                                      actor=POLICY_ACTOR, reason=f"{self.path}: {result.summary}",
+                                      enabled=self.audit_enabled)
         except Exception:
             log.exception("could not record the policy reload")
 
