@@ -113,6 +113,12 @@ class Settings:
     baseline_enabled: bool
     baseline_warmup_seconds: float
     baseline_k: float
+    # B9: how many healthy observations between recomputes of the learned statistic
+    # (the median and the MAD). 1 = every observation, which is the behaviour before
+    # B9. A larger number is cheaper AND safer: the learned limit then stands on the
+    # older, healthier samples for longer, so a runaway crosses it sooner. See
+    # `brain/baseline.py` for the measurement.
+    baseline_recompute_every: int
     # ── Policy hot reload (A5): pick up a changed policies.yaml without a restart ──
     policy_reload_enabled: bool
     policy_reload_interval_seconds: float
@@ -260,6 +266,7 @@ def load_settings() -> Settings:
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
+        baseline_recompute_every=_int("CS_BASELINE_RECOMPUTE_EVERY", 1),
         policy_reload_enabled=_bool("CS_POLICY_RELOAD_ENABLED", True),
         policy_reload_interval_seconds=_float("CS_POLICY_RELOAD_INTERVAL_SECONDS", 1.0),
         injection_enabled=_bool("CS_INJECTION_ENABLED", True),
