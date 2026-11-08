@@ -477,13 +477,49 @@ having in the store for the *other* users — a `store.transaction()` context ma
 caller batch and would be a nicer API than the brain reaching into `store._conn`. Noted in
 `docs/tasks/fojle.md`, with the rule about baselines that a general version has to keep.
 
-### A12 · [ ] IN PROGRESS (Puku) · Judge v2: cost cap + model comparison
+### A12 · [x] (alif/puku-a12-judge-cost, 2026-11-08) · Judge v2: cost cap + model comparison
 - An hourly judge spend cap (`CS_JUDGE_MAX_USD_PER_HOUR`, contract). Above it, use the fallback and write an alert.
 - Bangla/English mixed prompts in the dataset.
 - Run brain.judge_eval for the fallback and for every Claude model available to the key (and Gemini if a key exists).
 - Write an accuracy vs latency vs cost table to `docs/research/judge-eval.md` for Orin's slide (O16).
 
 **Acceptance:** a cap test with a fake clock, and the table exists, with "not run" where no key was available.
+
+**Done.** The contract side (`CS_JUDGE_MAX_USD_PER_HOUR`) merged first as PR #44, so the brain
+branch rebased cleanly onto it.
+
+**The cap.** `brain/judge_spend.py` is a new file: a rolling-hour spend tracker with an injected
+clock. The judge stops calling the LLM above the cap, falls back to the deterministic judge, and
+the engine writes a `judge_cost_capped` alert (once per agent, so forty agents do not bury the
+dashboard). Two decisions worth stating:
+
+- **Rolling hour, not clock hour.** A window that starts at the top of the wall-clock hour would
+  let a fleet spend the whole cap in the first minute and judge nothing for 59 minutes.
+- **The clock is injected.** The engine already runs on a virtual clock in the tests; a cap
+  measured against a *different* clock than the one that produced the events is a cap nobody can
+  trust. `brain/tests/test_judge_cost.py` — 18 tests, all offline, no key needed.
+
+**The mixed-language family.** Six new cases (3 positives, 3 negatives) in a family of their own,
+so the false-positive rate for a Bangla/English fleet is measured on its own instead of being
+averaged into `paraphrase_loop`. One case is written in the Bangla *script*, not transliteration —
+the word overlap with the English cases is zero. The negatives are the important half: a naive
+word-overlap detector stops the Bangla support desk. The fallback gets all six right (3 PAUSE,
+3 WARN, **zero** false positives).
+
+**The table.** `docs/research/judge-eval.md` now has the accuracy-vs-latency-vs-cost table for
+Orin's slide (O16). **Only the fallback row is measured** — this machine has no key for any
+model (the `.env` is the untouched `.env.example` template), so the five LLM rows say "not run"
+instead of carrying invented numbers, and the file has the exact commands to fill them in.
+
+The dataset grew 64 → **70** incidents (34 positives, 36 negatives, 18 families). The fallback's
+measured score: precision **1.000**, recall 0.824, F1 0.903, false-positive rate **0.000**.
+Recall is still below the 0.90 target for the reason A1 documented — the slow money leaks come
+back WARN, because on their own they look exactly like legitimate heavy work, and only the LLM
+judge (which reads the logs) can tell them apart.
+
+**Needs Alif:** a real `ANTHROPIC_API_KEY` (and `GEMINI_API_KEY`) to fill in the five `not run`
+rows. One command per row, ≈ $0.03 on Haiku for all 70 × 3 runs — it is not a money decision, it
+is a "somebody has to paste a key" one. The commands are in the doc.
 
 ### A13 · [ ] Incident explanation endpoint
 Add `GET /v1/agents/{id}/explain?minutes=10` (contract): a deterministic summary of what happened (alerts → verdict → action → heal), with
