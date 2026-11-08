@@ -1182,7 +1182,7 @@ with several latency columns in them, so guessing was never going to hold.
 6. **Evidence goes in `docs/research/`** (or `docs/evidence/` once Taseen's folder-guard
    change lands — PR #96).
 
-### C0 · [~] 🔴 Unblock the team
+### C0 · [x] 🔴 Unblock the team
 > *Two requests are blocking work, so they go first.*
 > - **(a) Taseen** — the folder guard does not allow `alif/` to write `docs/evidence/`,
 >   `scripts/` or `docs/STATUS_BN.md`, so the B-series evidence landed in `docs/research/`
@@ -1202,7 +1202,7 @@ with several latency columns in them, so guessing was never going to hold.
   and the `to_row()` deep copy removed: **`asdict` 4.47 µs → 1.16 µs per span (3.9× faster)**.
   **Fojle merges it** — `shared/store.py` is his file.
 
-### C1 · [ ] 🔴 The judge eval, run by CI
+### C1 · [~] 🔴 The judge eval, run by CI
 > *`judge_eval --runs 3` for every Claude model, using `secrets.ANTHROPIC_API_KEY`, opening a
 > PR that updates `pitch-numbers.md`. The workflow is dispatched by hand, so it costs nothing
 > until somebody wants it.*
@@ -1211,6 +1211,37 @@ with several latency columns in them, so guessing was never going to hold.
 > task to add the secret, with the exact steps. **After every later task, check whether the
 > secret exists** — and the moment it does, run `gh workflow run judge-eval.yml` and merge the
 > result.
+
+**The build is done; the numbers need one secret.** Two halves, and only one of them
+is mine to finish.
+
+**The runner** — `brain/judge_eval_ci.py`, **merged** (PR #99, commit `cbe5218`). It runs
+every Claude model at `--runs 3`, writes the measured numbers into the pack between two
+markers, replaces the "needs a human" note, and writes the raw run to
+`docs/research/judge-eval-ci.json` so the markdown can be checked against it.
+
+The important part is what it **refuses** to do. `brain/tests/test_evidence.py` has a test
+that *fails the build* if the pack quotes a Claude cost or latency that has no measurement
+behind it — which means the numbers can never be typed in by hand. So the runner has to
+write them, and it has to write **only** what it measured: with no key it exits 3 and
+touches nothing, and if the provider cannot be reached and the judge silently falls back to
+the offline scorer, that run is reported as *degraded* and is left out of the table — never
+filed as "Claude: 0 ms, $0.00", which is exactly the lie that test exists to catch.
+
+**The workflow** — `.github/workflows/judge-eval.yml`, in **Taseen's folder** (`.github/` is
+his), so it is **PR #100** for him to merge. Manual `workflow_dispatch` only: the whole
+labelled set costs about **$0.03** on Haiku and roughly 10× that on Opus, so it must be
+somebody's decision. Four steps, each of which can stop the job: the key must be present;
+the eval runs; the pack must *actually have changed* and the pack's own evidence tests must
+still pass (a green job that changed nothing is worse than a red one); then it opens the PR.
+
+**Taseen's task** — the exact steps for the secret are in `docs/tasks/taseen.md` under
+"Requests from Alif's agent": the secret name is `ANTHROPIC_API_KEY`, a **$5 spend limit**
+is plenty, and the check is `gh secret list`. Once it shows up, the agent's job is
+`gh workflow run judge-eval.yml` and merge what it opens. No further human step.
+
+**Blocked on:** the secret (a human's job) and PR #100 (Taseen's to merge). The build
+half is finished and green — **1041 passed, 4 skipped**.
 
 ### C2 · [ ] 🔴 The real integration rehearsal
 > *Boot the whole stack from `main`, with the real components wherever they exist, and run the
