@@ -52,6 +52,10 @@ class Engine:
         self.last_autoheal: dict[str, float] = {}   # agent → when we last auto-healed it
         self.last_finding: dict[str, Finding] = {}  # agent → the finding the judge last saw
         self._capped_alerted: set[str] = set()      # agents we already told about the cap (A12)
+        # B6: the cascades we already contained. The call graph still holds the
+        # old edges after the agents are paused, so without this the same chain
+        # would be found and written again on every tick.
+        self._contained_cascades: set[str] = set()
         self.cursor = 0
         self.runtime_ids: Optional[set] = None
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
@@ -132,6 +136,11 @@ class Engine:
             if not self.owns(agent_id):
                 continue   # somebody else's agent — do not touch it
             self._safe(self._watch, agent_id, runtime.get(agent_id), now)
+        # B6: the cascade. It runs **after** the per-agent watch, because a chain
+        # is only a chain once every agent in it has been looked at. And it is
+        # separate from the per-agent watch on purpose: the agents in a chain are
+        # handled together, not one at a time.
+        self._safe(self._contain_cascades, now)
         self._safe(self._expire_tool_calls, now)
         # A11: the metric and agent rows for every agent are written in one transaction.
         # The flush is last so that everything the tick observed is in the batch.
@@ -696,6 +705,53 @@ class Engine:
         if any(r.agent_id == agent_id for r in (self._safe(self.executor.list_agents) or [])):
             return True
         return self.store.get_agent(agent_id) is not None
+
+    # ── the cascade (B6) ─────────────────────────────────────────────────────
+    def _contain_cascades(self, now: float) -> None:
+        """
+        Contain the chains where the agents keep each other running.
+
+        The brain watches every agent on its own, and that is right for one
+        runaway. But a **cascade** is a different thing: the agents in the chain
+        hold each other up, so stopping one of them only moves the problem. So
+        the chain is the unit here — every agent in it is paused **together**, in
+        this tick.
+
+        With the flag off this does nothing at all: every agent is handled on
+        its own, exactly as before.
+        """
+        if not self.cfg.cascade_enabled:
+            return
+        from brain import cascade as brain_cascade
+
+        try:
+            spans = self.store.recent_spans(minutes=self.cfg.cascade_window_minutes) or []
+        except Exception:
+            log.exception("could not read the spans for the cascade")
+            return
+        try:
+            cascades = brain_cascade.detect_cascades(spans, self.cfg)
+        except Exception:
+            log.exception("could not detect the cascades")
+            return
+
+        for cascade in cascades:
+            # A chain we have already contained is not contained again — the
+            # agents are paused and the graph still holds the old edges, so
+            # every tick would find the same chain and write it again.
+            cascade_id = str(cascade.get("cascade_id") or "")
+            if not cascade_id or cascade_id in self._contained_cascades:
+                continue
+            contained = brain_cascade.contain(cascade, self, self.cfg, now)
+            if not contained:
+                # Nothing could be stopped. The chain stays on the list, so the
+                # next tick tries again — but it is not written to the store as
+                # a containment, because nothing was contained.
+                continue
+            self._contained_cascades.add(cascade_id)
+            cascade["detected_at"] = now
+            brain_cascade.record_cascade(self, cascade)
+            log.warning("cascade %s contained: %s", cascade_id, ", ".join(contained))
 
     def _expire_tool_calls(self, now: float) -> None:
         from datetime import datetime

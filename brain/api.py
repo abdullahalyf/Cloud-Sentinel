@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from brain import service
 from brain import backtest as brain_backtest
+from brain import cascade as brain_cascade
 from brain import budget as brain_budget
 from brain import explain as brain_explain
 from brain import postmortem as brain_postmortem
@@ -264,6 +265,27 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
             raise HTTPException(404, "the backtest is off (CS_BACKTEST_ENABLED)")
         return brain_backtest.run_backtest_with_path(
             store, cfg, live_policy(), policy_path=policy_path, minutes=minutes)
+
+    # ── the cascade (CONTRACTS §6, B6) ──
+    @app.get("/v1/cascades", dependencies=[Depends(auth)])
+    def cascades(minutes: Optional[float] = None) -> dict:
+        """
+        The chains where the agents keep each other running. (B6)
+
+        The report says two things about each chain: **the whole chain** (every
+        agent in it, and its role) and **the part that was actually stopped**.
+        They are kept apart on purpose — an agent that was already dead, or one
+        another worker owns, is in the chain and not in the contained list, and a
+        report that collapsed the two would make the brain look like it stopped
+        more than it did.
+
+        It is behind `CS_CASCADE_ENABLED` (off by default): with the flag off
+        the endpoint does not exist — a 404, not an empty report.
+        """
+        if not cfg.cascade_enabled:
+            raise HTTPException(404, "the cascade detection is off (CS_CASCADE_ENABLED)")
+        window = float(minutes if minutes is not None else cfg.cascade_window_minutes)
+        return brain_cascade.cascades_from_store(store, minutes=window)
 
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
