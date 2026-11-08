@@ -427,6 +427,12 @@ mystery.
 artifact that the unit suite had been hiding, and that the nightly will now report every night until the perf work in
 A11 makes it honest.
 
+**Re-run 2026-11-08 12:44 — all green.** The recurring trigger fired (the last run had failed), so the nightly was
+re-run: `unit` ✅ 28 s, `e2e + chaos` ✅ 123 s, `eval harness` ✅, `judge bench (fallback)` ✅, `boot smoke` ✅,
+`docker compose config` ✅, `dashboard tests` ⏭️ skipped. The `unit` step that failed last time is the flaky
+wall-clock p95 test from A11, and A11's own work is what made it pass: the tick at 50 agents now runs in ~13 ms
+against a 200 ms budget, so the old 208 ms cliff is gone. The report says **"Result: ✅ all green"**.
+
 36 tests in `brain/tests/test_nightly.py`, no subprocesses: the owner mapping (over 13 paths, both separators), the
 suspect-file extraction (a pytest failure, a traceback, a path that does not exist, output that points at nothing),
 the report format (says what failed, shows the owner, shows the last 30 lines and not the head), and the steps
