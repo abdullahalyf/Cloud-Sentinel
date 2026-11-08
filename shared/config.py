@@ -139,6 +139,10 @@ class Settings:
     # ── Optional CloudWatch EMF export (collector writes JSON lines to a file; added 5 Nov, Fojle F10) ──
     export_cloudwatch: bool = False
     cloudwatch_file: str = "data/cloudwatch.jsonl"
+    # ── Judge spend cap (A12): what the LLM judge may cost in an hour ──
+    # The brain falls back to the deterministic judge above this, and writes an alert.
+    # 0 = no cap.
+    judge_max_usd_per_hour: float = 0.0
 
     @property
     def use_supabase(self) -> bool:
@@ -216,6 +220,7 @@ def load_settings() -> Settings:
         phoenix_project=_str("PHOENIX_PROJECT_NAME", "cloudsentinel"),
         export_cloudwatch=_bool("CS_EXPORT_CLOUDWATCH", False),
         cloudwatch_file=_str("CS_CLOUDWATCH_FILE", "data/cloudwatch.jsonl"),
+        judge_max_usd_per_hour=max(0.0, _float("CS_JUDGE_MAX_USD_PER_HOUR", 0.0)),
     )
 
 

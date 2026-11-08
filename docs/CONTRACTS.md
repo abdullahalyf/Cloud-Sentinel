@@ -100,6 +100,7 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `PHOENIX_PROJECT_NAME` | `cloudsentinel` | collector | Phoenix project (resource `openinference.project.name`) |
 | `CS_EXPORT_CLOUDWATCH` *(added 5 Nov)* | `false` | collector | also write every stored span as a CloudWatch EMF JSON line |
 | `CS_CLOUDWATCH_FILE` *(added 5 Nov)* | `data/cloudwatch.jsonl` | collector | where the EMF lines go |
+| `CS_JUDGE_MAX_USD_PER_HOUR` *(added 8 Nov)* | `0` | brain | what the LLM judge may cost in one hour; above it the brain uses the deterministic fallback and writes a `judge_cost_capped` alert. `0` = no cap |
 
 **Tuned defaults.** `SOFT_MEMORY_PCT`, `LOOP_REPEAT_THRESHOLD`, `LOOP_SCORE_THRESHOLD` and
 `BRAIN_KILL_CONFIDENCE` are not guesses: `python -m brain.tuning` grid-searches them against the
