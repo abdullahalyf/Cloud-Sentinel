@@ -93,7 +93,7 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
         const isLast = name === feed.last_node;
         return {
           id: name,
-          position: { x: i * COL_W, y: i % 2 === 0 ? 0 : 36 },
+          position: { x: i * COL_W, y: i % 2 === 0 ? 0 : 80 },
           data: { label: name },
           draggable: false,
           selectable: false,
@@ -145,7 +145,7 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
       <div
         data-testid="graph-flow-canvas"
         style={{
-          height: 190,
+          height: 260,
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-md)',
           background: 'var(--color-canvas)',

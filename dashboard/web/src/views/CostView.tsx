@@ -4,6 +4,9 @@ import { DollarSign, RotateCcw, ChevronRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { RoiReport } from '../api/types';
 import { Panel } from '../components/Panel';
+import { BudgetBurnDown } from '../components/BudgetBurnDown';
+import { useCountUp } from '../lib/useCountUp';
+import { taskRowsByWasted } from '../lib/burndown';
 import { areaFromLine, hashString, mulberry32, smoothPath } from '../components/charts';
 
 /* ───────── helpers ───────── */
@@ -356,8 +359,26 @@ export const CostView: React.FC = () => {
     refetchInterval: 1000,
   });
 
+  const { data: metricsData } = useQuery({
+    queryKey: ['metrics', 30],
+    queryFn: () => api.getMetrics(30),
+    refetchInterval: 1000,
+  });
+  const { data: actionsData } = useQuery({
+    queryKey: ['actions'],
+    queryFn: () => api.getActions(50),
+    refetchInterval: 1000,
+  });
+  const { data: fleetData } = useQuery({
+    queryKey: ['fleet'],
+    queryFn: api.getFleet,
+    refetchInterval: 1000,
+  });
+  const taskRows = useMemo(() => taskRowsByWasted(data?.tasks_by_agent), [data]);
+
   const totalSaved = data?.saved_usd ?? 0;
   const totalSpend = data?.total_spend_usd ?? 0;
+  const savedShown = useCountUp(totalSaved);
   const roiX = totalSpend > 0 ? totalSaved / totalSpend : 0;
   const tasksSucceeded = data?.tasks_succeeded ?? 0;
   const tasksTotal = data?.tasks_total ?? 0;
@@ -473,7 +494,7 @@ export const CostView: React.FC = () => {
                   color: MINT,
                 }}
               >
-                {money(totalSaved)}
+                {money(savedShown)}
               </div>
               <div style={{ marginTop: 'var(--space-3)', fontSize: 14, color: 'var(--color-text-secondary)' }}>
                 <strong
@@ -608,6 +629,64 @@ export const CostView: React.FC = () => {
               </div>
             </section>
           </div>
+
+          {/* D7: budget burn-down per agent (ECharts) with projection and PAUSE/KILL markers */}
+          <section
+            className="flat"
+            aria-label="Budget Burn-Down by Agent"
+            style={{ padding: 'var(--space-4) var(--space-5)' }}
+          >
+            <h2 style={{ fontSize: 15, fontWeight: 600 }}>Budget Burn-Down by Agent</h2>
+            <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
+              Budget left over the last 30 min. Dashed lines project the time each agent hits $0 at its current $/min;
+              paused agents flatten at the <span style={{ color: AMBER }}>PAUSE</span> marker.
+            </p>
+            {(metricsData?.metrics.length ?? 0) === 0 ? (
+              <p style={{ color: MUTED, padding: 'var(--space-6) 0' }}>
+                No metrics yet. Budget lines appear once agents report spend.
+              </p>
+            ) : (
+              <BudgetBurnDown
+                metrics={metricsData?.metrics ?? []}
+                actions={actionsData?.items ?? []}
+                agents={fleetData?.agents ?? []}
+              />
+            )}
+          </section>
+
+          {/* D7: task economics by agent, worst waste first */}
+          <section aria-label="Task Economics by Agent">
+            <h2 style={{ fontSize: 15, fontWeight: 600 }}>Task Economics by Agent</h2>
+            <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-2)' }}>Sorted by wasted spend</p>
+            <div className="flat" style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ color: MUTED, textAlign: 'right' }}>
+                    {['agent', 'tasks', 'succeeded', 'failed', 'success rate', 'spend', 'cost / success', 'wasted'].map((h, i) => (
+                      <th key={h} style={{ padding: '10px 14px', fontWeight: 600, textAlign: i === 0 ? 'left' : 'right' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {taskRows.length === 0 && (
+                    <tr><td colSpan={8} style={{ padding: 14, color: MUTED }}>No task data yet.</td></tr>
+                  )}
+                  {taskRows.map((r) => (
+                    <tr key={r.agent} style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                      <td style={{ padding: '10px 14px', fontWeight: 700 }}>{r.agent}</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{r.tasks}</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{r.succeeded}</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right', color: r.failed > 0 ? ROSE : undefined }}>{r.failed}</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{(r.success_rate * 100).toFixed(1)}%</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{money(r.spend_usd)}</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{money(r.cost_per_success_usd)}</td>
+                      <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right', color: r.wasted_usd > 0 ? AMBER : MUTED }}>{money(r.wasted_usd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
 
           {/* Attribution ledger */}
           <section aria-label="Attribution Methodology">

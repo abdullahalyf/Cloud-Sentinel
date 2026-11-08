@@ -245,3 +245,8 @@ a {
 /* Cursor ring (positioned by CursorAura via transform only) */
 .cs-ring { border: 1.6px dashed rgba(0, 240, 255, 0.8); border-radius: 50%; }
 .cs-ring[data-down='true'] { border: 2px solid #ef4444; background: rgba(239, 68, 68, 0.2); }
+
+/* Kill flash (DESIGN.md 6): one 150 ms critical-red pulse as a card locks into the dead state */
+.kill-flash { animation: killFlash 150ms ease-out 1; }
+@keyframes killFlash { 0% { background: rgba(244, 63, 94, 0.55); } 100% { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .kill-flash { animation: none; } }

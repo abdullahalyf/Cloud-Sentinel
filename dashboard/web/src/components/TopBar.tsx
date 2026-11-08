@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, Play, Cpu, DollarSign } from 'lucide-react';
 import { api } from '../api/client';
+import { DemoPanel } from './DemoPanel';
 
 export const TopBar: React.FC = () => {
   const [timeStr, setTimeStr] = useState<string>('');
+  const [demoOpen, setDemoOpen] = useState(false);
 
   useEffect(() => {
     const updateTime = () => {
@@ -164,6 +166,8 @@ export const TopBar: React.FC = () => {
           <button
             type="button"
             aria-label="Run 3 AM Demo Incident"
+            aria-expanded={demoOpen}
+            onClick={() => setDemoOpen((o) => !o)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -199,6 +203,7 @@ export const TopBar: React.FC = () => {
           {timeStr || '00:00:00 UTC'}
         </div>
       </div>
+      {demoOpen && isDemo && <DemoPanel onClose={() => setDemoOpen(false)} />}
     </header>
   );
 };

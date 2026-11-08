@@ -16,6 +16,7 @@ import { api } from '../api/client';
 import type { AgentState, AgentView } from '../api/types';
 import { Panel } from '../components/Panel';
 import { AgentCard } from '../components/AgentCard';
+import { useCountUp } from '../lib/useCountUp';
 import { areaFromLine, fmtCompact, smoothPath, useRollingSeries } from '../components/charts';
 
 export function sortFleetAgents(agents: AgentView[]): AgentView[] {
@@ -331,6 +332,7 @@ export const FleetView: React.FC = () => {
     ? new Date(agents[0].updated_at).toLocaleTimeString()
     : new Date().toLocaleTimeString();
 
+  const savedShown = useCountUp(totalSaved);
   const hot = totalBurnRate > 0.05;
   const segs: { key: string; color: string }[] = [
     { key: 'healthy', color: 'var(--color-state-healthy)' },
@@ -462,7 +464,7 @@ export const FleetView: React.FC = () => {
                   textShadow: '0 0 24px rgba(16, 185, 129, 0.35)',
                 }}
               >
-                ${totalSaved.toFixed(4)}
+                ${savedShown.toFixed(4)}
               </div>
               <div style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)' }}>
                 Saved via {interventions} automated stops

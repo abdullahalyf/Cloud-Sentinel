@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { AgentView } from '../api/types';
 import { StateBadge } from './StateBadge';
 import { ArrowRight, ShieldAlert } from 'lucide-react';
@@ -49,6 +49,19 @@ export function getAgentSparkline(
 }
 
 export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className = '' }) => {
+  // Kill flash: one 150 ms red pulse when the agent transitions into `killed`
+  const prevState = useRef(agent.state);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    if (prevState.current !== 'killed' && agent.state === 'killed') {
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 200);
+      prevState.current = agent.state;
+      return () => clearTimeout(t);
+    }
+    prevState.current = agent.state;
+  }, [agent.state]);
+
   // Each agent's true individual spend-to-budget ratio
   const budget = Math.max(0.01, agent.budget_usd);
   const spend = agent.spend_usd;
@@ -150,7 +163,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
       data-testid={`agent-card-${agent.agent_id}`}
       onClick={onClick}
       onKeyDown={handleKeyDown}
-      className={`agent-card glass ${pulseClass} ${className}`}
+      className={`agent-card glass ${pulseClass} ${flash ? 'kill-flash' : ''} ${className}`}
       style={{
         border: isAnomalous ? `1px solid ${badgeColor}88` : idleBorder,
         padding: 'var(--space-4)',

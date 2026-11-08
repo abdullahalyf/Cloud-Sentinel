@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopBar } from './components/TopBar';
 import { LeftNav } from './components/LeftNav';
 import { CursorAura } from './components/CursorAura';
+import { ConnectionBanner } from './components/ConnectionBanner';
 import { TelemetryBackground } from './components/TelemetryBackground';
 import { ToastProvider } from './components/Toast';
 import { FleetView } from './views/FleetView';
@@ -39,6 +40,7 @@ const LayoutShell: React.FC = () => {
       <TelemetryBackground />
 
       <TopBar />
+      <ConnectionBanner />
       <div style={{ display: 'flex', flex: 1, width: '100%', position: 'relative', zIndex: 2 }}>
         <LeftNav />
         <main
