@@ -127,6 +127,10 @@ class Settings:
     mcp_rate_limit_per_min: int           # destructive calls per minute, per session
     mcp_http_host: str                    # the address the MCP HTTP transport binds
     mcp_http_port: int                    # the port the MCP HTTP transport binds
+    # ── Brain sharding (A8): N worker processes share the fleet ──
+    worker_id: str                        # this worker's id; empty → one generated from the pid
+    worker_heartbeat_seconds: float       # how often a worker says "I am alive"
+    worker_stale_seconds: float           # a worker that has not beaten for this long is dead
     # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
     export_phoenix: bool = False
     phoenix_endpoint: str = "http://localhost:6006"
@@ -203,6 +207,9 @@ def load_settings() -> Settings:
         mcp_rate_limit_per_min=_int("CS_MCP_RATE_LIMIT", 30),
         mcp_http_host=_str("CS_MCP_HTTP_HOST", "127.0.0.1"),
         mcp_http_port=_int("CS_MCP_HTTP_PORT", 8765),
+        worker_id=_str("CS_WORKER_ID"),
+        worker_heartbeat_seconds=_float("CS_WORKER_HEARTBEAT_SECONDS", 2.0),
+        worker_stale_seconds=_float("CS_WORKER_STALE_SECONDS", 10.0),
         export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),
