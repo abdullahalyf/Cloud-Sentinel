@@ -278,6 +278,10 @@ the judge reached, the actions the breaker took, the heals that were applied —
 reads *why* the agent is in this state instead of guessing from the current metrics. The
 `outcome` is the last thing that happened to it.
 
+**An unknown agent is a 404**, the same on both sides: an explanation of nothing would be a
+confident paragraph about an agent nobody has ever heard of. `minutes` is a real window — an event
+older than the window is not in the report — and it is clamped to 24 hours.
+
 Agents **without a container** (a LangGraph/CrewAI process, any external OTel agent) are still controllable:
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
@@ -299,10 +303,12 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| `GET /v1/agents/{id}/explain` *(A13)* | the whole endpoint — the mock has it, the real API does not yet | the A13 brain branch |
+| _(none — the mock and the real API are in step)_ | | |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
+A13's gap (`GET /v1/agents/{id}/explain`: the whole endpoint) closed when the brain side landed
+as PR #47.
 
 ---
 
