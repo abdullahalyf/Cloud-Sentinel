@@ -274,7 +274,7 @@ changes a tool-gate decision within 2 ticks, with no restart.
 **Acceptance:** recall ≥ 0.85, benign false positives ≤ 5%, every existing test green, and Fojle's `prompt_injection` simulator (once merged) is
 caught in `--fake` (if it isn't merged yet, an equivalent FakeFleet behaviour is).
 
-### A7 · [ ] MCP server hardening + packaging
+### A7 · [x] (alif/puku-a7-mcp-packaging, 2026-11-08) MCP server hardening + packaging
 **Owns:** `brain/mcp_server.py`, `brain/mcp_pkg/` (new: `pyproject.toml`, README), `brain/MCP.md` (new), plus a contract branch for `CS_MCP_READONLY`.
 > Prompt:
 > *Read brain/mcp_server.py and CONTRACTS §7.
@@ -296,7 +296,23 @@ caught in `--fake` (if it isn't merged yet, an equivalent FakeFleet behaviour is
 - An in-process stdio client lists the tools and calls `list_agents` against the mock.
 - Tests for the token requirement, read-only mode and the rate limit.
 
-### A8 · [ ] Horizontal scaling: shard agents across brain workers
+**Done.** One implementation, in `brain/mcp_pkg/cloudsentinel_mcp/` — it needs only `httpx` and `mcp`
+at runtime and does not import `shared/`, so it installs on its own. `brain/mcp_server.py` is now a
+thin wrapper over it, so `python -m brain.mcp_server` and the installed `cloudsentinel-mcp` behave
+identically and there is only one server to keep hardened. Every argument is validated before it
+reaches the API (the error type subclasses the SDK's `ToolError` on purpose — the SDK only passes
+the *message* of an anticipated `ToolError` to the model). Destructive calls are rate limited per
+session, reads are never throttled. `CS_MCP_READONLY=true` hides every write tool. `--http` on a
+non-localhost bind refuses to start without `CS_API_TOKEN`. Every tool declares `readOnlyHint` and
+`destructiveHint`, and a test fails a tool that is in neither set — an un-audited tool cannot ship.
+The contract side landed as #36 (`f81dc2b`) — `CS_MCP_READONLY`, `CS_MCP_RATE_LIMIT`,
+`CS_MCP_HTTP_HOST`, `CS_MCP_HTTP_PORT`, and the safety rules written into CONTRACTS §7 as contract
+rather than implementation detail. 36 acceptance tests in `brain/tests/test_mcp_hardening.py`,
+plus 9 in `shared/tests/test_mcp_contract.py` (the two that compare the repo against the packaged
+server skip until the package is in the tree — they are the ones that catch the two readers
+drifting apart). `brain/MCP.md` has the Claude Desktop, Claude Code and Codex snippets.
+
+### A8 · [ ] IN PROGRESS (Puku) Horizontal scaling: shard agents across brain workers
 **Owns:** `brain/sharding.py` (new), `brain/engine.py`, `brain/__main__.py`, plus a contract branch for the `workers` table, `CS_WORKER_ID` and the health fields.
 > Prompt:
 > *Goal: N brain worker processes share the fleet, and one dies → the others take its agents within 15 s.

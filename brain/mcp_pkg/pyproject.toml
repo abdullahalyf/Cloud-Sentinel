@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloudsentinel-mcp"
+version = "0.7.0"
+description = "CloudSentinel MCP server — operate the AI-agent circuit breaker from Claude."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "CloudSentinel" }]
+keywords = ["mcp", "ai-agents", "observability", "circuit-breaker", "claude"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+]
+# Only what the server needs to run. It talks to the CloudSentinel API over HTTP, so it does
+# not import the CloudSentinel repo — it can be installed on its own.
+dependencies = [
+    "httpx>=0.27",
+    "mcp>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.urls]
+Homepage = "https://github.com/abdullahalyf/Cloud-Sentinel"
+Repository = "https://github.com/abdullahalyf/Cloud-Sentinel"
+Issues = "https://github.com/abdullahalyf/Cloud-Sentinel/issues"
+
+[project.scripts]
+cloudsentinel-mcp = "cloudsentinel_mcp:main"
+
+[tool.setuptools]
+packages = ["cloudsentinel_mcp"]
+
+[tool.setuptools.package-data]
+cloudsentinel_mcp = ["py.typed"]

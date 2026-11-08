@@ -8,181 +8,73 @@ Every tool calls the C2 REST API (CS_API_URL), so it also works against the mock
 
 Claude Desktop config (claude_desktop_config.json):
     {"mcpServers": {"cloudsentinel": {"command": "python", "args": ["-m", "brain.mcp_server"],
-      "cwd": "<path to repo>", "env": {"CS_API_URL": "http://localhost:8000"}}}}
+      "cwd": "<path to repo>", "env": {"CS_API_URL": "http://localhost:8000"}}}
+
+**This module is a thin wrapper.** The implementation lives in
+`brain/mcp_pkg/cloudsentinel_mcp/` — the same code the `cloudsentinel-mcp` package ships
+(A7). It is re-exported here so `python -m brain.mcp_server` and the installed command
+behave identically, and so there is only one server to keep hardened.
+
+See brain/MCP.md for the tools, the config snippets and the safety rules.
 """
 from __future__ import annotations
 
-import argparse
-from typing import Any, Optional
+import sys
+from pathlib import Path
 
-import httpx
-from mcp.server.mcpserver import MCPServer
-from mcp.types import ToolAnnotations
+# The packaged server is a sibling directory, not an installed package. Adding it to the
+# path keeps `python -m brain.mcp_server` working from a checkout with nothing installed.
+_PKG = Path(__file__).resolve().parent / "mcp_pkg"
+if str(_PKG) not in sys.path:
+    sys.path.insert(0, str(_PKG))
 
-from shared.config import settings
+from cloudsentinel_mcp.server import (  # noqa: E402  (the path insert has to come first)
+    DESTRUCTIVE,
+    DESTRUCTIVE_TOOLS,
+    READ_ONLY_TOOLS,
+    SAFE,
+    client,
+    limiter,
+    mcp,
+)
+from cloudsentinel_mcp.server import (  # noqa: E402  (the tool functions themselves)
+    decide_heal,
+    decide_tool_call,
+    edit_memory,
+    explain_agent,
+    get_agent,
+    get_memory,
+    get_policy,
+    get_roi_report,
+    kill_agent,
+    list_agents,
+    list_heal_proposals,
+    list_pending_tool_calls,
+    pause_agent,
+    resume_agent,
+    set_budget,
+    validate_policy,
+)
+from cloudsentinel_mcp.hardening import ToolError  # noqa: E402
 
-SAFE = ToolAnnotations(read_only_hint=True, destructive_hint=False)
-DESTRUCTIVE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
+# Re-exported so the repo's tests can point the server at the mock API by patching
+# `brain.mcp_server.httpx.Client` — the same seam the server itself uses.
+import httpx  # noqa: E402,F401
 
-mcp = MCPServer("cloudsentinel", instructions=(
-    "CloudSentinel is a circuit breaker for AI agents. Use list_agents first. Prefer pause_agent over "
-    "kill_agent: a paused agent keeps its state and can be healed with edit_memory and resumed. "
-    "Always give a short reason; it is written to the audit log."))
-
-
-def _api(method: str, path: str, body: Optional[dict] = None) -> Any:
-    headers = {"X-CS-Token": settings.api_token} if settings.api_token else {}
-    with httpx.Client(base_url=settings.api_url, timeout=10.0, headers=headers) as client:
-        r = client.request(method, path, json=body)
-    if r.status_code >= 400:
-        try:
-            detail = r.json().get("detail", r.text)
-        except ValueError:
-            detail = r.text
-        raise RuntimeError(f"CloudSentinel API {r.status_code}: {detail}")
-    return r.json()
-
-
-def _command(agent_id: str, command: str, reason: str, params: Optional[dict] = None) -> dict:
-    res = _api("POST", f"/v1/agents/{agent_id}/commands",
-               {"command": command, "params": params or {}, "requested_by": "mcp", "reason": reason})
-    return {**res, "note": "The engine executes commands within ~1 second. Check with get_agent."}
-
-
-@mcp.tool(annotations=SAFE)
-def list_agents() -> list[dict]:
-    """List every agent with its breaker state, spend rate ($/min), spend vs budget and loop score."""
-    return [{k: a[k] for k in ("agent_id", "state", "usd_per_min", "spend_usd", "budget_usd", "tokens_per_min",
-                               "loop_score", "exact_repeats", "memory_pct")}
-            for a in _api("GET", "/v1/fleet")["agents"]]
-
-
-@mcp.tool(annotations=SAFE)
-def get_agent(agent_id: str) -> dict:
-    """Full details of one agent: metrics, last judge verdicts and current memory."""
-    data = _api("GET", f"/v1/agents/{agent_id}")
-    return {"agent": data["agent"], "verdicts": data["verdicts"][:3], "memory": data["memory"]}
+__all__ = ["mcp", "main", "SAFE", "DESTRUCTIVE", "DESTRUCTIVE_TOOLS", "READ_ONLY_TOOLS",
+           "client", "limiter", "ToolError", "httpx",
+           "list_agents", "get_agent", "explain_agent", "get_memory", "list_pending_tool_calls",
+           "get_roi_report", "get_policy", "validate_policy", "list_heal_proposals",
+           "pause_agent", "resume_agent", "kill_agent", "set_budget", "edit_memory",
+           "decide_tool_call", "decide_heal"]
 
 
-@mcp.tool(annotations=SAFE)
-def explain_agent(agent_id: str) -> str:
-    """Plain-English explanation of why an agent is in its current state."""
-    data = _api("GET", f"/v1/agents/{agent_id}")
-    a, verdicts = data["agent"], data["verdicts"]
-    text = (f"{agent_id} is {a['state'].upper()}. Spending ${a['usd_per_min']:.4f}/min, "
-            f"${a['spend_usd']:.3f} of ${a['budget_usd']:.2f} budget. Loop score {a['loop_score']:.2f}, "
-            f"same prompt repeated {a['exact_repeats']}×, memory {a['memory_pct']:.0f}%.")
-    if verdicts:
-        v = verdicts[0]
-        text += f" Latest verdict ({v['source']}): {v['action']} at {v['confidence']:.0%}, {v['pattern']}: {v['reason']}"
-        if v.get("suggested_fix"):
-            text += f" Suggested fix: {v['suggested_fix']}"
-    return text
+def main(argv=None) -> None:
+    """Run the server. See brain/MCP.md."""
+    from cloudsentinel_mcp.server import main as _main
 
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def pause_agent(agent_id: str, reason: str) -> dict:
-    """Pause (quarantine) an agent. Its container is frozen with state intact; resume_agent undoes it."""
-    return _command(agent_id, "PAUSE", reason)
-
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def resume_agent(agent_id: str, reason: str) -> dict:
-    """Resume a paused agent. It runs on probation (stricter limits) for a while."""
-    return _command(agent_id, "RESUME", reason)
-
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def kill_agent(agent_id: str, reason: str) -> dict:
-    """Kill an agent's container immediately. Prefer pause_agent unless it is dangerous."""
-    return _command(agent_id, "KILL", reason)
-
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def set_budget(agent_id: str, budget_usd: float, reason: str = "") -> dict:
-    """Set an agent's session budget in USD. Exceeding it trips the breaker."""
-    return _command(agent_id, "SET_BUDGET", reason or f"budget set to ${budget_usd}", {"budget_usd": budget_usd})
-
-
-@mcp.tool(annotations=SAFE)
-def get_memory(agent_id: str) -> dict:
-    """Read an agent's external memory (latest version)."""
-    return _api("GET", f"/v1/agents/{agent_id}/memory")
-
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def edit_memory(agent_id: str, content: dict, reason: str) -> dict:
-    """Replace an agent's memory with `content` (a JSON object). The agent reads it on its next step."""
-    return _api("PUT", f"/v1/agents/{agent_id}/memory",
-                {"content": content, "edited_by": "mcp", "reason": reason, "base_version": None})
-
-
-@mcp.tool(annotations=SAFE)
-def list_pending_tool_calls() -> list[dict]:
-    """Tool calls waiting for a human decision (e.g. large refunds)."""
-    return _api("GET", "/v1/tool-calls?status=pending")["items"]
-
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def decide_tool_call(call_id: int, decision: str, reason: str, final_args: Optional[dict] = None) -> dict:
-    """Decide a pending tool call: decision = allow | deny | rewrite (rewrite needs final_args)."""
-    return _api("POST", f"/v1/tool-calls/{call_id}/decision",
-                {"decision": decision, "final_args": final_args, "decided_by": "mcp", "reason": reason})
-
-
-@mcp.tool(annotations=SAFE)
-def get_roi_report() -> dict:
-    """Money spent, money saved by each intervention, and the formula used."""
-    return _api("GET", "/v1/roi")
-
-
-@mcp.tool(annotations=SAFE)
-def get_policy() -> dict:
-    """The policy in force: budgets, what a tripped breaker does, and the tool-call rules."""
-    return _api("GET", "/v1/policy")
-
-
-@mcp.tool(annotations=SAFE)
-def validate_policy(yaml: str) -> dict:
-    """
-    Check a policy file's text without changing anything.
-
-    Returns the errors with the exact path of what is wrong ("tools[2].when.op: must be one of
-    gt, gte, lt, lte, eq, ne, contains"), so the file can be fixed before it is deployed.
-    """
-    return _api("POST", "/v1/policy/validate", {"yaml": yaml})
-
-
-@mcp.tool(annotations=SAFE)
-def list_heal_proposals(status: str = "pending") -> list[dict]:
-    """Heal proposals waiting for a decision (the judge's proposed patches for sick agents)."""
-    return _api("GET", f"/v1/heal-proposals?status={status}")["items"]
-
-
-@mcp.tool(annotations=DESTRUCTIVE)
-def decide_heal(proposal_id: int, decision: str, reason: str) -> dict:
-    """
-    Decide a heal proposal: decision = apply | reject.
-
-    `apply` writes the judge's patch into the agent's memory (the belief that is keeping it
-    looping, or a tool policy). `reject` leaves the agent paused for a human to look at.
-    """
-    if decision not in ("apply", "reject"):
-        raise ValueError("decision must be apply or reject")
-    return _api("POST", f"/v1/heal-proposals/{proposal_id}/decision",
-                {"decision": decision, "reason": reason, "requested_by": "mcp"})
-
-
-def main() -> None:
-    p = argparse.ArgumentParser(prog="python -m brain.mcp_server")
-    p.add_argument("--http", action="store_true", help="Streamable HTTP on :8765/mcp instead of stdio")
-    p.add_argument("--port", type=int, default=8765)
-    args = p.parse_args()
-    if args.http:
-        mcp.run("streamable-http", host="0.0.0.0", port=args.port)
-    else:
-        mcp.run("stdio")
+    _main(argv)
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])
