@@ -43,3 +43,23 @@ class Sim:
 @pytest.fixture
 def sim(cfg):
     return Sim(cfg)
+
+
+# ── the E2E and chaos harness ──────────────────────────────────────────────
+# It lives here, in the one conftest that pytest already loads, because a second
+# `conftest.py` in `brain/tests/e2e/` would have the same module name as this one and
+# pytest would not load it (the directories are not packages).
+from brain.tests.e2e_harness import Harness  # noqa: E402
+
+
+@pytest.fixture
+def harness(tmp_path):
+    """The real processes of one test: a brain, a collector, an agent.
+
+    Every process is killed at the end, however the test ended.
+    """
+    h = Harness(tmp=tmp_path)
+    try:
+        yield h
+    finally:
+        h.stop_all()
