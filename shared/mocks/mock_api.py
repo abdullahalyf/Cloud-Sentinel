@@ -26,7 +26,8 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
-                              ToolCallRow, VerdictRow, agent_view, budget_forecast, budget_node, budget_report,
+                              ToolCallRow, VerdictRow, agent_view, backtest_catch, backtest_false_positive,
+                              backtest_report, budget_forecast, budget_node, budget_report,
                               explain_event, explain_report, load_json,
                               postmortem_event, postmortem_markdown, postmortem_report, postmortem_root_cause,
                               tool_risk_from_history, tool_risk_view, utc_now_iso)
@@ -702,6 +703,40 @@ def budgets() -> dict:
                       children=[t["id"] for t in teams],
                       forecast=budget_forecast(ORG_BUDGET, org_spend, 0.002 * len(AGENTS)))
     return budget_report(org, teams, agents, as_of=now)
+
+
+@app.get("/v1/backtest")
+def backtest(policy_path: str = "") -> dict:
+    """
+    The policy backtest (B5): what would the candidate policy have caught?
+
+    The mock has no spans to replay, so the numbers are **fixed** — a mock whose
+    backtest drifts with the clock would be useless for building a dashboard
+    against. What the mock does show is the *shape*: catches, false positives,
+    and the money saved, all from the same builder the real API uses.
+
+    The story the fake data tells: beta looped and was paused, gamma broke a hard
+    limit and was killed — the running policy caught both. A *tighter* candidate
+    policy would also have stopped alpha and delta, which were perfectly fine.
+    Those are the false positives, and they are in the report on purpose.
+    """
+    now = time.time()
+    catches = [
+        backtest_catch("loop_semantic", "beta", now - 420.0, "PAUSE",
+                       "semantic loop score 0.85 on order 4471", 2.52),
+        backtest_catch("token_rate_hard", "gamma", now - 300.0, "KILL",
+                       "80,816 tokens/min ≥ hard limit", 129.6),
+    ]
+    false_positives = [
+        backtest_false_positive("budget_80pct", "alpha", now - 240.0,
+                                "82% of budget used, but the agent was healthy"),
+        backtest_false_positive("call_spike", "delta", now - 180.0,
+                                "1.4 calls/s ≥ the candidate's soft limit of 1.0"),
+    ]
+    return backtest_report(catches=catches, false_positives=false_positives,
+                           policy_version="mockpolicy01", agents_tested=list(AGENTS),
+                           spans_replayed=1284, usd_saved=2.52 + 129.6,
+                           horizon_minutes=60.0, as_of=now)
 
 
 if __name__ == "__main__":

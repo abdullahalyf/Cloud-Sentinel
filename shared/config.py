@@ -161,6 +161,12 @@ class Settings:
     # The burn rate at which the brain starts warning that a budget is going to run out.
     # 0 = no warning.
     budget_warn_usd_per_min: float = 0.0
+    # ── Policy backtesting (B5): replay the stored traces against a candidate policy ──
+    # The backtest is a read-only measurement, but it replays every span in the window,
+    # so it is behind a flag like everything else. Off = the endpoint does not exist.
+    backtest_enabled: bool = False
+    # How many minutes of stored traces the backtest replays.
+    backtest_window_minutes: float = 60.0
 
     @property
     def use_supabase(self) -> bool:
@@ -217,6 +223,8 @@ def load_settings() -> Settings:
         verified_heal=_bool("CS_VERIFIED_HEAL", False),
         degradation_enabled=_bool("CS_DEGRADATION_ENABLED", False),
         budget_warn_usd_per_min=max(0.0, _float("CS_BUDGET_WARN_USD_PER_MIN", 0.0)),
+        backtest_enabled=_bool("CS_BACKTEST_ENABLED", False),
+        backtest_window_minutes=max(0.0, _float("CS_BACKTEST_WINDOW_MINUTES", 60.0)),
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
