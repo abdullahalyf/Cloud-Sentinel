@@ -17,6 +17,7 @@ import { api } from '../api/client';
 import type { AgentState, AgentView } from '../api/types';
 import { Panel } from '../components/Panel';
 import { AgentCard } from '../components/AgentCard';
+import { groupByNode, hasNodes } from '../lib/nodes';
 import { useCountUp } from '../lib/useCountUp';
 import { areaFromLine, fmtCompact, smoothPath, useRollingSeries } from '../components/charts';
 
@@ -261,6 +262,7 @@ const Legend: React.FC<{ items: { color: string; label: string }[] }> = ({ items
 export const FleetView: React.FC = () => {
   const navigate = useNavigate();
   const [filterState, setFilterState] = useState<AgentState | 'all'>('all');
+  const [byNode, setByNode] = useState(false);
 
   // Fetch live fleet data
   const {
@@ -634,6 +636,26 @@ export const FleetView: React.FC = () => {
             onRetry={handleRefreshAll}
             actions={
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                {hasNodes(agents) && (
+                  <button
+                    type="button"
+                    aria-label="Group agents by node"
+                    aria-pressed={byNode}
+                    onClick={() => setByNode((v) => !v)}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 'var(--type-micro-size)',
+                      fontFamily: 'var(--font-mono)',
+                      fontWeight: byNode ? 700 : 500,
+                      color: byNode ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                      border: byNode ? '1px solid var(--color-border-accent)' : '1px solid var(--color-border)',
+                      backgroundColor: byNode ? 'rgba(6,182,212,0.14)' : 'transparent',
+                    }}
+                  >
+                    BY NODE
+                  </button>
+                )}
                 <Filter size={14} color="var(--color-text-muted)" />
                 <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
                   {(['all', 'healthy', 'suspicious', 'paused', 'killed'] as const).map((st) => {
@@ -667,6 +689,29 @@ export const FleetView: React.FC = () => {
               </div>
             }
           >
+            {byNode && hasNodes(agents) ? (
+              <div data-testid="fleet-agent-grid" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                {groupByNode(displayedAgents).map((g) => (
+                  <section key={g.node} aria-label={`Node ${g.node}`}>
+                    <h3
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 'var(--type-micro-size)',
+                        color: 'var(--color-text-secondary)',
+                        marginBottom: 'var(--space-2)',
+                      }}
+                    >
+                      node: {g.node} · {g.agents.length} agent{g.agents.length === 1 ? '' : 's'}
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 'var(--space-4)' }}>
+                      {g.agents.map((agent) => (
+                        <AgentCard key={agent.agent_id} agent={agent} onClick={() => navigate(`/agents/${agent.agent_id}`)} />
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            ) : (
             <div
               data-testid="fleet-agent-grid"
               style={{
@@ -683,6 +728,7 @@ export const FleetView: React.FC = () => {
                 />
               ))}
             </div>
+            )}
           </Panel>
         </div>
 

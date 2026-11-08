@@ -2,7 +2,7 @@ import { livePoll } from '../lib/live';
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Cpu, ShieldAlert, Activity, DollarSign } from 'lucide-react';
+import { LayoutDashboard, Cpu, ShieldAlert, Activity, DollarSign, Network } from 'lucide-react';
 import { api } from '../api/client';
 
 export const LeftNav: React.FC = () => {
@@ -30,6 +30,7 @@ export const LeftNav: React.FC = () => {
       badge: pendingCount > 0 ? pendingCount : undefined,
     },
     { to: '/incidents', label: 'Incidents Replay', icon: <Activity size={18} /> },
+    { to: '/graph', label: 'Fleet Graph', icon: <Network size={18} /> },
     { to: '/cost', label: 'Cost & ROI', icon: <DollarSign size={18} /> },
   ];
 

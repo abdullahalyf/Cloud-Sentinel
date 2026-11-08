@@ -278,6 +278,17 @@ All charts are hand-built SVG (`components/charts.tsx` holds the shared helpers)
 - **Agent bars:** actual spend, wasted loop spend and circuit-breaker savings per agent, same linear/log rule.
 - **Method cards:** formula in a syntax-highlighted monospace pill; impact meter = that action group's share of `saved_usd`; click toggles an explanation (`aria-expanded`).
 
+### 4.4 Pages and behaviours added in D5-D16
+- **Approvals (`/approvals`):** pending tool calls then heal proposals, oldest first. `J`/`K` move the selection, `A` approves/applies, `D` denies/rejects, `R` opens the rewrite editor (sends `final_args`); shortcuts are shown in the header and ignored while typing.
+- **Agent graph flow:** `@xyflow/react`, left to right, stable positions; an edge whose reverse also exists is a cycle (amber, thick, animated unless paused) with a `loop: A ↔ B ×N` caption.
+- **Incidents (`/incidents`, `/incidents/:id?t=<epoch ms>`):** events of one agent with no gap over 60 s form an incident. The scrubber (and the left/right arrow keys, 1 s per press) rebuilds state, $/min, loop score, verdict and memory version at that moment from recorded data only; Play replays at 4x. The window runs 30 s past the last event so the aftermath is visible. Share copies a link to the exact moment.
+- **Fleet Graph (`/graph`):** agents | tools | models columns from `/v1/graph`; cyclic edges amber and listed under the graph.
+- **Cost:** adds an ECharts budget burn-down per agent (budget left, dashed projection to $0, PAUSE/KILL markers) and a task table sorted by wasted spend.
+- **Demo panel (top bar, only in fake/mock mode or `VITE_DEMO=1`):** the 7 scripted steps run against the real API and wait for real state; Reset demo mirrors `scripts/demo.py reset`.
+- **Live push:** `WS /v1/stream` events refresh matching queries at once; polling slows to 5 s while the socket is up and returns to 1 s when it drops (the socket reconnects with backoff). A banner shows when the API is unreachable.
+- **Multi-node:** when runtimes read `docker@<node>`, a `BY NODE` toggle groups the fleet cards under node headers.
+- **Accessibility:** `npm run e2e` runs axe (WCAG 2 A/AA) on every route and fails on any serious or critical violation. Text on tinted state backgrounds uses `--color-state-killed-text` / `--color-state-paused-text`.
+
 ---
 
 ## 5. Data Formatting & Telemetry Rules

@@ -13,6 +13,7 @@ import { AgentDetailView } from './views/AgentDetailView';
 import { ApprovalsView } from './views/ApprovalsView';
 import { IncidentsView } from './views/IncidentsView';
 import { CostView } from './views/CostView';
+import { GraphView } from './views/GraphView';
 import './styles/base.css';
 
 const queryClient = new QueryClient({
@@ -78,7 +79,9 @@ export const App: React.FC = () => {
               <Route path="agents/:id" element={<AgentDetailView />} />
               <Route path="approvals" element={<ApprovalsView />} />
               <Route path="incidents" element={<IncidentsView />} />
+              <Route path="incidents/:incidentId" element={<IncidentsView />} />
               <Route path="cost" element={<CostView />} />
+              <Route path="graph" element={<GraphView />} />
               <Route path="*" element={<Navigate to="/fleet" replace />} />
             </Route>
           </Routes>

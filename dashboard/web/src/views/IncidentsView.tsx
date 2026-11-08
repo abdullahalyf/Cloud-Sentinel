@@ -1,7 +1,8 @@
 import { livePoll } from '../lib/live';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Play, Pause, ShieldCheck } from 'lucide-react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, Link2, Play, Pause, ShieldCheck } from 'lucide-react';
 import { api } from '../api/client';
 import type { AgentState } from '../api/types';
 import { Panel } from '../components/Panel';
@@ -35,8 +36,12 @@ export const IncidentsView: React.FC = () => {
   const verdictsQ = useQuery({ queryKey: ['verdicts', 100], queryFn: () => api.getVerdicts(100), ...poll });
   const metricsQ = useQuery({ queryKey: ['metrics', 60], queryFn: () => api.getMetrics(60), ...poll });
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [t, setT] = useState(0);
+  // D16: /incidents/:incidentId?t=<epoch ms> opens the replay at that moment
+  const { incidentId } = useParams();
+  const [search] = useSearchParams();
+  const [selectedId, setSelectedId] = useState<string | null>(incidentId ?? null);
+  const [t, setT] = useState(() => Number(search.get('t')) || 0);
+  const [copied, setCopied] = useState(false);
   const [playing, setPlaying] = useState(false);
 
   const alerts = alertsQ.data?.items ?? [];
@@ -92,6 +97,18 @@ export const IncidentsView: React.FC = () => {
 
   const snap = incident ? stateAt(clamped, incident.agent_id, metrics, verdicts, memoryRows) : null;
   const pct = (ts: number) => ((ts - start) / (end - start)) * 100;
+
+  const copyLink = async () => {
+    if (!incident) return;
+    const url = `${window.location.origin}/incidents/${encodeURIComponent(incident.id)}?t=${Math.round(clamped)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt('Copy this link', url);
+    }
+  };
 
   const onScrubKey = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -180,7 +197,7 @@ export const IncidentsView: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', minWidth: 0 }}>
               <div
                 data-testid="incident-timeline"
-                style={{ position: 'relative', height: 64, borderBottom: '1px solid var(--color-border)', margin: '0 var(--space-2)' }}
+                style={{ position: 'relative', height: 64, borderBottom: '1px solid var(--color-border)', margin: '0 110px' }}
               >
                 {incident.events.map((e, i) => (
                   <div
@@ -225,6 +242,14 @@ export const IncidentsView: React.FC = () => {
                 <span className="tabular-nums" style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)' }}>
                   {fmtTime(clamped)}
                 </span>
+                <button
+                  type="button"
+                  aria-label="Copy share link"
+                  onClick={copyLink}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-2) var(--space-3)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', fontSize: 'var(--type-micro-size)', fontWeight: 600 }}
+                >
+                  <Link2 size={13} /> {copied ? 'Link copied' : 'Share'}
+                </button>
               </div>
 
               <div

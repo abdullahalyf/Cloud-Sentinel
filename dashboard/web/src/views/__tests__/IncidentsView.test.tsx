@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { IncidentsView } from '../IncidentsView';
 import { api } from '../../api/client';
 import type { MetricRow } from '../../api/types';
@@ -10,11 +11,16 @@ const t = (s: number) => Date.UTC(2026, 10, 8, 3, 0, s);
 const metric = (s: number, state: string, loop: number) =>
   ({ agent_id: 'beta', state, tokens_per_min: 0, usd_per_min: 0.05, calls_per_sec: 0, total_tokens: 0, spend_usd: 0, budget_usd: 1, exact_repeats: 0, loop_score: loop, tool_cycle: false, memory_mb: 0, memory_pct: 0, created_at: iso(s) }) as MetricRow;
 
-const wrap = () => {
+const wrap = (url = '/incidents') => {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <IncidentsView />
+      <MemoryRouter initialEntries={[url]}>
+        <Routes>
+          <Route path="/incidents" element={<IncidentsView />} />
+          <Route path="/incidents/:incidentId" element={<IncidentsView />} />
+        </Routes>
+      </MemoryRouter>
     </QueryClientProvider>
   );
 };
@@ -47,6 +53,14 @@ describe('IncidentsView replay', () => {
     fireEvent.change(slider, { target: { value: String(t(34)) } });
     fireEvent.keyDown(slider, { key: 'ArrowRight' });
     await waitFor(() => expect(screen.getByTestId('incident-snapshot')).toHaveTextContent('0.90'));
+  });
+
+  it('opens a shared link at the right incident and moment (D16)', async () => {
+    const id = `beta-${t(0)}`;
+    wrap(`/incidents/${id}?t=${t(30)}`);
+    await waitFor(() => expect(screen.getByTestId('incident-snapshot')).toHaveTextContent('Same intent repeated'));
+    expect(screen.getByTestId('incident-snapshot')).toHaveTextContent('0.70');
+    expect(screen.getByRole('button', { name: 'Copy share link' })).toBeInTheDocument();
   });
 
   it('shows the empty state when nothing happened', async () => {

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const routes = ['/fleet', '/agents/beta', '/approvals', '/incidents', '/cost'];
+const routes = ['/fleet', '/agents/beta', '/approvals', '/incidents', '/cost', '/graph'];
 
 // D11: zero serious or critical accessibility violations on every page
 for (const route of routes) {

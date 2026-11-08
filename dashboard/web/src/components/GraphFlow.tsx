@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { ReactFlow, MarkerType, type Node, type Edge } from '@xyflow/react';
+import { ReactFlow, MarkerType, Position, type Node, type Edge } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import type { NodeFeed, NodeFeedItem } from '../api/types';
 
@@ -97,6 +97,8 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
           data: { label: name },
           draggable: false,
           selectable: false,
+          sourcePosition: Position.Right,
+          targetPosition: Position.Left,
           style: {
             fontFamily: 'var(--font-mono)',
             fontSize: 12,
