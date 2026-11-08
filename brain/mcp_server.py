@@ -136,6 +136,26 @@ def get_roi_report() -> dict:
     return _api("GET", "/v1/roi")
 
 
+@mcp.tool(annotations=SAFE)
+def list_heal_proposals(status: str = "pending") -> list[dict]:
+    """Heal proposals waiting for a decision (the judge's proposed patches for sick agents)."""
+    return _api("GET", f"/v1/heal-proposals?status={status}")["items"]
+
+
+@mcp.tool(annotations=DESTRUCTIVE)
+def decide_heal(proposal_id: int, decision: str, reason: str) -> dict:
+    """
+    Decide a heal proposal: decision = apply | reject.
+
+    `apply` writes the judge's patch into the agent's memory (the belief that is keeping it
+    looping, or a tool policy). `reject` leaves the agent paused for a human to look at.
+    """
+    if decision not in ("apply", "reject"):
+        raise ValueError("decision must be apply or reject")
+    return _api("POST", f"/v1/heal-proposals/{proposal_id}/decision",
+                {"decision": decision, "reason": reason, "requested_by": "mcp"})
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="python -m brain.mcp_server")
     p.add_argument("--http", action="store_true", help="Streamable HTTP on :8765/mcp instead of stdio")

@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from brain import service
 from brain.policy import Policy
 from shared.config import Settings
-from shared.contracts import CONTRACT_VERSION, TOOL_DECISIONS
+from shared.contracts import CONTRACT_VERSION, HEAL_DECISIONS, HEAL_STATUSES, TOOL_DECISIONS
 
 log = logging.getLogger("brain.api")
 
@@ -47,6 +47,12 @@ class DecisionIn(BaseModel):
     final_args: Optional[dict[str, Any]] = None
     decided_by: str = "human"
     reason: str = ""
+
+
+class HealDecisionIn(BaseModel):
+    decision: str
+    reason: str = ""
+    requested_by: str = "human"
 
 
 def clamp_limit(limit: int, top: int = 1000) -> int:
@@ -163,6 +169,28 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
     @app.get("/v1/roi", dependencies=[Depends(auth)])
     def roi() -> dict:
         return service.roi(store, cfg.roi_horizon_minutes)
+
+    # ── auto-heal proposals (CONTRACTS §7) ──
+    @app.get("/v1/heal-proposals", dependencies=[Depends(auth)])
+    def heal_proposals(status: Optional[str] = None, agent_id: Optional[str] = None,
+                       limit: int = 50) -> dict:
+        if status is not None and status not in HEAL_STATUSES:
+            raise HTTPException(400, f"status must be one of {', '.join(HEAL_STATUSES)}")
+        return {"items": service.list_heal_proposals(store, status, agent_id, clamp_limit(limit))}
+
+    @app.get("/v1/heal-proposals/{proposal_id}", dependencies=[Depends(auth)])
+    def get_heal_proposal(proposal_id: int) -> dict:
+        row = store.get_heal_proposal(proposal_id)
+        if row is None:
+            raise HTTPException(404, f"heal proposal {proposal_id} not found")
+        return row
+
+    @app.post("/v1/heal-proposals/{proposal_id}/decision", dependencies=[Depends(auth)])
+    def decide_heal_proposal(proposal_id: int, body: HealDecisionIn) -> dict:
+        decision = (body.decision or "").strip().lower()
+        if decision not in HEAL_DECISIONS:
+            raise HTTPException(400, f"decision must be one of {', '.join(HEAL_DECISIONS)}")
+        return call(service.decide_heal_proposal, store, proposal_id, decision, body.requested_by, body.reason)
 
     @app.websocket("/v1/stream")
     async def stream(ws: WebSocket) -> None:

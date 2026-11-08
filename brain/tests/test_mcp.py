@@ -8,16 +8,17 @@ from brain import mcp_server as m
 from brain.api import create_app
 from shared.mocks import mock_api
 
-WRITE_TOOLS = {"pause_agent", "resume_agent", "kill_agent", "set_budget", "edit_memory", "decide_tool_call"}
+WRITE_TOOLS = {"pause_agent", "resume_agent", "kill_agent", "set_budget", "edit_memory", "decide_tool_call",
+               "decide_heal"}
 
 
 def _route_to(monkeypatch, app):
     monkeypatch.setattr(m.httpx, "Client", lambda **kw: TestClient(app, headers=kw.get("headers")))
 
 
-def test_twelve_tools_with_contract_annotations():
+def test_fourteen_tools_with_contract_annotations():
     tools = {t.name: t for t in asyncio.run(m.mcp.list_tools())}
-    assert len(tools) == 12
+    assert len(tools) == 14
     for name, tool in tools.items():
         assert tool.annotations.destructive_hint == (name in WRITE_TOOLS), name
         assert tool.annotations.read_only_hint == (name not in WRITE_TOOLS), name

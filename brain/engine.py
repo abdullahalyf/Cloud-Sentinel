@@ -19,6 +19,7 @@ from typing import Optional
 
 from brain.breaker import Breaker, Effect
 from brain.detectors import Finding, evaluate
+from brain.heal import PatchRejected, decide as decide_heal, may_autoheal, propose as propose_heal, validate
 from brain.judge import Judge, JudgeContext, Verdict
 from brain.policy import Policy
 from brain.state import AgentWindow, Snapshot
@@ -40,6 +41,8 @@ class Engine:
         self.last_judged: dict[str, float] = {}
         self.last_rules: dict[str, set] = {}   # rules the judge saw last time, per agent
         self.pending: dict[str, Future] = {}
+        self.last_autoheal: dict[str, float] = {}   # agent → when we last auto-healed it
+        self.last_finding: dict[str, Finding] = {}  # agent → the finding the judge last saw
         self.cursor = 0
         self.runtime_ids: Optional[set] = None
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
@@ -120,14 +123,34 @@ class Engine:
         snap = win.snapshot(now, self.budget(agent_id))
         self._collect_verdict(agent_id, br, snap, now)
         if br.active:
-            finding = evaluate(snap, self.cfg, strict=br.state == "probation")
+            was_probation = br.state == "probation"
+            finding = evaluate(snap, self.cfg, strict=was_probation)
             effect, ask = br.on_finding(finding, now)
             if effect:
                 self._alert(agent_id, finding, critical=True)
+                # An agent that trips again while on probation after an auto-heal is NOT healed
+                # again: the first patch did not work, so a human has to look. The breaker pauses
+                # instead of killing (br.pause_on_trip) so the state survives for that human.
+                if agent_id in self.last_autoheal and was_probation:
+                    self._escalate(agent_id, finding)
                 self._apply(agent_id, effect, snap)
             elif ask:
                 self._ask_judge(agent_id, win, snap, finding, now)
         self._record(agent_id, br, snap, rt)
+
+    def _escalate(self, agent_id: str, finding: Finding) -> None:
+        """An agent that tripped again after an auto-heal needs a human: file a proposal."""
+        memory_row = self.store.get_memory(agent_id) or {}
+        memory = memory_row.get("content") or {}
+        try:
+            patch = validate({"memory": [{"op": "set", "key": key, "value": "needs a human - "
+                                          "the auto-heal did not work"} for key in memory][:5]},
+                             memory, finding)
+        except PatchRejected as exc:
+            log.warning("could not build an escalation patch for %s: %s", agent_id, exc)
+            return
+        propose_heal(self.store, agent_id, patch, 0.0, 0, int(memory_row.get("version") or 0),
+                     reason="the agent tripped again after an auto-heal — a human must look at it")
 
     def _ask_judge(self, agent_id: str, win: AgentWindow, snap: Snapshot, finding: Finding, now: float) -> None:
         if agent_id in self.pending:
@@ -137,6 +160,7 @@ class Engine:
         if not new_evidence and now - self.last_judged.get(agent_id, -1e9) < self.cfg.brain_cooldown_seconds:
             return
         self.last_judged[agent_id], self.last_rules[agent_id] = now, set(finding.rules)
+        self.last_finding[agent_id] = finding
         log.warning("%s suspicious: %s → asking the judge", agent_id, finding.text)
         self._alert(agent_id, finding, critical=False)
         memory = (self.store.get_memory(agent_id) or {}).get("content", {})
@@ -161,11 +185,86 @@ class Engine:
             return
         log.warning("Verdict %s: %s (%.0f%%, %s) — %s [%s]", agent_id, v.action, v.confidence * 100, v.pattern,
                     v.reason, v.source)
-        self.store.insert_verdict(VerdictRow(agent_id, v.source, v.action, v.confidence, v.pattern, v.reason,
-                                             v.suggested_fix, v.latency_ms))
+        verdict_id = self.store.insert_verdict(VerdictRow(agent_id, v.source, v.action, v.confidence, v.pattern,
+                                                          v.reason, v.suggested_fix, v.latency_ms))
         effect = br.on_verdict(v.action, v.confidence, v.source, v.reason)
         if effect:
             self._apply(agent_id, effect, snap)
+        if v.patch and effect and effect.action in ("PAUSE", "KILL"):
+            self._heal(agent_id, br, v, verdict_id, now)
+        elif v.patch and effect and effect.action == "WARN":
+            # the judge was not confident enough to stop the agent, but it still has an idea:
+            # file it as a proposal so a human can look at it. Nothing is changed.
+            self._propose_only(agent_id, v, verdict_id)
+
+    # ── auto-heal ────────────────────────────────────────────────────────────
+    def _propose_only(self, agent_id: str, v: Verdict, verdict_id: int) -> None:
+        """File the judge's patch as a proposal without changing anything."""
+        memory_row = self.store.get_memory(agent_id) or {}
+        memory = memory_row.get("content") or {}
+        finding = self.last_finding.get(agent_id)
+        try:
+            patch = validate(v.patch, memory, finding)
+        except PatchRejected as exc:
+            log.warning("the judge proposed an unsafe patch for %s: %s", agent_id, exc)
+            return
+        propose_heal(self.store, agent_id, patch, v.confidence, verdict_id,
+                     int(memory_row.get("version") or 0),
+                     reason=v.reason or "the judge is not confident enough to apply this without a human")
+
+    def _heal(self, agent_id: str, br: Breaker, v: Verdict, verdict_id: int, now: float) -> None:
+        """
+        A paused agent may carry a patch that fixes it: the belief that keeps it looping, or the
+        tool that keeps failing.
+
+        A confident, valid patch is applied right away and the agent goes back to work on probation.
+        Anything less — a low confidence, an invalid patch, a recent auto-heal — becomes a proposal
+        for a human. The agent stays paused either way: a human (or the next auto-heal) resumes it.
+        """
+        memory_row = self.store.get_memory(agent_id) or {}
+        memory = memory_row.get("content") or {}
+        finding = self.last_finding.get(agent_id)
+        try:
+            patch = validate(v.patch, memory, finding)
+        except PatchRejected as exc:
+            log.warning("the judge proposed an unsafe patch for %s: %s", agent_id, exc)
+            return
+
+        base_version = int(memory_row.get("version") or 0)
+        if not may_autoheal(self.cfg, agent_id, self.last_autoheal, now):
+            # either auto-heal is off, or we healed this agent very recently: ask a human instead
+            propose_heal(self.store, agent_id, patch, v.confidence, verdict_id, base_version,
+                         reason=v.reason or "auto-heal needs a human")
+            return
+        if v.confidence < self.cfg.autoheal_min_confidence:
+            propose_heal(self.store, agent_id, patch, v.confidence, verdict_id, base_version,
+                         reason=v.reason or "not confident enough to apply without a human")
+            return
+
+        # confident and valid: apply it
+        try:
+            from brain.heal import apply_to_memory
+
+            content = apply_to_memory(memory, patch)
+            # base_version = the version we read: if the memory moved on while the judge was
+            # thinking, the write is refused and the patch becomes a proposal instead.
+            self.store.write_memory(agent_id, content, "brain:autoheal",
+                                    reason=f"auto-heal: {v.reason or 'patch applied'}", base_version=base_version)
+        except Exception as exc:
+            log.error("could not apply the auto-heal for %s: %s", agent_id, exc)
+            propose_heal(self.store, agent_id, patch, v.confidence, verdict_id, base_version,
+                         reason=f"the patch could not be written: {exc}")
+            return
+        self.last_autoheal[agent_id] = now
+        self.store.insert_action(ActionRow(agent_id, "AUTO_HEAL", "brain:autoheal",
+                                           f"auto-heal: {v.reason or 'patch applied'}"))
+        # a second trip from now on pauses instead of killing — the patch gets one chance
+        br.pause_on_trip = True
+        log.warning("auto-healed %s: %s", agent_id, patch.to_json())
+        # the agent is paused and healthy again: put it back to work on probation
+        resume = br.on_command("RESUME", "brain:autoheal", f"auto-heal: {v.reason or 'patch applied'}", now)
+        if resume:
+            self._apply(agent_id, resume, None)
 
     # ── actions ──────────────────────────────────────────────────────────────
     def _apply(self, agent_id: str, e: Effect, snap: Optional[Snapshot]) -> None:
