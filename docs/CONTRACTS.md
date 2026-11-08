@@ -206,6 +206,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/fleet` | → `{"agents": [AgentView]}` | dashboard, mcp |
 | `GET /v1/agents/{id}` | → `{"agent": AgentView, "spans": [SpanRow ≤50], "verdicts": [VerdictRow ≤10], "memory": MemoryRow|null}` | dashboard, mcp |
 | `GET /v1/agents/{id}/nodes?minutes=10&limit=100` *(added 4 Nov)* | → `NodeFeed` (below) | dashboard |
+| `GET /v1/agents/{id}/explain?minutes=10` *(added 8 Nov, A13)* | → `ExplainReport` (below) — the deterministic summary of what happened, and why | dashboard, mcp |
 | `GET /v1/metrics?minutes=5&agent_id=` | → `{"metrics": [MetricRow]}` | dashboard |
 | `GET /v1/graph?minutes=2` | → `{"nodes": [{"id","kind": "agent"|"tool"|"model","label"}], "edges": [{"source","target","count","in_cycle"}]}` | dashboard |
 | `GET /v1/verdicts?limit=20` · `GET /v1/actions?limit=50` · `GET /v1/alerts?limit=50` | → `{"items": [...]}` | dashboard, mcp |
@@ -245,6 +246,38 @@ agent". `{metric: {median: float, limit: float, samples: int}}` for `tokens_per_
 "edges": [{source, target, count}], "last_node": str|null, "next_node": str|null}`. `edges` count transitions
 between consecutive nodes of the same run (`trace_id`), so a loop shows as A→B and B→A with growing counts.
 
+**`ExplainReport`** *(added 8 Nov, A13)* — "what happened to this agent, and why":
+
+```
+{
+  "agent_id": str,
+  "state": str,                 # the agent's current state (healthy | suspicious | paused | ...)
+  "minutes": float,             # the window the report covers
+  "summary": str,               # one plain-English paragraph — the deterministic text
+  "polished_summary": str|null, # a Claude rewrite of `summary`, or null when there is no key
+  "events": [                  # oldest → newest; the chain that led here
+    {"kind": "alert"|"verdict"|"action"|"heal",
+     "ts": float, "title": str, "detail": str}
+  ],
+  "counts": {"alerts": int, "verdicts": int, "actions": int, "heals": int},
+  "outcome": str|null,          # what finally happened: PAUSE | KILL | WARN | IGNORE | null
+  "cost": {"spend_usd": float, "budget_usd": float, "saved_usd": float}
+}
+```
+
+**The summary is deterministic.** The same agent and the same store always produce the same
+paragraph, with no key and no network — that is what makes it testable (a golden-text test) and
+what makes it safe to cache. `polished_summary` is the optional extra: when a Claude key is
+present the server asks Claude to rewrite `summary` into something smoother, and puts the result
+there. **When there is no key, `polished_summary` is `null` and `summary` is the whole answer** —
+the endpoint never fails and never blocks on the network. A client must render `polished_summary`
+when it is there and fall back to `summary` when it is `null`.
+
+**The chain is the point.** `events` is the story in order — the alerts that fired, the verdicts
+the judge reached, the actions the breaker took, the heals that were applied — so an operator
+reads *why* the agent is in this state instead of guessing from the current metrics. The
+`outcome` is the last thing that happened to it.
+
 Agents **without a container** (a LangGraph/CrewAI process, any external OTel agent) are still controllable:
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
@@ -266,6 +299,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
+| `GET /v1/agents/{id}/explain` *(A13)* | the whole endpoint — the mock has it, the real API does not yet | the A13 brain branch |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
@@ -287,7 +321,7 @@ so it installs on its own (a laptop, Claude Desktop, a container that has never 
 |---|---|---|---|
 | `list_agents` | — | fleet summary (id, state, $/min, spend/budget, loop score) | no |
 | `get_agent` | `agent_id` | AgentView + last verdicts + memory | no |
-| `explain_agent` | `agent_id` | plain-English "why is it in this state" (latest verdict + findings) | no |
+| `explain_agent` | `agent_id` | plain-English "why is it in this state" — the `summary` of `GET /v1/agents/{id}/explain` (A13) | no |
 | `pause_agent` / `resume_agent` / `kill_agent` | `agent_id`, `reason` | command id | **yes** (annotated `destructiveHint`) |
 | `set_budget` | `agent_id`, `budget_usd` | command id | yes |
 | `get_memory` / `edit_memory` | `agent_id` / `agent_id, content, reason` | MemoryRow | edit: yes |
