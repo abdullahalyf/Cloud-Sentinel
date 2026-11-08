@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from brain import service
+from brain import backtest as brain_backtest
 from brain import budget as brain_budget
 from brain import explain as brain_explain
 from brain import postmortem as brain_postmortem
@@ -240,6 +241,29 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
         tree = brain_budget.tree_from_store(store, policy, cfg, agent_burn_rates=burn_rates,
                                             as_of=time.time())
         return tree.to_report()
+
+    # ── the policy backtest (CONTRACTS §6, B5) ──
+    @app.get("/v1/backtest", dependencies=[Depends(auth)])
+    def backtest(policy_path: str = "", minutes: Optional[float] = None) -> dict:
+        """
+        What would the candidate policy have caught? (B5)
+
+        The stored traces are replayed against the candidate policy and the report
+        says three things: the catches, the false positives, and the money saved.
+
+        The false positives are in the report on purpose. A backtest that shows only
+        the catches is an advertisement, not a measurement — the operator needs to
+        see what the candidate policy would have broken as well as what it would
+        have saved.
+
+        It is behind `CS_BACKTEST_ENABLED` (off by default): the replay reads every
+        span in the window, and a measurement nobody asked for is a cost. With the
+        flag off the endpoint does not exist — a 404, not an empty report.
+        """
+        if not cfg.backtest_enabled:
+            raise HTTPException(404, "the backtest is off (CS_BACKTEST_ENABLED)")
+        return brain_backtest.run_backtest_with_path(
+            store, cfg, live_policy(), policy_path=policy_path, minutes=minutes)
 
     @app.get("/v1/metrics", dependencies=[Depends(auth)])
     def metrics(minutes: float = 5, agent_id: Optional[str] = None) -> dict:
