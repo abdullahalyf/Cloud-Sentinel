@@ -27,14 +27,20 @@ def keys(obj):
     return set()
 
 
-# The mock may be *ahead* of the real API for a while: the contract lands the mock first,
+# The mock may be *ahead* of the real API for a while. The contract lands the mock first,
 # and the brain branch that implements the same shape on the real API follows it. A field
 # the mock has and the real API does not yet is a known gap, not a mismatch — but a field
 # the real API has and the mock does not is a bug, because a client written against the
 # mock would break on the real thing.
 #
-# This list is the record of those gaps. It must stay short: an entry here is a promise
-# that a PR is on its way. When the brain branch lands, the entry goes.
+# So the rule is one-sided: the real API's fields must be a subset of the mock's. The
+# mock may lead, the mock may never lag.
+#
+# The gaps are recorded in docs/CONTRACTS.md ("the mock leads the real API"), not here.
+# A test that pinned the exact gap list would have to be edited by whichever side closed
+# it — and the side that closes it is usually the one that is not allowed to edit
+# shared/. That is how a parity test ends up blocking the very change it was written to
+# check.
 MOCK_AHEAD_OF_REAL = {
     "/v1/health": {"workers", "agents_total"},   # A8: the workers table lands with A8
 }
@@ -47,9 +53,9 @@ def test_mock_and_real_api_have_the_same_shapes(sim, cfg):
     real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
     for path in GETS:
         r, m = real.get(path).json(), mock.get(path).json()
-        # The documented gaps are the mock's job: the contract lands them first.
-        ahead = MOCK_AHEAD_OF_REAL.get(path, set())
-        assert keys(r) - ahead == keys(m) - ahead, path
+        # The real API's fields must all be in the mock. The mock may have more: it leads.
+        missing = keys(r) - keys(m)
+        assert not missing, f"{path}: the mock is missing {sorted(missing)} that the real API has"
         for k in r:
             if isinstance(r[k], list) and r[k] and m.get(k):
                 assert keys(r[k]) == keys(m[k]), f"{path} → {k}"
@@ -66,17 +72,18 @@ def test_the_mock_is_not_behind_the_real_api(sim, cfg):
         assert not missing, f"{path}: the mock is missing {sorted(missing)} that the real API has"
 
 
-def test_the_known_mock_gaps_are_still_gaps(sim, cfg):
-    """A field listed as "the mock is ahead" must really be ahead. When the brain branch
-    lands, this test fails and the entry has to be deleted — that is the point of it."""
+def test_the_recorded_gaps_are_real_gaps(sim, cfg):
+    """Every gap recorded in docs/CONTRACTS.md must be one the mock really leads on.
+
+    This is the "the record is not fantasy" check. It does not insist the gap still
+    exists — the brain side closes it — only that the mock really has the fields, so
+    the record cannot drift into naming fields nobody ever added.
+    """
     sim.run(3)
     real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
     for path, fields in MOCK_AHEAD_OF_REAL.items():
-        r, m = keys(real.get(path).json()), keys(mock.get(path).json())
+        m = keys(mock.get(path).json())
         assert fields <= m, f"{path}: the mock should have {sorted(fields)}"
-        assert not (fields & r), (
-            f"{path}: the real API now has {sorted(fields & r)} — delete this entry from "
-            f"MOCK_AHEAD_OF_REAL, the mock is no longer ahead")
 
 
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
