@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopBar } from './components/TopBar';
 import { LeftNav } from './components/LeftNav';
 import { CursorAura } from './components/CursorAura';
+import { TelemetryBackground } from './components/TelemetryBackground';
 import { ToastProvider } from './components/Toast';
 import { FleetView } from './views/FleetView';
 import { AgentDetailView } from './views/AgentDetailView';
@@ -34,11 +35,8 @@ const LayoutShell: React.FC = () => {
         zIndex: 1,
       }}
     >
-      {/* Cybernetic Telemetry Design Overlays (from tamjid/dashboard-ui) */}
       <CursorAura />
-      <div className="aurora-glow" aria-hidden="true" />
-      <div className="cyber-grid" aria-hidden="true" />
-      <div className="cyber-scanner-laser" aria-hidden="true" />
+      <TelemetryBackground />
 
       <TopBar />
       <div style={{ display: 'flex', flex: 1, width: '100%', position: 'relative', zIndex: 2 }}>
@@ -49,7 +47,8 @@ const LayoutShell: React.FC = () => {
             flex: 1,
             padding: 'var(--space-6)',
             backgroundColor: 'transparent',
-            maxWidth: '100%',
+            maxWidth: '1640px',
+            minWidth: 0,
             margin: '0 auto',
             width: '100%',
             position: 'relative',

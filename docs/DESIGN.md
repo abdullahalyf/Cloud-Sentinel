@@ -6,12 +6,12 @@ This document defines the visual direction, design tokens, layout hierarchy, com
 
 ## 1. Visual Direction & Mission Statement
 
-> CloudSentinel is an operations control room for AI agents, built for high-stakes monitoring and instant legibility on a hackathon judge's projector. Modeled after high-precision dark telemetry platforms like AgentOps.ai and Grafana, it combines dense observability with strict visual restraint. Every pixel represents live ground-truth data streaming from the C2 engine and OpenTelemetry spans, rejecting decorative gradients and synthetic AI templates. A single focused cyan accent signals required human intervention, while semantic status colors indicate circuit-breaker states without distraction. The interface prioritizes calm control under incident pressure, enabling operators to observe, decide, act, and prove return on investment within seconds.
+> CloudSentinel is an operations control room for AI agents, built for high-stakes monitoring and instant legibility on a hackathon judge's projector. Modeled after high-precision dark telemetry platforms like AgentOps.ai and Grafana, it combines dense observability with strict visual restraint. Every pixel represents live ground-truth data streaming from the C2 engine and OpenTelemetry spans, rejecting synthetic AI templates. Surfaces are layered glass bento cards over a live telemetry grid canvas, and every moving element encodes real data. A single focused cyan accent signals required human intervention, while semantic status colors indicate circuit-breaker states without distraction. The interface prioritizes calm control under incident pressure, enabling operators to observe, decide, act, and prove return on investment within seconds.
 
 ### Core Visual Principles
 - **AgentOps-Grade Precision:** Dense telemetry layouts structured into clean bento-grid hierarchies with crisp 1px borders, subtle surface elevations, and high-luminance status indicators.
 - **Projector-First Legibility:** High-contrast text hierarchy (WCAG AAA on primary text) tested to remain sharp, uncluttered, and readable from 3 meters away at 1920×1080 resolution.
-- **Zero Decorative Slop:** No decorative background gradients, no glowing or glassmorphism panels, no cartoonish emojis as icons, no placeholder text, and no synthetic numbers.
+- **Functional Depth (not decoration):** Glass bento cards (blur + specular top edge) separate content layers; the background grid, light packets and aurora stay under a vignette so the centre workspace keeps maximum contrast. No cartoonish emojis as icons, no placeholder text, and no invented numbers.
 - **Semantic Color Discipline:** Color carries operational meaning only. Color is never used as background decoration.
 
 ---
@@ -23,10 +23,13 @@ All CSS variables are declared on `:root` in `dashboard/web/src/styles/tokens.cs
 ### 2.1 Surfaces & Canvas Tokens
 | CSS Variable | Value | Purpose / Semantics |
 |---|---|---|
-| `--color-canvas` | `#07090E` | Main application background canvas (deep dark slate) |
-| `--color-surface` | `#0E131F` | Default card, panel, and table surface background |
+| `--color-canvas` | `#05070B` | Main application background canvas (deep obsidian) |
+| `--color-surface` | `#0B111B` | Solid fallback surface (nav, dialogs, tables); cards use `--glass-bg` |
+| `--glass-bg` | `linear-gradient(180deg, rgba(17,24,39,0.78) 0%, rgba(10,14,23,0.92) 100%)` | Glass bento card background (with `backdrop-filter: blur(16px)`) |
+| `--glass-border` | `1px solid rgba(255,255,255,0.08)` | Glass card hairline |
+| `--glass-shadow` | `inset 0 1px 0 rgba(255,255,255,0.12), 0 12px 32px -16px rgba(0,0,0,0.7)` | Top-edge specular highlight + depth |
 | `--color-surface-elevated` | `#161E2E` | Hovered cards, active rows, dropdowns, and modal dialogs |
-| `--color-header-glass` | `rgba(14, 19, 31, 0.88)` | Sticky Top Telemetry Bar background (with `backdrop-filter: blur(12px)`) |
+| `--color-header-glass` | `rgba(8, 12, 20, 0.82)` | Sticky Top Telemetry Bar background (with `backdrop-filter: blur(12px)`) |
 
 ### 2.2 Borders & Hairline Tokens
 | CSS Variable | Value | Purpose / Semantics |
@@ -96,14 +99,24 @@ Fonts are self-hosted via `@fontsource/inter` and `@fontsource/jetbrains-mono` t
 #### Numeric Discipline Rule
 > **Every number, counter, timestamp, ID, and monetary value MUST use font family JetBrains Mono with `font-variant-numeric: tabular-nums`.** Monospace alignment prevents visual jitter during live 1 Hz polling and preserves vertical column alignment in tables.
 
+### 2.9 Live Telemetry Grid Canvas (Background)
+Implemented in `components/TelemetryBackground.tsx` + `styles/base.css`; mounted once in `App.tsx`. It replaces the earlier constellation dots, panning photo and laser line.
+- **Base:** obsidian `#05070B` with an SVG architectural micro-grid (`32px x 32px` cells, `rgba(255,255,255,0.035)`), masked by a radial vignette so the centre workspace has the highest contrast.
+- **Telemetry beams:** 10 light packets (cyan `#06B6D4`, indigo `#6366F1`, emerald `#10B981`) travel along the grid lines (5 horizontal, 5 vertical, positioned on exact multiples of 32px) like data moving through a circuit board.
+- **Aurora:** a blurred cyan/indigo/emerald radial glow behind the hero graphs that breathes on a 14 s alternate loop.
+- **Reduced motion:** `prefers-reduced-motion: reduce` hides the beams and stops the aurora, chart entrances and pulses.
+- **Deterministic screenshots:** beams use fixed negative `animation-delay`s. When `navigator.webdriver` is true (Playwright, `npm run shots`), `<html data-static="true">` pauses beams/aurora mid-flight and removes entrance animations, so captures are stable.
+
 ---
 
 ## 3. Layout & Grid Architecture
 
 ### 3.1 Two Target Resolutions
 The dashboard layout is designed specifically for two target environments without horizontal scrollbars:
-1. **1440×900 (Laptop):** Standard 12-column grid, compact gutters (`16px`), dense table rows.
-2. **1920×1080 (Projector):** Expansive 12-column grid, generous gutters (`24px`), large KPI numerals readable from 3 meters away.
+1. **1440×900 (Laptop):** 12-column bento grid, `16px` gutters, dense rows.
+2. **1920×1080 (Projector):** the workspace container expands to `max-width: 1640px` beside the 240px nav; large KPI numerals readable from 3 meters away.
+
+Below `1100px` every `col-span-*` collapses to a single column.
 
 ```
 +--------------------------------------------------------------------------------------------------+
@@ -146,12 +159,17 @@ Fixed dark sidebar providing clean routing and pending count indicators:
 4. **Incidents (`/incidents`):** Incident replay timeline with time scrubber and postmortem summaries.
 5. **Cost & ROI (`/cost`):** Burn-down projection charts, per-agent task success economics, and ROI breakdown.
 
-### 3.4 Bento-Grid Metric Hierarchy
-Dashboard overview pages arrange high-level stats into asymmetric Bento tiles:
-- **Hero Tile (4 columns):** Total Dollar Savings & Intervention Count (`$ Saved` in 40px mono).
-- **Burn Rate Tile (2 columns):** Current fleet $/min burn rate with projection arrow.
-- **Fleet State Distribution (3 columns):** Breakdown of agents by state (`healthy`, `suspicious`, `paused`, `probation`, `killed`).
-- **Tool Interventions Tile (3 columns):** Total tool calls held, denied, and auto-approved.
+### 3.4 Asymmetric 12-Column Bento Layout
+Pages use the `.bento` grid (`repeat(12, minmax(0,1fr))`, `16px` gap) with `.glass` cards and asymmetric spans (`col-span-2/3/4/5/6/7/8`) so rows have an up-and-down rhythm instead of uniform strips.
+
+**Fleet Overview (`Fleet Telemetry Control`)**
+- **Telemetry deck:** Hero card (`col-span-5`) holds `TOTAL $ SAVED`, `TOTAL FLEET SPEND`, `FLEET BURN RATE` plus the live multi-series graph (cyan token-burn-velocity area, emerald circuit-breaker savings bars, pulsing live dot on the newest sample). Right stack (`col-span-7`): `INTERVENTIONS` (5) + `AGENTS BY STATE` with segmented bar (7), then the Node Comparison chart (12): Tokens/min vs Loop Score per agent with staggered rising bars.
+- **Matrix row:** Fleet Node Telemetry panel (`col-span-8`, 2-up `AgentCard` grid, state filter tabs) + Quarantine & Decision Feed (`col-span-4`).
+
+**Cost & ROI (`Cost Burn-Down & ROI Attribution`)**
+- **Financial row:** `TOTAL VALUE SAVED` (4, with `N.Nx ROI` badge), `TOTAL FLEET SPEND` (3), `COST PER SUCCESS` (3, with radial task-success gauge and `X / Y tasks resolved`), `WASTED SPEND` (2); each carries a mini sparkline.
+- **Analytics row:** Cumulative Cost Burn-Down vs. Prevented Runaway (7) and Spend vs. Value Saved by Agent (5).
+- **Attribution row:** three staggered Formula & Impact cards (`KILL / PAUSE`, `TOOL_DENY`, `TOOL_REWRITE`, 4 each, offset 0/16/32px).
 
 ---
 
@@ -161,7 +179,7 @@ Dashboard overview pages arrange high-level stats into asymmetric Bento tiles:
 
 #### 1. `Panel`
 - **Anatomy:** Header container with title (16px bold sans), optional Lucide icon, right-side action slot, 1px bottom border, and padded interior body (`--space-4`).
-- **Styling:** Surface background (`#0E131F`), 1px border (`rgba(255, 255, 255, 0.08)`), radius 8px.
+- **Styling:** `.glass` card (`--glass-bg`, `--glass-border`, `--glass-shadow`, `backdrop-filter: blur(16px)`), radius 12px.
 - **When to Use:** Standard structural container for all dashboard panels, data tables, and graphs.
 
 #### 2. `StatTile` (Bento KPI Card)
@@ -176,8 +194,11 @@ Dashboard overview pages arrange high-level stats into asymmetric Bento tiles:
 #### 4. `AgentCard`
 - **Anatomy:** 
   - Header: Agent ID (mono bold), runtime chip, `StateBadge`.
-  - Body: Burn rate (`$/min`), spend vs. budget progress bar with numeric labels, loop score progress bar (turning amber/red over `0.6`), tokens/min with A4 adaptive baseline ratio ("3.0× its normal").
-  - Footer: Last action summary and timestamp.
+  - Body: Burn rate (`$/min`), tokens/min with A4 adaptive baseline ratio ("3.0× its normal"), a fluctuating SVG sparkline, spend vs. budget bar and loop score bar.
+  - **Sparkline:** deterministic, seeded from agent id + quantised `usd_per_min` + `tokens_per_min`, so every card has a distinct waveform; looping agents (loop score >= 0.4) ramp up on the right.
+  - **Budget bar:** each agent's own `spend_usd / budget_usd` (never a shared value). Emerald-to-cyan gradient normally; amber when suspicious or over 70%; rose only for paused/killed nodes. Loop bar: emerald < 0.4, amber >= 0.4, rose >= 0.6.
+  - **Anomalies:** `paused`/`killed` cards pulse a crimson border (`anomaly-rose`), `suspicious` cards an amber one (`anomaly-amber`), both 2.2 s loops; the footer becomes a monospace quarantine badge, e.g. `[PAUSE] Same intent 'order 4421' 5x...`.
+  - Footer (healthy): Last action summary.
 - **Keyboard & Focus:** Navigable via Tab key, highlighted with active accent border on focus, pressing `Enter` navigates to `/agents/:id`.
 
 #### 5. `DataTable`
@@ -249,6 +270,14 @@ Every panel and interactive view must explicitly support and be tested for three
    - Prominent error banner displaying a red warning indicator, the target endpoint URL (e.g., `http://localhost:8000/v1/...`), the HTTP status code, and the raw `ApiError.detail` message.
    - Must provide an accessible **Retry** button that re-executes the failed query immediately.
 
+### 4.3 Chart Specifications
+All charts are hand-built SVG (`components/charts.tsx` holds the shared helpers). Values come from `/v1/fleet` and `/v1/roi`.
+- **Rolling live series (`useRollingSeries`):** starts from a deterministic seeded history that ends at the current value, then appends one real sample per 1 Hz refresh.
+- **Fleet hero graph:** token burn velocity (smooth cyan area) vs. circuit-breaker savings (emerald bars), pulsing dot on the latest point.
+- **Burn-down graph:** Unprotected Runaway Projection (rose dashed) vs. Cloud-Sentinel Protected Spend (cyan to emerald). Both end exactly at the API totals (`protected = total_spend_usd`, `unprotected = spend + saved_usd`); amber markers show each `saved_by_action` intervention; hover shows a crosshair and tooltip (minute, both values, avoided $). The curve shape between those endpoints is modelled, not measured. If one series is more than 40x the other, the axis switches to symlog and shows a `LOG SCALE` tag.
+- **Agent bars:** actual spend, wasted loop spend and circuit-breaker savings per agent, same linear/log rule.
+- **Method cards:** formula in a syntax-highlighted monospace pill; impact meter = that action group's share of `saved_usd`; click toggles an explanation (`aria-expanded`).
+
 ---
 
 ## 5. Data Formatting & Telemetry Rules
@@ -279,10 +308,10 @@ When rendering an agent card or metric row:
 
 Motion must be functional, minimal, and imperceptible except during critical state changes.
 
-- **Duration Limit:** All UI transitions must complete in $\le 200$ ms using standard cubic-bezier easing (`cubic-bezier(0, 0, 0.2, 1)`).
+- **Duration Limit:** Interaction transitions complete in $\le 200$ ms (`cubic-bezier(0, 0, 0.2, 1)`). Ambient telemetry motion (grid beams, aurora, chart entrances, anomaly pulses) is exempt but must be non-interactive, low-contrast and disabled by `prefers-reduced-motion`.
 - **The Two "Loud" State Change Animations:**
   1. **Kill Flash:** When an agent is killed, its card and status pill flash with a brief 150 ms critical red background pulse (`#F43F5E`) before locking into the dead state.
-  2. **Pause Pulse:** When an agent is quarantined/paused, its badge exhibits a soft, rhythmic breathing glow in paused indigo (`#6366F1`) on a 2-second loop.
+  2. **Anomaly Pulse:** `paused`/`killed` agent cards pulse a crimson (`#F43F5E`) border and `suspicious` cards an amber (`#F59E0B`) border on a 2.2-second loop.
 - **Live Indicator Pulse:** Status dots for live streaming agents pulse gently between opacity 0.6 and 1.0 on a 1.2-second cycle.
 - **Strict Prohibitions:** No bouncy layout shifts, no sliding modal sheets, no decorative scrolling marquees, and no parallax scrolling.
 
@@ -293,7 +322,7 @@ Motion must be functional, minimal, and imperceptible except during critical sta
 These 7 hard rules are copied verbatim from `docs/tasks/tamjid.md` and must be adhered to across all dashboard code and design implementations:
 
 1. **No AI slop:**
-   - No purple or blue gradients, no glassmorphism, no emoji as icons (use Lucide icons).
+   - No decorative purple/blue gradients and no emoji as icons (use Lucide icons). The glass bento surface and telemetry grid canvas defined in §2.9 and §3.4 are the sanctioned exceptions.
    - No lorem ipsum, no placeholder or fake numbers, no default Vite/template look, no stock illustrations.
 2. **Every number comes from the API.** If the API doesn't give it, the UI doesn't show it. Ask for it in "Contract requests".
 3. **Only the tokens in `dashboard/web/src/styles/tokens.css` (from DESIGN.md):** No raw hex colors, px sizes, or font sizes in components.
