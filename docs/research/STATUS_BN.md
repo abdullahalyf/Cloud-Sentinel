@@ -41,10 +41,7 @@
 - `D3` — fleet overview (Day 2)
 - `D4` — full C2 on the agent page (Day 3)
 
-**কাজ হয়ে গেছে কিন্তু PR খোলা হয়নি (2)** — শুধু PR খুললেই হবে:
-
-- `D1` — `docs/DESIGN.md` first
-- `D2` — app scaffold + typed API client + panel states
+**PR খোলা আছে, merge-এর অপেক্ষায় (2):** `D1`, `D2`
 
 **পরিকল্পনায় (6):** `D5`, `D6`, `D7`, `D8`, `D9`, `D10`
 

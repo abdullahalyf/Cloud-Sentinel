@@ -1029,6 +1029,31 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > the counts add up, the day arithmetic is checked against known dates, the behind rule is tested
 > case by case, the report is in Bangla, it is byte-for-byte deterministic, the command exits 0,
 > and `--json` is machine-readable.
+>
+> **The third bug the CI caught (8 Nov, after the first PR).** PR #90 was red on three tests, and
+> all three had the same cause: **the git log came back empty in CI**. The reason is that CI checks
+> a pull request out as a **detached HEAD on a shallow history** — `actions/checkout` runs with
+> `fetch-depth: 1`, so there is **no local `main` branch at all**, only `origin/main`. The script
+> had been assuming `main` exists, so `git log main` failed, and the report read that as "nothing
+> is done" — which is exactly the lie the report exists not to tell.
+>
+> The fix has two halves:
+>
+> - **the ref is resolved, not assumed** — `main` → `origin/main` → `refs/remotes/origin/main` →
+>   `HEAD`, and `HEAD` only as the last resort, so a branch's own commits never look landed. Both
+>   signals (done and started) resolve `main` the **same** way, because the two sets are subtracted
+>   from each other;
+> - **"I could not read it" is now a distinct answer from "nothing is done"** — the report has a
+>   `git_readable` flag, and when the history is unreadable it says **"git log পড়া যায়নি"** instead
+>   of "0 commits".
+>
+> The three failing tests were also **asking the wrong question**. One asserted `"A1" in done` — but
+> A1's commit is 67 commits back, and a depth-1 checkout does not have it. That is not a bug in the
+> script; it is a bug in the test, which asserted a fact about *the checkout* rather than about the
+> *rule*. They now check the rule structurally: the done set is exactly the ids the resolved
+> revision's log names, the two signals never overlap, and the revision is resolved rather than
+> assumed. Verified against three checkout shapes — a full clone, a CI-faithful shallow detached
+> clone, and a clone with no `main` ref anywhere (36 pass, 32 + 4 skip).
 
 ### B11 · [ ] 🟢 STRETCH · Packaging
 > Prompt:

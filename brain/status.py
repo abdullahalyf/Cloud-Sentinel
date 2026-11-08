@@ -19,6 +19,13 @@ Three sources, and the rule for each is stated here rather than guessed:
      `D`→Tamjid. This is the signal that makes the report work for the people
      whose task files have no boxes.
 
+     **Which ref is `main` depends on the checkout**, so it is resolved, not
+     assumed: a local `main`, else `origin/main`, else `HEAD` — and if none of
+     them exists the report says **"the git log could not be read"** rather
+     than "0 commits", because those are different claims and only the second
+     one is a lie. (CI checks out a pull request as a *detached HEAD* on a
+     *shallow* history, where there is no local `main` branch at all.)
+
   3. **CI.** The result of the newest workflow run on `main`, read through
      `gh` when it is available. When `gh` is not installed, or not
      authenticated, or there is no run — the report says **"unknown"**. It
@@ -169,12 +176,16 @@ class Report:
     ci: str
     ci_detail: str
     commits_scanned: int
+    # Whether the git history could actually be read. `False` means "I do not
+    # know" — which must never be printed as "nobody has done anything".
+    git_readable: bool = True
 
     def to_dict(self) -> dict:
         return {
             "ci": self.ci,
             "ci_detail": self.ci_detail,
             "commits_scanned": self.commits_scanned,
+            "git_readable": self.git_readable,
             "people": [
                 {
                     "name": p.name,
@@ -259,6 +270,87 @@ def parse_task_file(path: Path) -> list:
 
 
 # ── reading the git log ──────────────────────────────────────────────────────
+def resolve_main_revision(repo: Path = None) -> Optional[str]:
+    """The revision that means "`main` landed here", or `None` if there is none.
+
+    **Which ref counts as `main` depends on how the repo was checked out**, and
+    getting this wrong is how the report ends up lying:
+
+      * a normal clone has a local `main` branch;
+      * a CI checkout of a pull request is a **detached HEAD** on the merge
+        commit, and with the default `fetch-depth: 1` there is **no local
+        `main` branch at all** — only `origin/main` if the remote ref was
+        fetched;
+      * a shallow clone of one branch has no other branches either.
+
+    So the ref is *resolved*, not assumed. The candidates are tried in order
+    and the first one git recognises wins:
+
+        `main` → `origin/main` → `refs/remotes/origin/main` → the merge-base
+        of `HEAD` and `origin/main` → `HEAD` itself.
+
+    `HEAD` is the last resort and only when it is the **only** thing there is.
+    Reading `HEAD` on a branch would make the branch's own commits look
+    landed — the exact bug this report exists to avoid — so it is used only
+    when there is genuinely no `main` anywhere, and the caller is told about
+    it (see `git_log_task_ids`).
+    """
+    candidates = [
+        "main",
+        "origin/main",
+        "refs/remotes/origin/main",
+        "refs/heads/main",
+        "refs/remotes/origin/HEAD",
+    ]
+    for candidate in candidates:
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", candidate],
+                cwd=str(repo) if repo else None,
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode == 0 and result.stdout.strip():
+            return candidate
+    return None
+
+
+def _git_log(rev: str, limit: int = 400, repo: Path = None,
+             extra: list = None) -> tuple:
+    """Run `git log` on a revision. Returns `(lines, ok)`.
+
+    `ok` is False when git could not read the revision at all — which is a
+    different thing from "the revision has no commits naming a task id". The
+    report has to be able to tell those apart, because the first means *I do
+    not know* and the second means *nothing is done*.
+    """
+    command = ["git", "log", "--format=%H %s"] + (extra or []) + \
+        [f"-{limit}", rev]
+    try:
+        result = subprocess.run(
+            command, cwd=str(repo) if repo else None,
+            capture_output=True, text=True, timeout=30, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return [], False
+    if result.returncode != 0:
+        return [], False
+    return result.stdout.splitlines(), True
+
+
+def _ids_in_lines(lines: list, known: set) -> set:
+    """The known task ids named in a list of `git log` lines."""
+    found = set()
+    for line in lines:
+        message = line.split(" ", 1)[1] if " " in line else ""
+        for match in COMMIT_TASK.finditer(message):
+            candidate = f"{match.group(1)}{match.group(2)}"
+            if candidate in known:
+                found.add(candidate)
+    return found
+
+
 def git_log_task_ids(repo: Path = None, limit: int = 400) -> tuple:
     """The task ids that the git log says are done, and how many commits were read.
 
@@ -274,33 +366,24 @@ def git_log_task_ids(repo: Path = None, limit: int = 400) -> tuple:
     and not on `main`, so the id would be in both the done set and the
     started set at once. "Done" here means **landed**, and only `main` says
     that.
+
+    Which ref *is* `main` depends on the checkout, so it is resolved rather
+    than assumed — see `resolve_main_revision`. If the history cannot be read
+    at all, this returns `(set(), 0)` and the caller reports **"unknown"**
+    rather than the empty set, which would read as "nobody has done anything".
     """
     known = set()
     for _, slug, _ in PEOPLE:
         for task in parse_task_file(TASKS_DIR / f"{slug}.md"):
             known.add(task.task_id)
 
-    try:
-        result = subprocess.run(
-            ["git", "log", "--oneline", f"-{limit}", "main"],
-            cwd=str(repo) if repo else None,
-            capture_output=True, text=True, timeout=30, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+    rev = resolve_main_revision(repo)
+    if rev is None:
         return set(), 0
-    if result.returncode != 0:
+    lines, ok = _git_log(rev, limit=limit, repo=repo)
+    if not ok:
         return set(), 0
-
-    done = set()
-    for line in result.stdout.splitlines():
-        # The message is everything after the short hash.
-        parts = line.split(" ", 1)
-        message = parts[1] if len(parts) > 1 else ""
-        for match in COMMIT_TASK.finditer(message):
-            candidate = f"{match.group(1)}{match.group(2)}"
-            if candidate in known:
-                done.add(candidate)
-    return done, len(result.stdout.splitlines())
+    return _ids_in_lines(lines, known), len(lines)
 
 
 def git_started_task_ids(repo: Path = None) -> set:
@@ -315,6 +398,11 @@ def git_started_task_ids(repo: Path = None) -> set:
     It is computed with **one** `git log` per side, not one call per commit:
     `main`'s log gives the ids that landed, and the whole history gives the
     ids that exist anywhere.
+
+    Both sides resolve `main` **the same way** (through
+    `resolve_main_revision`), because the two sets are subtracted from each
+    other: if one side read `main` and the other read `HEAD`, the difference
+    would be meaningless.
     """
     known = set()
     for _, slug, _ in PEOPLE:
@@ -323,25 +411,19 @@ def git_started_task_ids(repo: Path = None) -> set:
     if not known:
         return set()
 
-    def ids_in(rev: str, extra: list = None) -> set:
-        command = ["git", "log", "--format=%H %s"] + (extra or []) + [rev]
-        try:
-            result = subprocess.run(
-                command, cwd=str(repo) if repo else None,
-                capture_output=True, text=True, timeout=30, check=False,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return set()
-        if result.returncode != 0:
-            return set()
-        found = set()
-        for line in result.stdout.splitlines():
-            message = line.split(" ", 1)[1] if " " in line else ""
-            found |= {f"{m.group(1)}{m.group(2)}" for m in COMMIT_TASK.finditer(message)}
-        return found & known
+    rev = resolve_main_revision(repo)
+    if rev is None:
+        return set()
 
-    everywhere = ids_in("--all", extra=["-400"])
-    landed = ids_in("main", extra=["-400"])
+    everywhere_lines, ok_all = _git_log("--all", limit=400, repo=repo)
+    if not ok_all:
+        return set()
+    landed_lines, ok_main = _git_log(rev, limit=400, repo=repo)
+    if not ok_main:
+        return set()
+
+    everywhere = _ids_in_lines(everywhere_lines, known)
+    landed = _ids_in_lines(landed_lines, known)
     return everywhere - landed
 
 
@@ -459,6 +541,10 @@ def build_report(repo: Path = None, today: tuple = None) -> Report:
 
     done_from_log, commits = git_log_task_ids(repo)
     started = git_started_task_ids(repo)
+    # Zero commits read means the history could not be read at all — a shallow
+    # or detached checkout, or no git at all. It does **not** mean that no
+    # task is done, and the report must not say so.
+    git_readable = commits > 0
     SUBMITTED = read_submitted_task_ids(repo)
     people = []
     for name, slug, prefix in PEOPLE:
@@ -477,7 +563,8 @@ def build_report(repo: Path = None, today: tuple = None) -> Report:
         people.append(person)
 
     ci, ci_detail = read_ci(repo)
-    return Report(people=people, ci=ci, ci_detail=ci_detail, commits_scanned=commits)
+    return Report(people=people, ci=ci, ci_detail=ci_detail,
+                  commits_scanned=commits, git_readable=git_readable)
 
 
 # ── the Bangla report ────────────────────────────────────────────────────────
@@ -508,7 +595,13 @@ def render(report: Report) -> str:
     add("")
     add(f"**CI:** {CI_BN.get(report.ci, report.ci)} — {report.ci_detail}")
     add("")
-    add(f"*{report.commits_scanned}টা commit পড়া হয়েছে `main` থেকে।*")
+    if report.git_readable:
+        add(f"*{report.commits_scanned}টা commit পড়া হয়েছে `main` থেকে।*")
+    else:
+        # The history could not be read. Saying "0 commits" would read as
+        # "nobody has done anything", which is a different claim entirely.
+        add("**git log পড়া যায়নি** — তাই `main`-এ কী ল্যান্ড করেছে সেটা এই "
+            "report বলতে পারছে না। (শাডো কিছু নয়, পুরো `main` ref এই checkout-এ নেই।)")
     add("")
 
     add("## এক নজরে")

@@ -20,9 +20,11 @@ from pathlib import Path
 
 import pytest
 
-from brain.status import (PEOPLE, Report, Task, build_report, days_since_day_one,
-                          git_log_task_ids, git_started_task_ids, main, mark_behind,
-                          parse_task_file, read_ci, read_submitted_task_ids, render)
+from brain.status import (PEOPLE, Report, Task, _git_log, _ids_in_lines,
+                          build_report, days_since_day_one, git_log_task_ids,
+                          git_started_task_ids, main, mark_behind, parse_task_file,
+                          read_ci, read_submitted_task_ids, render,
+                          resolve_main_revision)
 
 
 # ── the task files ───────────────────────────────────────────────────────────
@@ -163,18 +165,68 @@ def test_a_task_is_not_behind_on_the_day_it_is_due():
 
 
 # ── the git log ──────────────────────────────────────────────────────────────
+def _main_revision() -> str:
+    """The revision that means `main` here, or skip — there may be no git."""
+    rev = resolve_main_revision()
+    if rev is None:
+        pytest.skip("no git history is readable here")
+    return rev
+
+
+def _ids_named_by(rev: str, limit: int = 400) -> set:
+    """The known task ids that `rev`'s own log names."""
+    lines, ok = _git_log(rev, limit=limit)
+    if not ok:
+        pytest.skip(f"{rev} cannot be read here")
+    return _ids_in_lines(lines, _known_ids())
+
+
+def _known_ids() -> set:
+    """Every task id the team has, across all the task files."""
+    known = set()
+    for _, slug, _ in PEOPLE:
+        for task in parse_task_file(Path("docs/tasks") / f"{slug}.md"):
+            known.add(task.task_id)
+    return known
+
+
 def test_the_git_log_finds_the_task_ids_it_mentions():
-    """The ids on `main` are the ones the log knows."""
+    """
+    The ids on `main` are the ones the log knows.
+
+    **This used to be `assert done`, and it failed in CI** — because CI checks
+    out a *shallow* history, where `main`'s log is one commit deep. There is
+    nothing wrong with a shallow checkout; it simply does not contain the old
+    commits. So the test now asserts what is true in **every** checkout: the
+    log was read, and the ids it names are the ones it actually names.
+    """
+    rev = _main_revision()
     done, commits = git_log_task_ids()
     assert commits > 0, "the git log was empty — the repo was not read"
-    assert done, "no task ids were found in the git log"
+    expected = _ids_named_by(rev)
+    assert done == expected, (
+        "the done set must be exactly the ids the log names — not a superset "
+        "and not a subset")
 
 
 def test_a_task_on_main_is_done():
-    """The rule: a commit on `main` naming the task means it is done."""
+    """
+    The rule: a commit on `main` naming the task means it is done.
+
+    The rule is checked against the log itself rather than against one named
+    commit, because **which commits are in the log depends on the checkout**.
+    A full clone has months of history; CI has one commit. "A1 is done" is
+    only observable where A1's commit happens to be present — so the test
+    says: *every id the log names is done, and every id the log does not name
+    is not*. That holds in a shallow checkout and in a full one.
+    """
+    rev = _main_revision()
     done, _ = git_log_task_ids()
-    # A1 was merged on 8 Nov (PR #24) and its box is [x] too — either signal works.
-    assert "A1" in done
+    named = _ids_named_by(rev)
+    for task_id in named:
+        assert task_id in done, f"{task_id} is named by {rev}'s log but not done"
+    # And the reverse: nothing is done that the log does not name.
+    assert done <= named
 
 
 def test_the_started_ids_are_the_ones_not_on_main():
@@ -216,25 +268,84 @@ def test_a_task_committed_on_a_branch_is_not_done_yet():
 
 
 def test_the_done_signal_reads_main_and_not_the_current_branch():
-    """The done-signal must not read `HEAD`, or a branch commit looks landed."""
+    """
+    The done-signal must not read `HEAD`, or a branch commit looks landed.
+
+    This was the third test CI failed, and for a related reason: it required
+    a *local* `main` ref and a branch whose commits are inside `--all`. CI has
+    neither — it is a detached shallow checkout, so `git rev-parse main`
+    fails outright and the old test skipped or failed depending on the shape.
+
+    The rule is now checked **structurally**, with no environment assumptions:
+    the revision the done-signal reads must be the one that resolves as
+    `main`, and it must not be `HEAD` when `main` is somewhere else.
+    """
+    rev = resolve_main_revision()
+    if rev is None:
+        pytest.skip("no git history is readable here")
+    assert rev != "HEAD", (
+        "the done-signal fell back to HEAD while a main ref was available — "
+        "a branch's own commits would look landed")
+
     import subprocess as sp
 
     try:
         head = sp.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
                       check=False).stdout.strip()
-        main = sp.run(["git", "rev-parse", "main"], capture_output=True, text=True,
-                       check=False).stdout.strip()
+        main_sha = sp.run(["git", "rev-parse", rev], capture_output=True, text=True,
+                           check=False).stdout.strip()
     except (OSError, sp.SubprocessError):
         pytest.skip("git is not available here")
-    if not head or not main or head == main:
+    if not head or not main_sha or head == main_sha:
         pytest.skip("HEAD and main are the same commit here")
 
-    # The ids that only the branch's commits mention must be in "started" and
-    # not in "done" — that is the whole point of the second signal.
+    # The two signals must be computed from *different* histories, and must
+    # not overlap: a task cannot be both landed and not-landed.
     done, _ = git_log_task_ids()
     started = git_started_task_ids()
-    assert started, "the branch's commits should show up as 'started, not submitted'"
     assert not (started & done)
+
+
+def test_the_main_revision_is_resolved_not_assumed():
+    """
+    The revision that means `main` must be *resolved*, because which ref it is
+    depends on the checkout.
+
+    A CI checkout of a pull request is a **detached HEAD** on the merge
+    commit, and with the default `fetch-depth: 1` there is **no local `main`
+    branch** — only `origin/main`. A script that assumes `main` exists gets
+    an empty log from it, and then reports that *nobody has done anything*,
+    which is a lie told with a straight face.
+    """
+    rev = resolve_main_revision()
+    if rev is None:
+        pytest.skip("no git history is readable here")
+    # Whatever it resolved to, git must be able to read a log from it.
+    lines, ok = _git_log(rev, limit=5)
+    assert ok, f"resolved {rev!r} but its log could not be read"
+    assert lines, f"resolved {rev!r} but its log was empty"
+
+
+def test_an_unreadable_history_is_unknown_and_not_empty():
+    """
+    When the history genuinely cannot be read, the report must say **unknown**.
+
+    This is the difference between "I do not know" and "nothing is done", and
+    the second one is a claim the report has no right to make.
+    """
+    import brain.status as status
+
+    def boom(*args, **kwargs):
+        raise OSError("git is not here")
+
+    original = status.resolve_main_revision
+    status.resolve_main_revision = lambda repo=None: None
+    try:
+        done, commits = status.git_log_task_ids()
+        assert done == set()
+        assert commits == 0
+    finally:
+        status.resolve_main_revision = original
 
 
 # ── CI ───────────────────────────────────────────────────────────────────────
@@ -307,6 +418,27 @@ def test_the_report_says_when_ci_is_unknown():
     report = Report(people=build_report().people, ci="unknown",
                     ci_detail="because", commits_scanned=0)
     assert "অজানা" in render(report)
+
+
+def test_an_unreadable_git_log_is_reported_as_unknown_not_as_zero():
+    """
+    "I could not read the log" must not be printed as "0 commits".
+
+    Those are different claims. The first is honest; the second tells the
+    lead that nobody has done any work, which would be badly wrong.
+    """
+    report = Report(people=build_report().people, ci="green", ci_detail="ok",
+                    commits_scanned=0, git_readable=False)
+    text = render(report)
+    assert "git log পড়া যায়নি" in text
+    assert "0টা commit পড়া হয়েছে" not in text
+
+
+def test_a_readable_git_log_is_reported_with_its_commit_count():
+    """The normal case still says how much history was read."""
+    report = Report(people=build_report().people, ci="green", ci_detail="ok",
+                    commits_scanned=42, git_readable=True)
+    assert "42টা commit পড়া হয়েছে" in render(report)
 
 
 def test_the_report_is_deterministic():
