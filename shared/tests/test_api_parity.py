@@ -148,6 +148,34 @@ def test_the_tool_risk_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
     assert keys(rb["counts"]) == keys(mb["counts"])
 
 
+def test_the_backtest_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
+    """`/v1/backtest` (B5) — the mock and the real API must say the same thing.
+
+    The real API is behind `CS_BACKTEST_ENABLED`, so it is off by default and the
+    endpoint does not exist until the flag is on — a 404, not an empty report.
+    """
+    from dataclasses import replace
+
+    sim.run(3)
+    on = replace(cfg, backtest_enabled=True)
+    real = TestClient(create_app(sim.store, sim.policy, on, "fake", "fallback"))
+    mock = TestClient(mock_app)
+    r, m = real.get("/v1/backtest"), mock.get("/v1/backtest")
+    assert r.status_code == 200 and m.status_code == 200
+    rb, mb = r.json(), m.json()
+    missing = keys(rb) - keys(mb)
+    assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+    assert keys(rb["counts"]) == keys(mb["counts"])
+    # The mock has fixed fake data, so only the *shape* can be compared — the
+    # numbers are the mock's own story, and the real API's are the store's.
+    # The real report may legitimately be empty (a store with nothing to replay),
+    # so the per-row shapes are checked against the mock only when both have rows.
+    if rb["catches"] and mb["catches"]:
+        assert set(rb["catches"][0]) == set(mb["catches"][0])
+    if rb["false_positives"] and mb["false_positives"]:
+        assert set(rb["false_positives"][0]) == set(mb["false_positives"][0])
+
+
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
 BEHAVIOUR = [
     ("post", "/v1/agents/beta/commands", {"command": "NUKE"}),
