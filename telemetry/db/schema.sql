@@ -137,6 +137,23 @@ create table if not exists tool_calls (
 );
 create index if not exists tool_calls_decision on tool_calls (decision, id);
 
+-- Auto-heal (A3): the judge proposes a patch, a confident one is applied, the rest waits for a human.
+create table if not exists heal_proposals (
+    id           bigint generated always as identity primary key,
+    agent_id     text not null,
+    kind         text not null default 'memory_patch',  -- memory_patch|tool_policy
+    patch        text not null default '{}',
+    confidence   double precision not null default 0,
+    status       text not null default 'pending',       -- pending|applied|rejected|expired
+    verdict_id   bigint not null default 0,
+    base_version integer not null default 0,             -- the agent_memory version the judge saw
+    reason       text not null default '',
+    decided_by   text not null default '',
+    created_at   timestamptz not null default now(),
+    decided_at   text not null default ''
+);
+create index if not exists heal_proposals_status on heal_proposals (status, id desc);
+
 -- Added 5 Nov (Fojle F9): which telemetry/db/migrations/*.sql files were applied (telemetry/db/migrate.py)
 create table if not exists schema_migrations (
     version    text primary key,

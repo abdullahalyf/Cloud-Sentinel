@@ -56,11 +56,11 @@ JudgeAction = Literal["KILL", "PAUSE", "WARN", "IGNORE"]
 JUDGE_ACTIONS = ("KILL", "PAUSE", "WARN", "IGNORE")
 
 ActionType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
-                     "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE"]
+                     "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL"]
 ACTION_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
-                "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE")
+                "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL")
 
-Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp"]
+Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp", "brain:autoheal"]
 
 CommandType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "GO_ROGUE", "SET_BUDGET"]
 COMMAND_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "GO_ROGUE", "SET_BUDGET")
@@ -72,6 +72,17 @@ PATTERNS = ("infinite_loop", "semantic_loop", "token_spike", "memory_leak", "bad
 
 ToolDecision = Literal["pending", "allow", "deny", "rewrite", "timeout"]
 TOOL_DECISIONS = ("pending", "allow", "deny", "rewrite", "timeout")
+
+# Auto-heal (CONTRACTS §7): the judge proposes a patch; a high-confidence one is applied
+# automatically, anything less lands in the approvals inbox for a human.
+HealKind = Literal["memory_patch", "tool_policy"]
+HEAL_KINDS = ("memory_patch", "tool_policy")
+
+HealStatus = Literal["pending", "applied", "rejected", "expired"]
+HEAL_STATUSES = ("pending", "applied", "rejected", "expired")
+
+HealDecision = Literal["apply", "reject"]
+HEAL_DECISIONS = ("apply", "reject")
 
 ROGUE_KINDS = ("loop", "paraphrase_loop", "token_bomb", "memory_leak", "bad_tool_call",
                # added 5 Nov (Fojle F6): the simulator implements these; FakeFleet treats them as healthy
@@ -287,6 +298,42 @@ class ToolCallRow(_Row):
 
 class MemoryConflict(Exception):
     """An agent tried to overwrite memory that a human/MCP changed after the agent last read it."""
+
+
+@dataclass
+class HealProposalRow(_Row):
+    """
+    A patch the judge proposes for a malfunctioning agent (CONTRACTS §7). Table: heal_proposals
+
+    `kind` says what the patch touches:
+      - `memory_patch` — `patch` is `{"memory": [{"op": "set"|"remove", "key": str, "value": any}]}`
+      - `tool_policy` — `patch` is `{"tool_policy": {"tool": str, "action": "deny"|"approval"}}`
+
+    `base_version` is the agent_memory version the judge saw. If the memory moved on since,
+    the proposal is stale and becomes `expired` rather than overwriting newer work.
+
+    `status`:
+      - `pending`  — waiting for a human (or waiting for a higher confidence)
+      - `applied`  — the patch was written
+      - `rejected` — a human said no
+      - `expired`  — the base version moved on, so the patch no longer applies
+    """
+    agent_id: str
+    kind: str = "memory_patch"
+    patch: str = "{}"              # JSON text
+    confidence: float = 0.0
+    status: str = "pending"        # HealStatus
+    verdict_id: int = 0
+    base_version: int = 0
+    reason: str = ""
+    decided_by: str = ""           # human | mcp | brain:autoheal
+    decided_at: str = ""
+    created_at: str = field(default_factory=utc_now_iso)
+
+    def to_row(self) -> dict:
+        d = asdict(self)
+        d["patch"] = _dump(self.patch)
+        return d
 
 
 # ─────────────────────────────────────────────────────────────────────────────

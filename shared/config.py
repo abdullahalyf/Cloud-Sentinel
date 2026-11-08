@@ -106,6 +106,9 @@ class Settings:
     probation_seconds: float
     tool_approval_timeout_seconds: float
     roi_horizon_minutes: float
+    # ── Auto-heal (A3): the judge proposes a patch, a confident one is applied ──
+    autoheal: bool
+    autoheal_min_confidence: float
     # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
     export_phoenix: bool = False
     phoenix_endpoint: str = "http://localhost:6006"
@@ -165,6 +168,8 @@ def load_settings() -> Settings:
         probation_seconds=_float("PROBATION_SECONDS", 30.0),
         tool_approval_timeout_seconds=_float("TOOL_APPROVAL_TIMEOUT_SECONDS", 120.0),
         roi_horizon_minutes=_float("ROI_HORIZON_MINUTES", 60.0),
+        autoheal=_bool("CS_AUTOHEAL", True),
+        autoheal_min_confidence=_float("CS_AUTOHEAL_MIN_CONFIDENCE", 0.85),
         export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),
