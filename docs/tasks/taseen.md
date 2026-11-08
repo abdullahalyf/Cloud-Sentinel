@@ -302,3 +302,31 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
     twenty task files. Putting it in `docs/` root is what makes it the obvious "read this one file".
   Until it lands, the status script lives in `brain/status.py` and writes `docs/research/STATUS_BN.md` —
   both already allowed. Nothing about the code depends on the change: only where the two files land.
+- 2026-11-08 · **C1 — the Claude judge numbers, measured. Needs `ANTHROPIC_API_KEY` (H3, still open) and one workflow
+  merged from PR #100.** The evidence pack still says the Claude judge's latency and cost have "never been measured".
+  That is true and it is the last unfinished job in the pack: those numbers are one secret away, and they cannot be
+  typed in by hand — `brain/tests/test_evidence.py` **fails the build** on any Claude cost or latency in
+  `docs/research/pitch-numbers.md` that has no measurement behind it. So a machine has to write them.
+  - **What is already merged:** the runner, `brain/judge_eval_ci.py` (PR #99, commit `cbe5218`). It runs every Claude
+    model at `--runs 3`, writes the measured numbers into the pack between `<!-- claude-judge:start -->` and
+    `<!-- claude-judge:end -->`, replaces the "needs a human" note, and writes the raw run to
+    `docs/research/judge-eval-ci.json`. It **refuses** to write a number it did not measure: with no key, or if the
+    provider cannot be reached, it exits non-zero and touches nothing.
+  - **What you need to merge:** PR #100 (`taseen/judge-eval-workflow`) adds `.github/workflows/judge-eval.yml`.
+    It is in your folder, so it is yours to merge — I did not merge it.
+  - **The one human step**, if `ANTHROPIC_API_KEY` is not already a repository secret:
+    1. Open the repository on GitHub → **Settings** → **Secrets and variables** → **Actions**.
+    2. **New repository secret**.
+    3. **Name**: `ANTHROPIC_API_KEY` (exactly this — the workflow reads that name).
+    4. **Secret**: the Anthropic key. Use one with a **$5 spend limit**; the whole labelled set at 3 runs costs
+       about **$0.03** on Haiku and roughly 10× that on Opus, so $5 is generous.
+    5. **Add secret**. Never paste the key in chat, and never commit it.
+    Check it landed with `gh secret list` — it should print `ANTHROPIC_API_KEY`.
+  - **Then run it:** the **Actions** tab → **judge-eval** → **Run workflow** → `runs` = `3` → **Run workflow**.
+    It takes about two minutes and opens a PR with the new numbers.
+  - **What Alif's agent does next:** the moment `gh secret list` shows `ANTHROPIC_API_KEY`, Alif's agent runs
+    `gh workflow run judge-eval.yml`, merges the PR it opens, and the pack's "never measured" note becomes real
+    numbers with a command to reproduce them. No further human step.
+  - **Acceptance:** `docs/research/pitch-numbers.md` section 4 shows a row per Claude model with precision, recall,
+    F1, accuracy, latency p50/p95 and $ per verdict — and `python -m pytest brain/tests/test_evidence.py -q` still
+    passes (it is the test that would catch a hand-typed number).
