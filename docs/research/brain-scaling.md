@@ -116,6 +116,18 @@ measure properly (100 agents, the engine's own perf work).
 The next biggest cost is the injection scan (`injection.py:355 score_text`, 4.8 s, 19% of the tick)
 — 63 000 regex searches over the agent text. It is worth caching the score per prompt hash.
 
+> **Solved by A11 (2026-11-08).** The 194 ms above is the *before* picture, and the two
+> paragraphs above turned out to be exactly right: the commit was the bottleneck, and the fix had
+> to batch the tick's writes. A11 did that on the brain's side (`brain/write_batch.py`) rather than
+> in `shared/store.py`, because the store cannot know that the rows it is given all belong to one
+> tick — only the brain knows that. Commits per tick went from 200 to 1, and the injection score
+> is now cached per prompt, as the second paragraph suggested.
+>
+> At 100 agents the tick p95 went from **513 ms to 13.2 ms**. The numbers and the profile are in
+> `docs/research/brain-perf.md`. The 194 ms in the table above was measured before the change and
+> is kept as the record of what the tick cost when every write was its own transaction.
+
+
 ## Running more than one brain
 
 ```bash

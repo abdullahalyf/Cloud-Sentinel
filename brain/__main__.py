@@ -37,6 +37,30 @@ def build_executor(kind: str, store, args):
     return get_executor(replace(settings, executor=kind))
 
 
+def tighten_the_write_timeout(store, seconds: float = 0.05) -> None:
+    """Make a locked database fail fast instead of stalling the tick.
+
+    The store's default busy timeout is generous (5 s) because a second brain worker
+    may be mid-write and the loser should wait rather than fail. But the brain's tick
+    has a 1 s budget, and it writes two rows per agent: four agents is eight writes,
+    so a 5 s timeout per write is a brain that goes silent for a minute.
+
+    So the brain shortens the timeout on *its own* connection. The value is chosen so
+    that even the worst case — every write in the tick blocked — stays inside the tick
+    budget: 50 ms × the writes of one tick is a fraction of a second, and the tick
+    never misses its interval. A collision now costs one skipped write — logged, and
+    the next tick writes it again — instead of seconds of silence. The store's own
+    default is unchanged for everything else.
+    """
+    conn = getattr(store, "_conn", None)
+    if conn is None:
+        return   # not a SQLite store (Supabase) — nothing to tighten
+    try:
+        conn.execute(f"pragma busy_timeout={int(seconds * 1000)}")
+    except Exception as exc:
+        log.warning("could not tighten the busy timeout: %s", exc)
+
+
 def main() -> None:
     p = argparse.ArgumentParser(prog="python -m brain", description="CloudSentinel brain + C2 API")
     p.add_argument("--fake", action="store_true", help="simulated agents instead of Docker")
@@ -59,6 +83,7 @@ def main() -> None:
 
     kind = "fake" if args.fake else settings.executor
     store = get_store()
+    tighten_the_write_timeout(store)
     try:
         executor = build_executor(kind, store, args)
     except Exception as exc:

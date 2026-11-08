@@ -415,7 +415,13 @@ def test_a_command_for_someone_elses_agent_is_left_alone(shared_store, cfg):
 
 
 def test_the_tick_is_fast_at_fifty_agents(shared_store, cfg):
-    """The acceptance case: tick p95 < 200 ms per worker at 50 agents."""
+    """The acceptance case: tick p95 < 200 ms per worker at 50 agents.
+
+    This is a wall-clock measurement, so it can be slowed down by a busy machine rather
+    than by a slow tick. When it fails, run it on its own before believing it: the
+    number to compare against is the p95 in the research notes (docs/research/
+    brain-scaling.md), not the number on a loaded CI box.
+    """
     clock = Clock()
     tw = TwoWorkers(shared_store, cfg, clock)
     tw.tick(n=3)     # warm up — the first tick loads the baselines and the policy

@@ -71,6 +71,114 @@ def semantic_loop_score(prompts: list[str], min_prompts: int = 6, threshold: flo
     return round(max(len(c) for c in clusters) / len(recent), 2)
 
 
+class IncrementalLoopScore:
+    """
+    The loop score, computed only for the prompts that are new (A11).
+
+    **Why.** The plain `semantic_loop_score` re-tokenizes and re-clusters all 16 recent
+    prompts on every tick, for every agent. At 100 agents that is 1600 tokenizations and
+    1600 Jaccard comparisons per tick, and the profile said the regex work was the
+    single biggest thing left in the tick after the write batching. But the window
+    slides by one prompt at a time: 15 of the 16 word sets are *exactly the same* as
+    they were last tick. Recomputing them is work whose answer is already known.
+
+    **How.** A cluster holds the *prompts* that joined it, in order, and each prompt's
+    word set is cached. When the window slides forward, the prompts that left the
+    window are removed from their clusters and only the new prompt is compared against
+    the clusters that are still standing.
+
+    **The one thing it must not get wrong.** The score is what the detectors act on, so
+    it has to be the *same number* the plain scorer gives. The greedy clustering is
+    order-dependent — a prompt joins the *first* cluster it matches — which means a
+    prompt that joined a cluster that has since left the window must be re-placed. So
+    the fast path only runs when the new window is a *suffix-extension* of the old one
+    (the common case: the window slides forward, or grows), and anything else falls
+    back to recomputing from scratch. `brain/tests/test_perf.py` checks that the two
+    agree, prompt for prompt.
+    """
+
+    def __init__(self, min_prompts: int = 6, threshold: float = 0.4, window: int = 16):
+        self.min_prompts = min_prompts
+        self.threshold = threshold
+        self.window = window
+        self._tokens: dict[str, frozenset[str]] = {}       # prompt → its word set
+        self._clusters: list[list[str]] = []                # cluster → the prompts in it
+        self._last: tuple[str, ...] = ()                    # the window last scored
+
+    def _tokenize(self, prompt: str) -> frozenset[str]:
+        """The word set of a prompt, cached by the prompt itself."""
+        hit = self._tokens.get(prompt)
+        if hit is None:
+            hit = tokens(prompt)
+            self._tokens[prompt] = hit
+        return hit
+
+    def score(self, prompts: list[str]) -> float:
+        """The loop score for the current window."""
+        recent = tuple(p for p in prompts[-self.window:] if p)
+
+        if len(recent) < self.min_prompts:
+            self._reset()
+            return 0.0
+
+        if not self._can_extend(recent):
+            # The window changed in a way the fast path does not model (prompts were
+            # edited, reordered, or the window jumped backwards). Recompute from
+            # scratch — it is rare, and correctness matters more than speed here.
+            return self._recompute(recent)
+
+        self._extend(recent)
+        if not self._clusters:
+            return 0.0
+        return round(max(len(c) for c in self._clusters) / len(recent), 2)
+
+    # ── the fast path ────────────────────────────────────────────────────────
+    def _can_extend(self, recent: tuple[str, ...]) -> bool:
+        """Can the new window be reached from the old one by adding to its end?
+
+        Only then is the clustering unchanged for the prompts already placed: a
+        prompt joins the first cluster it matches, and the clusters before it have
+        not changed.
+        """
+        old = self._last
+        if not old:
+            return True
+        return len(recent) >= len(old) and recent[:len(old)] == old
+
+    def _extend(self, recent: tuple[str, ...]) -> None:
+        """Place the prompts that are new since the last call."""
+        added = recent[len(self._last):]
+        for prompt in added:
+            t = self._tokenize(prompt)
+            for c in self._clusters:
+                if similarity(t, self._tokenize(c[0])) >= self.threshold:
+                    c.append(prompt)
+                    break
+            else:
+                self._clusters.append([prompt])
+        self._last = recent
+
+    # ── the slow path ────────────────────────────────────────────────────────
+    def _recompute(self, recent: tuple[str, ...]) -> float:
+        """The plain scorer, and the clusters are rebuilt from it."""
+        self._clusters = []
+        for prompt in recent:
+            t = self._tokenize(prompt)
+            for c in self._clusters:
+                if similarity(t, self._tokenize(c[0])) >= self.threshold:
+                    c.append(prompt)
+                    break
+            else:
+                self._clusters.append([prompt])
+        self._last = recent
+        return round(max(len(c) for c in self._clusters) / len(recent), 2)
+
+    def _reset(self) -> None:
+        self._clusters = []
+        self._last = ()
+
+
+
 def tool_cycle(tool_names: list[str], min_repeats: int = 4, max_period: int = 3) -> bool:
     """True if the last calls are one short pattern repeated ≥ min_repeats times."""
     for period in range(1, max_period + 1):

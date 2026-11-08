@@ -46,7 +46,7 @@ setting or endpoint, and a LocalStore DB created before the change still opens (
 **Open requests right now:** none (Fojle's 3 done in A0 run 1).
 - [x] A0 run for 5 Nov (2026-11-04, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22)
 
-### A10 · Nightly integration check · 🔴 MUST · recurring (every session if the last nightly run failed or the last check was > 24 h ago)
+### A10 · [x] (alif/puku-a9-e2e-chaos-v2, 2026-11-08) Nightly integration check · 🔴 MUST · recurring (every session if the last nightly run failed or the last check was > 24 h ago)
 > Prompt:
 > *First time only: create brain/nightly.py (`python -m brain.nightly`). It runs, in order, and reports pass/fail plus a 30-line error
 > tail for each step:
@@ -67,7 +67,7 @@ setting or endpoint, and a LocalStore DB created before the change still opens (
 > comment when everything is green.*
 
 **Acceptance:** `brain/tests/test_nightly.py` checks the owner mapping and the report format with fake step results (no subprocesses).
-- [ ] A10 first build (brain/nightly.py)
+- [x] A10 first build (brain/nightly.py)
 
 ---
 
@@ -342,7 +342,7 @@ The tick is close to the line: `sqlite3.Connection.commit` is 64% of it, because
 commits once per write and the brain writes two rows per agent per tick. The fix is a batched write
 in `shared/store.py` (Fojle's folder) — noted in `docs/tasks/fojle.md`.
 
-### A9 · [ ] Full-stack E2E + chaos suite (runs nightly in CI)
+### A9 · [x] (alif/puku-a9-e2e-chaos, 2026-11-08) Full-stack E2E + chaos suite (runs nightly in CI)
 **Owns:** `brain/tests/e2e/`, `brain/tests/chaos/` (new). The nightly workflow `.github/workflows/nightly.yml` already exists and runs
 `-m "e2e or chaos"`. Only Taseen edits it: if it needs a change, ask under "Requests from Alif's agent" in taseen.md.
 > Prompt:
@@ -370,14 +370,112 @@ in `shared/store.py` (Fojle's folder) — noted in `docs/tasks/fojle.md`.
 
 **Acceptance:** `python -m pytest -q -m "e2e or chaos"` is green locally, and the nightly workflow is green on its next run.
 
+**Done.** 11 E2E tests and 14 chaos tests, green, in **2m13s** (budget 6 min). The nightly workflow already ran
+`-m "e2e or chaos or perf"` and installed the langgraph extra — **no change was needed**, so nothing was asked of Taseen.
+
+The E2E suite drives the real thing: a real brain process, a real collector, a real LangGraph agent, on free ports
+with a temp database, killed afterwards however the test ended. The harness is `brain/tests/e2e_harness.py`, not
+`brain/tests/e2e/conftest.py` — two conftests with the same module name in two non-package directories means pytest
+loads the first and silently ignores the second, and every test failed with "fixture 'harness' not found".
+
+**The chaos suite found two real bugs, both fixed here:**
+
+1. **A throwing executor killed the tick.** `_apply` called the runtime directly, so a raised exception escaped
+   instead of becoming an alert — and it escaped at the exact moment the runtime broke, which is the moment the brain
+   most needs to be watching. A silently failed pause is the worst outcome of all: the brain believes the agent is
+   stopped, and it is running. Now the exception is caught, alerted as `executor_failed`, and the action is still
+   audited. (`brain/engine.py`)
+2. **A locked database stalled the brain for 3.9 s per tick.** The store's busy timeout is 5 s — generous, so a second
+   worker waits rather than fails — but the brain writes two rows per agent, four agents is eight writes, and 5 s × 8
+   is a brain that goes silent for a minute. The brain now shortens the timeout on *its own* connection to 50 ms
+   (`brain/__main__.py`): a collision costs one skipped write, which the next tick writes again. The store's own
+   default is unchanged for everything else. The p95 under a lock went from **3914 ms to under 200 ms**.
+
+The engine now also logs how long each tick took (`tick took N ms`), so the brain's own log is the honest record of
+the loop's health.
+
+**For Fojle:** the busy timeout in `shared/store.py` is still 5 s for everyone else. A `CS_STORE_BUSY_TIMEOUT_MS`
+knob would let the store's own users shorten it too. Noted in `docs/tasks/fojle.md`.
+
+---
+
+### A10 · [x] (alif/puku-a9-e2e-chaos-v2, 2026-11-08) Nightly integration check
+**Owns:** `brain/nightly.py` (new), `brain/tests/test_nightly.py` (new).
+
+**Done.** `python -m brain.nightly` runs the seven steps in order and writes `data/nightly-report.md`. The report is a
+checklist — a table of step, status, time, owner and detail — and each failure carries the last 30 lines of its output
+and the name of the person who owns the folder it broke in. The exit code is non-zero if anything failed.
+
+**The owner mapping is the point.** The repo is split into folders and each folder belongs to one person, so a failure
+in `telemetry/` is Fojle's and a failure in `dashboard/` is Tamjid's. The report says which, so the right person reads
+it and the nightly agent never edits somebody else's folder. `shared/store.py` is the one exception that breaks the
+rule — it is Fojle's even though it sits in `shared/`, which is the contract's — and the mapping says so.
+
+**Skips are not failures.** No Docker, no Node, no `dashboard/web/` — those steps are skipped and marked as such,
+because a machine without Docker is not a broken product, and a report full of skips nobody can fix trains people to
+ignore the report. A skipped step is *not run at all*; running it anyway would turn the skip into a failure and cry
+wolf about a machine that is fine.
+
+**Two things the Windows console taught us.** The default code page there is cp1252, which cannot encode `→` or a check
+mark, so the console output is plain ASCII (`[ok]`, `[FAIL]`, `[skip]`) while the markdown report keeps the Unicode
+marks. And `shutil.which("npm")` finds `npm.CMD`, which `CreateProcess` cannot exec, so a missing tool can be a
+`FileNotFoundError` even when it is installed — a step that cannot start is reported with the reason, not as a
+mystery.
+
+**The nightly already earned its keep.** On its first full run it caught the flaky wall-clock test
+(`test_the_tick_is_fast_at_fifty_agents`, 208 ms against a 200 ms budget) that passes in isolation — a loaded-machine
+artifact that the unit suite had been hiding, and that the nightly will now report every night until the perf work in
+A11 makes it honest.
+
+36 tests in `brain/tests/test_nightly.py`, no subprocesses: the owner mapping (over 13 paths, both separators), the
+suspect-file extraction (a pytest failure, a traceback, a path that does not exist, output that points at nothing),
+the report format (says what failed, shows the owner, shows the last 30 lines and not the head), and the steps
+themselves.
+
 ---
 
 ## 🟡 SHOULD
 
-### A11 · [ ] Engine performance at 100 agents
+### A11 · [x] (alif/puku-a9-e2e-chaos-v2, 2026-11-08) Engine performance at 100 agents
 Profile `tick()` with 100 FakeFleet agents (cProfile). Make the loop similarity incremental (cache shingles per prompt hash, compare only new
 prompts) and batch the store reads. **Acceptance:** tick p95 < 200 ms at 100 agents, a test with a timing budget (marked `perf`, run nightly), and
 `docs/research/brain-perf.md`.
+
+**Done.** Tick p95 at 100 agents: **513 ms → 13.2 ms** (budget 200 ms). The profile named both
+culprits and neither of them was the brain doing its job.
+
+**84% of the tick was `sqlite3.Connection.commit`.** The tick writes two rows per agent and the
+store commits after each one, so 100 agents = 200 disk syncs per tick. `brain/write_batch.py`
+collects the tick's rows and writes them in one transaction, on the store's own connection, under
+the store's own lock. Commits per tick: 200 → 1. It is in the brain and not the store because the
+store cannot know that the rows it is handed all belong to one tick — only the brain knows that —
+so `shared/store.py` did not change at all.
+
+**The second cost was re-doing work whose answer was known.** `semantic_loop_score` re-tokenized
+and re-clustered all 16 recent prompts every tick, for every agent, but the window slides by one
+prompt at a time — 15 of the 16 word sets are unchanged. `loops.IncrementalLoopScore` keeps the
+clusters between calls and places only the new prompt. And `score_text` was called on the same 12
+prompts twice per tick (once for the count, once for the maximum), so `AgentWindow` now caches it
+by the text. `re.Pattern.search`: 32,256 calls → 945.
+
+**The one thing the fast path must not get wrong.** The loop score is what the detectors act on,
+so it has to be the *same number* the plain scorer gives. The greedy clustering is order-dependent,
+so the fast path only runs when the new window is a suffix-extension of the old one; anything else
+falls back to recomputing. `brain/tests/test_perf.py` checks the two agree prompt for prompt, as
+the window slides, as it shrinks, and after a mid-window change.
+
+**The three rules a batch must not break**, each one a test: the same rows are written; a learned
+baseline survives (an empty baseline means "no new baseline" — and in a batch one agent may have a
+baseline and another may not, which a single upsert cannot express); and a failed batch loses
+nothing, because the rows are then written one at a time exactly as before.
+
+Scaling curve (one worker, one store, 20 ticks after 3 warm-ups): 10 agents 4.1 ms p95, 25 → 6.9,
+50 → 8.2, **100 → 13.2**, 200 → 25.1. Close to linear with a small constant.
+
+**For Fojle:** the A8 bulk-write request is now solved on the brain's side, so it is only worth
+having in the store for the *other* users — a `store.transaction()` context manager would let any
+caller batch and would be a nicer API than the brain reaching into `store._conn`. Noted in
+`docs/tasks/fojle.md`, with the rule about baselines that a general version has to keep.
 
 ### A12 · [ ] Judge v2: cost cap + model comparison
 - An hourly judge spend cap (`CS_JUDGE_MAX_USD_PER_HOUR`, contract). Above it, use the fallback and write an alert.
