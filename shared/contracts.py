@@ -131,6 +131,15 @@ class Attr:
     CS_VERDICT_REASON = "cloudsentinel.verdict.reason"
     CS_LOOP_SCORE = "cloudsentinel.loop.score"                # the semantic loop score, 0..1
     CS_EXACT_REPEATS = "cloudsentinel.loop.exact_repeats"     # the same prompt repeated N times
+    # The verified auto-heal flow (B1) — CloudSentinel extension, see CONTRACTS §4.
+    # The shadow dry-run's verdict and the decision it produced ride on the same
+    # `cs_verdict` span as the verdict itself, as a separate span event.
+    CS_HEAL_SHADOW_VERDICT = "cloudsentinel.heal.shadow_verdict"   # healthy | still_bad | no_opinion
+    CS_HEAL_APPLIED = "cloudsentinel.heal.applied"                 # true = the patch was applied
+    CS_HEAL_CONFIDENCE = "cloudsentinel.heal.confidence"           # the judge's confidence, 0..1
+    CS_HEAL_LOOP_SCORE_BEFORE = "cloudsentinel.heal.loop_score_before"
+    CS_HEAL_LOOP_SCORE_AFTER = "cloudsentinel.heal.loop_score_after"
+    CS_HEAL_REASON = "cloudsentinel.heal.reason"                   # why it was applied or withheld
 
 
 OPERATIONS = ("invoke_agent", "chat", "execute_tool", "graph_node", "cs_verdict")
