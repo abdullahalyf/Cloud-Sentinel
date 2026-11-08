@@ -342,7 +342,7 @@ The tick is close to the line: `sqlite3.Connection.commit` is 64% of it, because
 commits once per write and the brain writes two rows per agent per tick. The fix is a batched write
 in `shared/store.py` (Fojle's folder) — noted in `docs/tasks/fojle.md`.
 
-### A9 · [ ] Full-stack E2E + chaos suite (runs nightly in CI)
+### A9 · [ ] IN PROGRESS (Puku) Full-stack E2E + chaos suite (runs nightly in CI)
 **Owns:** `brain/tests/e2e/`, `brain/tests/chaos/` (new). The nightly workflow `.github/workflows/nightly.yml` already exists and runs
 `-m "e2e or chaos"`. Only Taseen edits it: if it needs a change, ask under "Requests from Alif's agent" in taseen.md.
 > Prompt:
