@@ -202,20 +202,6 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 |---|---|---|
 | `GET /v1/health` | → `{"ok": true, "mode": "fake"|"docker"|"k8s"|"mock", "judge": "claude"|"gemini"|"fallback", "contract": 2}` | all |
 | `GET /v1/health` *(added 8 Nov, A8)* | the same, plus `"workers": [{"worker_id", "started_at", "last_seen", "agents_owned", "pid"}]` and `"agents_total": int` — one entry per live worker, and how many agents the fleet has between them | all |
-
-#### The mock leads the real API
-
-The mock (dashboard development) and the real API are in different folders, so a change to
-one cannot land in the same PR as the other. The mock is therefore sometimes ahead:
-
-| Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
-|---|---|---|
-| `GET /v1/health` | `workers`, `agents_total` | A8 — `alif/puku-a8-sharding` |
-
-The rule is one-sided: **the mock may lead, the mock may never lag.** A client written
-against the mock must keep working against the real API, so every field the real API has
-must also be in the mock (`shared/tests/test_api_parity.py`). When the brain side lands,
-delete the row above — it is a record of a gap, not a permanent difference.
 | `GET /v1/fleet` | → `{"agents": [AgentView]}` | dashboard, mcp |
 | `GET /v1/agents/{id}` | → `{"agent": AgentView, "spans": [SpanRow ≤50], "verdicts": [VerdictRow ≤10], "memory": MemoryRow|null}` | dashboard, mcp |
 | `GET /v1/agents/{id}/nodes?minutes=10&limit=100` *(added 4 Nov)* | → `NodeFeed` (below) | dashboard |
@@ -263,6 +249,25 @@ PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
 
 `SET_BUDGET` params: `{"budget_usd": float}`. `GO_ROGUE` params: `{"kind": "loop"|"paraphrase_loop"|"token_bomb"|"memory_leak"|"bad_tool_call"|"prompt_injection"|"tool_storm"|"memory_poisoning"|"slow_budget_leak"}` (the last 4 added 5 Nov; implemented by the telemetry simulator, FakeFleet keeps them healthy).
+
+### The mock may lead the real API
+
+The mock (dashboard development) and the real API are in **different folders**, so a change to one
+cannot land in the same PR as the other. The contract lands the mock first; the brain branch that
+implements the same shape on the real API follows it. In between, the mock has fields the real API
+does not have yet.
+
+The rule is one-sided: **the mock may lead, the mock may never lag.** Every field the real API has
+must also be in the mock, so a client written against the mock keeps working against the real
+thing (`shared/tests/test_api_parity.py`).
+
+The gaps are recorded here, and the table is empty when there are none:
+
+| Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
+|---|---|---|
+
+When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
+A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
 
 ---
 

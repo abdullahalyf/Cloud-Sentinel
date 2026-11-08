@@ -149,6 +149,10 @@ class LocalStore:
         self._conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("pragma journal_mode=wal")  # brain + dashboard + collector at once
+        # A8: several brain worker processes share this one file, so a write can collide
+        # with another's. The busy timeout makes the loser wait instead of failing —
+        # without it, "database is locked" is a normal error and the tick dies.
+        self._conn.execute("pragma busy_timeout=5000")
         self._conn.executescript(self._SCHEMA)
         self._migrate()
         self._lock = threading.RLock()
