@@ -24,6 +24,13 @@ def _num(value) -> float:
     return v if math.isfinite(v) and v > 0 else 0.0
 
 
+def _injection_score(prompts: list[str]) -> float:
+    """The worst injection score among the recent prompts (A6). 0.0 when nothing fired."""
+    from brain.injection import score_text
+
+    return max((score_text(p).score for p in prompts if p), default=0.0)
+
+
 @dataclass
 class Snapshot:
     agent_id: str
@@ -40,6 +47,9 @@ class Snapshot:
     memory_mb: float
     memory_pct: float
     calls_in_window: int
+    # how bad the worst recent prompt scored (A6). It has a default so the many places that
+    # build a Snapshot by position keep working.
+    injection_score: float = 0.0
 
     @property
     def budget_used_pct(self) -> float:
@@ -100,6 +110,7 @@ class AgentWindow:
         prompts = [c.get("prompt_preview") or "" for c in self.chats]
         repeats = Counter(c.get("prompt_hash") for c in self.chats if c.get("prompt_hash"))
         tool_names = [t.get("tool_name") or "" for t in self.tools]
+        recent = prompts[-12:]
         return Snapshot(
             agent_id=self.agent_id,
             tokens_per_min=int(tokens * 60 / RATE_WINDOW),
@@ -111,7 +122,8 @@ class AgentWindow:
             exact_repeats=max(repeats.values(), default=0),
             loop_score=loops.semantic_loop_score(prompts),
             tool_cycle=loops.tool_cycle(tool_names),
-            injection_hits=loops.injection_hits(prompts[-12:]),
+            injection_hits=loops.injection_hits(recent),
+            injection_score=_injection_score(recent),
             memory_mb=self.memory_mb,
             memory_pct=self.memory_pct,
             calls_in_window=len(self.chats),

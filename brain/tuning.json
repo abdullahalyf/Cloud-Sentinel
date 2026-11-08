@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-08 02:46 UTC",
+  "generated_at": "2026-11-08 03:50 UTC",
   "judge": "fallback",
   "dataset": "brain\\eval_data\\incidents.jsonl",
   "before": {
@@ -860,6 +860,26 @@
     },
     {
       "loop_score_threshold": 0.5,
+      "brain_kill_confidence": 0.8,
+      "brain_cooldown_seconds": 10.0,
+      "soft_memory_pct": 70.0,
+      "loop_repeat_threshold": 8,
+      "prompt_variant": "current",
+      "precision": 1.0,
+      "recall": 0.7742,
+      "f1": 0.8727,
+      "false_positives": 0,
+      "false_negatives": 7,
+      "false_positive_rate": 0.0,
+      "objective": [
+        0,
+        0.7741935483870968,
+        1.0,
+        -7
+      ]
+    },
+    {
+      "loop_score_threshold": 0.5,
       "brain_kill_confidence": 0.6,
       "brain_cooldown_seconds": 10.0,
       "soft_memory_pct": 80,
@@ -1000,6 +1020,26 @@
     },
     {
       "loop_score_threshold": 0.5,
+      "brain_kill_confidence": 0.8,
+      "brain_cooldown_seconds": 10.0,
+      "soft_memory_pct": 70.0,
+      "loop_repeat_threshold": 8,
+      "prompt_variant": "few_shot",
+      "precision": 1.0,
+      "recall": 0.7742,
+      "f1": 0.8727,
+      "false_positives": 0,
+      "false_negatives": 7,
+      "false_positive_rate": 0.0,
+      "objective": [
+        0,
+        0.7741935483870968,
+        1.0,
+        -7
+      ]
+    },
+    {
+      "loop_score_threshold": 0.5,
       "brain_kill_confidence": 0.6,
       "brain_cooldown_seconds": 10.0,
       "soft_memory_pct": 80,
@@ -1140,6 +1180,26 @@
     },
     {
       "loop_score_threshold": 0.5,
+      "brain_kill_confidence": 0.8,
+      "brain_cooldown_seconds": 10.0,
+      "soft_memory_pct": 70.0,
+      "loop_repeat_threshold": 8,
+      "prompt_variant": "checklist",
+      "precision": 1.0,
+      "recall": 0.7742,
+      "f1": 0.8727,
+      "false_positives": 0,
+      "false_negatives": 7,
+      "false_positive_rate": 0.0,
+      "objective": [
+        0,
+        0.7741935483870968,
+        1.0,
+        -7
+      ]
+    },
+    {
+      "loop_score_threshold": 0.5,
       "brain_kill_confidence": 0.6,
       "brain_cooldown_seconds": 10.0,
       "soft_memory_pct": 80,
@@ -1459,66 +1519,6 @@
       ]
     },
     {
-      "loop_score_threshold": 0.5,
-      "brain_kill_confidence": 0.8,
-      "brain_cooldown_seconds": 10.0,
-      "soft_memory_pct": 70.0,
-      "loop_repeat_threshold": 8,
-      "prompt_variant": "current",
-      "precision": 1.0,
-      "recall": 0.6452,
-      "f1": 0.7843,
-      "false_positives": 0,
-      "false_negatives": 11,
-      "false_positive_rate": 0.0,
-      "objective": [
-        0,
-        0.6451612903225806,
-        1.0,
-        -11
-      ]
-    },
-    {
-      "loop_score_threshold": 0.5,
-      "brain_kill_confidence": 0.8,
-      "brain_cooldown_seconds": 10.0,
-      "soft_memory_pct": 70.0,
-      "loop_repeat_threshold": 8,
-      "prompt_variant": "few_shot",
-      "precision": 1.0,
-      "recall": 0.6452,
-      "f1": 0.7843,
-      "false_positives": 0,
-      "false_negatives": 11,
-      "false_positive_rate": 0.0,
-      "objective": [
-        0,
-        0.6451612903225806,
-        1.0,
-        -11
-      ]
-    },
-    {
-      "loop_score_threshold": 0.5,
-      "brain_kill_confidence": 0.8,
-      "brain_cooldown_seconds": 10.0,
-      "soft_memory_pct": 70.0,
-      "loop_repeat_threshold": 8,
-      "prompt_variant": "checklist",
-      "precision": 1.0,
-      "recall": 0.6452,
-      "f1": 0.7843,
-      "false_positives": 0,
-      "false_negatives": 11,
-      "false_positive_rate": 0.0,
-      "objective": [
-        0,
-        0.6451612903225806,
-        1.0,
-        -11
-      ]
-    },
-    {
       "loop_score_threshold": 0.55,
       "brain_kill_confidence": 0.8,
       "brain_cooldown_seconds": 10.0,
@@ -1526,16 +1526,16 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.5806,
-      "f1": 0.7347,
+      "recall": 0.7097,
+      "f1": 0.8302,
       "false_positives": 0,
-      "false_negatives": 13,
+      "false_negatives": 9,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.5806451612903226,
+        0.7096774193548387,
         1.0,
-        -13
+        -9
       ]
     },
     {
@@ -1546,16 +1546,16 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.5806,
-      "f1": 0.7347,
+      "recall": 0.7097,
+      "f1": 0.8302,
       "false_positives": 0,
-      "false_negatives": 13,
+      "false_negatives": 9,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.5806451612903226,
+        0.7096774193548387,
         1.0,
-        -13
+        -9
       ]
     },
     {
@@ -1566,16 +1566,16 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.5806,
-      "f1": 0.7347,
+      "recall": 0.7097,
+      "f1": 0.8302,
       "false_positives": 0,
-      "false_negatives": 13,
+      "false_negatives": 9,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.5806451612903226,
+        0.7096774193548387,
         1.0,
-        -13
+        -9
       ]
     },
     {
@@ -1586,16 +1586,16 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.5484,
-      "f1": 0.7083,
+      "recall": 0.6774,
+      "f1": 0.8077,
       "false_positives": 0,
-      "false_negatives": 14,
+      "false_negatives": 10,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.5483870967741935,
+        0.6774193548387096,
         1.0,
-        -14
+        -10
       ]
     },
     {
@@ -1606,16 +1606,16 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.5484,
-      "f1": 0.7083,
+      "recall": 0.6774,
+      "f1": 0.8077,
       "false_positives": 0,
-      "false_negatives": 14,
+      "false_negatives": 10,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.5483870967741935,
+        0.6774193548387096,
         1.0,
-        -14
+        -10
       ]
     },
     {
@@ -1626,16 +1626,16 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.5484,
-      "f1": 0.7083,
+      "recall": 0.6774,
+      "f1": 0.8077,
       "false_positives": 0,
-      "false_negatives": 14,
+      "false_negatives": 10,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.5483870967741935,
+        0.6774193548387096,
         1.0,
-        -14
+        -10
       ]
     },
     {

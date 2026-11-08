@@ -249,7 +249,7 @@ The contract side landed as #32 (`b6f7f49`) — the endpoints, the `POLICY_RELOA
 `brain/tests/test_policy_reload.py`, including the acceptance case: editing `policies.yaml`
 changes a tool-gate decision within 2 ticks, with no restart.
 
-### A6 · [ ] Prompt-injection and unsafe tool-input detection
+### A6 · [x] (alif/puku-a6-injection, 2026-11-08) Prompt-injection and unsafe tool-input detection
 **Owns:** `brain/injection.py` (new), `brain/eval_data/injection.jsonl` (new), `brain/service.py` (tool gate), `brain/detectors.py`,
 `brain/judge.py` (context flag), plus a contract branch (`PATTERNS` += `prompt_injection`, `unsafe_tool_input`).
 > Prompt:

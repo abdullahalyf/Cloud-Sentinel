@@ -65,11 +65,18 @@ def main() -> None:
     judge = Judge(settings)
     engine = Engine(store, executor, judge, policy, settings, dry_run=args.dry_run or settings.dry_run,
                     runtime_name=kind, policy_path=settings.policy_file)
+    # A6: the injection gate. One gate for the whole process — the fake fleet's tool calls and
+    # the API's tool calls must be judged the same way.
+    gate = service.InjectionGate(
+        deny_threshold=settings.injection_deny_threshold,
+        approval_threshold=settings.injection_approval_threshold,
+        allowed_hosts=settings.injection_allowed_hosts,
+        enabled=settings.injection_enabled)
     before_tick = None
     if kind == "fake":  # the fake fleet generates spans itself and goes through the real tool gate
         # the gate reads the LIVE policy, so a hot reload changes the decision (A5)
         executor.gate = lambda agent, tool, a, v: service.request_tool_call(
-            store, engine.policy_manager.policy, agent, tool, a, v)
+            store, engine.policy_manager.policy, agent, tool, a, v, gate)
         before_tick = executor.step
 
     log.info("Mode: %s · store: %s · judge: %s", kind.upper(),
@@ -83,8 +90,8 @@ def main() -> None:
 
     log.info("C2 API on http://localhost:%d  (docs: /docs)", settings.api_port)
     uvicorn.run(create_app(store, policy, settings, kind, judge.provider,
-                           policy_manager=engine.policy_manager), host=settings.api_host,
-                port=settings.api_port, log_level="warning")
+                           policy_manager=engine.policy_manager, injection_gate=gate),
+                host=settings.api_host, port=settings.api_port, log_level="warning")
 
 
 if __name__ == "__main__":
