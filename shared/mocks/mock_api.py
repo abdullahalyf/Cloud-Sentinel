@@ -23,8 +23,9 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
-from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, ROGUE_KINDS, ROI_FORMULA, TOOL_DECISIONS, ActionRow,
-                              AlertRow, MetricRow, ToolCallRow, VerdictRow, agent_view, utc_now_iso)
+from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
+                              ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
+                              ToolCallRow, VerdictRow, agent_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
@@ -73,6 +74,7 @@ def _verdict() -> dict:
 
 MEMORY: dict[str, list[dict]] = {}
 TOOL_CALLS: dict[int, dict] = {}
+HEAL_PROPOSALS: dict[int, dict] = {}
 COMMANDS: list[dict] = []
 ACTIONS: list[dict] = []
 ALERTS: list[dict] = []
@@ -80,7 +82,7 @@ ALERTS: list[dict] = []
 
 def seed() -> None:
     """(Re)fill the fake data in place. Called at import and by POST /v1/mock/reset (and tests)."""
-    for coll in (MEMORY, TOOL_CALLS, COMMANDS, ACTIONS, ALERTS, OVERRIDES):
+    for coll in (MEMORY, TOOL_CALLS, HEAL_PROPOSALS, COMMANDS, ACTIONS, ALERTS, OVERRIDES):
         coll.clear()
     BUDGETS.update({"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2})
     MEMORY["beta"] = [{"id": 1, "agent_id": "beta", "version": 1, "edited_by": "agent", "reason": "",
@@ -89,6 +91,13 @@ def seed() -> None:
     TOOL_CALLS[1] = ToolCallRow("delta", "issue_refund", {"order_id": 4471, "amount": 50000}, "pending", {}, "",
                                 "refunds over 5,000 BDT need a human", 410.0).to_row() | {
         "id": 1, "args": {"order_id": 4471, "amount": 50000}, "final_args": {}}
+    # one pending heal proposal for beta, so the approvals inbox has something in it
+    HEAL_PROPOSALS[1] = HealProposalRow(
+        "beta", "memory_patch",
+        {"memory": [{"op": "set", "key": "order_4471", "value": "cancelled - skip it and move on"}]},
+        0.71, "pending", 1, 1,
+        "The belief 'retry until success' keeps the agent looping on a failing order",
+    ).to_row() | {"id": 1}
     ACTIONS.extend([
         ActionRow("beta", "PAUSE", "claude", "semantic loop on order 4471", 2.52, 210000).to_row() | {"id": 2},
         ActionRow("gamma", "KILL", "rules", "Hard limit: 80,816 tokens/min", 129.6, 4800000).to_row() | {"id": 1}])
@@ -347,6 +356,59 @@ def mock_reset() -> dict:
     """Mock only (not in the contract): back to the seeded data (pending refund, beta's bad memory)."""
     seed()
     return {"ok": True}
+
+
+# ── auto-heal proposals (CONTRACTS §7) ──
+@app.get("/v1/heal-proposals")
+def heal_proposals(status: Optional[str] = None, agent_id: Optional[str] = None, limit: int = 50) -> dict:
+    if status is not None and status not in HEAL_STATUSES:
+        _bad(400, f"status must be one of {', '.join(HEAL_STATUSES)}")
+    rows = sorted(HEAL_PROPOSALS.values(), key=lambda p: -p["id"])
+    rows = [p for p in rows if status is None or p["status"] == status]
+    rows = [p for p in rows if agent_id is None or p["agent_id"] == agent_id]
+    return {"items": rows[:max(1, limit)]}
+
+
+@app.get("/v1/heal-proposals/{proposal_id}")
+def get_heal_proposal(proposal_id: int) -> dict:
+    if proposal_id not in HEAL_PROPOSALS:
+        _bad(404, f"heal proposal {proposal_id} not found")
+    return HEAL_PROPOSALS[proposal_id]
+
+
+@app.post("/v1/heal-proposals/{proposal_id}/decision")
+def decide_heal_proposal(proposal_id: int, body: dict[str, Any]) -> dict:
+    decision = str(body.get("decision", "")).lower()
+    if decision not in HEAL_DECISIONS:
+        _bad(400, f"decision must be one of {', '.join(HEAL_DECISIONS)}")
+    requested_by = body.get("requested_by", "human")
+    if requested_by not in ("human", "mcp"):
+        _bad(400, "requested_by must be one of human, mcp")
+    proposal = HEAL_PROPOSALS.get(proposal_id)
+    if proposal is None:
+        _bad(404, f"heal proposal {proposal_id} not found")
+    if proposal["status"] != "pending":
+        _bad(409, f"heal proposal {proposal_id} already decided: {proposal['status']}")
+    if decision == "apply":
+        # the mock applies the memory patch to beta's memory, like the real brain does
+        versions = MEMORY.setdefault(proposal["agent_id"], [])
+        content = dict(versions[-1]["content"]) if versions else {}
+        for op in (proposal.get("patch") or {}).get("memory", []):
+            if op.get("op") == "remove":
+                content.pop(op.get("key", ""), None)
+            else:
+                content[op.get("key", "")] = op.get("value")
+        versions.append({"id": sum(len(v) for v in MEMORY.values()) + 1, "agent_id": proposal["agent_id"],
+                         "version": (versions[-1]["version"] + 1) if versions else 1, "content": content,
+                         "edited_by": "mcp" if requested_by == "mcp" else "human",
+                         "reason": body.get("reason") or "heal applied", "created_at": utc_now_iso()})
+        status, actor = "applied", "brain:autoheal" if requested_by == "mcp" else "human"
+    else:
+        status, actor = "rejected", "brain:autoheal" if requested_by == "mcp" else "human"
+    proposal.update(status=status, decided_by=actor, reason=body.get("reason", ""), decided_at=utc_now_iso())
+    _action(proposal["agent_id"], "AUTO_HEAL" if decision == "apply" else "WARN", actor,
+            body.get("reason") or f"heal proposal {decision}")
+    return proposal
 
 
 @app.websocket("/v1/stream")

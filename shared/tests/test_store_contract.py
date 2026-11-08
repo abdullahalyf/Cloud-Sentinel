@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, MemoryConflict, MetricRow, SpanRow,
-                              ToolCallRow, VerdictRow)
+from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealProposalRow, MemoryConflict,
+                              MetricRow, SpanRow, ToolCallRow, VerdictRow)
 from shared.store import LocalStore
 
 STORES = ["local"] + (["supabase"] if os.getenv("CS_TEST_SUPABASE") == "1" else [])
@@ -84,3 +84,20 @@ def test_reset(store):
     store.insert_alert(AlertRow("a", "info", "r", "m"))
     store.reset()
     assert store.recent_alerts() == []
+
+
+def test_heal_proposals(store):
+    pid = store.insert_heal_proposal(HealProposalRow(
+        "beta", "memory_patch", {"memory": [{"op": "set", "key": "order_4471", "value": "cancelled"}]},
+        0.71, "pending", 1, 3, "the belief keeps it looping"))
+    row = store.get_heal_proposal(pid)
+    assert row["agent_id"] == "beta" and row["status"] == "pending"
+    assert row["patch"]["memory"][0]["key"] == "order_4471"      # the patch column is decoded to a dict
+    assert store.list_heal_proposals(status="pending")[0]["id"] == pid
+    assert store.list_heal_proposals(status="applied") == []
+    assert store.list_heal_proposals(agent_id="beta")[0]["id"] == pid
+    assert store.list_heal_proposals(agent_id="gamma") == []
+    store.decide_heal_proposal(pid, "applied", "brain:autoheal", "confident and valid")
+    done = store.get_heal_proposal(pid)
+    assert done["status"] == "applied" and done["decided_by"] == "brain:autoheal" and done["decided_at"]
+    assert store.get_heal_proposal(9999) is None

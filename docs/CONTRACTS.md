@@ -73,6 +73,8 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `BRAIN_COOLDOWN_SECONDS` | 10 | brain | min gap between judge calls per agent |
 | `BRAIN_KILL_CONFIDENCE` | 0.6 | brain | min judge confidence to act — a PAUSE below it is a WARN in practice |
 | `PROBATION_SECONDS` | 30 | brain | |
+| `CS_AUTOHEAL` *(added 8 Nov)* | `true` | brain | apply a confident judge patch automatically; false → every patch waits for a human |
+| `CS_AUTOHEAL_MIN_CONFIDENCE` *(added 8 Nov)* | `0.85` | brain | judge confidence at or above which a patch is applied without a human |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
 | `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
@@ -140,12 +142,14 @@ Every table has `id` (auto increment). Columns marked JSON are TEXT containing J
 | `commands` | agent_id, command (`KILL`·`PAUSE`·`RESUME`·`RESTART`·`GO_ROGUE`·`SET_BUDGET`), params (JSON), requested_by (`dashboard`·`mcp`·`terminal`·`eval`), reason, status (`pending`·`done`·`failed`), result, created_at | api | brain |
 | `agent_memory` (append-only versions) | agent_id, version, content (JSON object), edited_by (`agent`·`human`·`mcp`), reason, created_at | api | api (SDK via API) |
 | `tool_calls` | agent_id, tool_name, args (JSON), decision (`pending`·`allow`·`deny`·`rewrite`·`timeout`), final_args (JSON), decided_by (`policy`·`human`·`mcp`·`timeout`), reason, value_usd, created_at, decided_at | api | api, brain, eval |
+| `heal_proposals` *(added 8 Nov)* | agent_id, kind (`memory_patch`·`tool_policy`), patch (JSON), confidence, status (`pending`·`applied`·`rejected`·`expired`), verdict_id, base_version, reason, decided_by (`human`·`mcp`·`brain:autoheal`), decided_at, created_at | brain, api | api, dashboard, mcp |
 | `schema_migrations` *(added 5 Nov)* | version (PK, migration file name), applied_at | `telemetry/db/migrate.py` | migrate.py |
 
 **Enums** (in `shared/contracts.py`):
 - `AgentState`: `healthy` · `suspicious` · `paused` · `probation` · `killed`
-- `ActionType`: `KILL` · `PAUSE` · `RESUME` · `RESTART` · `WARN` · `SET_BUDGET` · `MEMORY_EDIT` · `TOOL_ALLOW` · `TOOL_DENY` · `TOOL_REWRITE`
+- `ActionType`: `KILL` · `PAUSE` · `RESUME` · `RESTART` · `WARN` · `SET_BUDGET` · `MEMORY_EDIT` · `TOOL_ALLOW` · `TOOL_DENY` · `TOOL_REWRITE` · `AUTO_HEAL`
 - `Pattern` (judge): `infinite_loop` · `semantic_loop` · `token_spike` · `memory_leak` · `bad_tool_call` · `prompt_injection` · `legitimate_burst` · `other`
+- `HealKind`: `memory_patch` · `tool_policy` · `HealStatus`: `pending` · `applied` · `rejected` · `expired`
 
 **Store protocol** (`shared/store.py`, both `LocalStore` and `SupabaseStore` must pass `shared/tests/test_store_contract.py`):
 
@@ -154,10 +158,12 @@ writes:  upsert_agent(AgentRow) · insert_spans(list[SpanRow]) · insert_metric(
          insert_verdict(VerdictRow) · insert_action(ActionRow) · insert_command(CommandRow) -> int
          finish_command(id, status, result) · write_memory(agent_id, content, edited_by, reason, base_version=None) -> MemoryRow
          insert_tool_call(ToolCallRow) -> int · decide_tool_call(id, decision, final_args, decided_by, reason)
+         insert_heal_proposal(HealProposalRow) -> int · decide_heal_proposal(id, status, decided_by, reason)
 reads:   list_agents() · get_agent(id) · spans_after(last_id, limit=2000) · recent_spans(minutes, agent_id=None)
          recent_metrics(minutes, agent_id=None) · recent_alerts(limit) · recent_verdicts(limit, agent_id=None)
          recent_actions(limit) · pending_commands() · get_memory(agent_id) · memory_history(agent_id, limit)
          get_tool_call(id) · list_tool_calls(status=None, limit=50)
+         get_heal_proposal(id) · list_heal_proposals(status=None, agent_id=None, limit=50)
 admin:   reset()
 ```
 `write_memory` with `base_version` older than the latest version written by `human`/`mcp` raises
@@ -187,6 +193,8 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/tool-calls/{call_id}` | → `ToolCallRow` | sdk (polls ≤1/s) |
 | `GET /v1/tool-calls?status=pending` | → `{"items": [ToolCallRow]}` | dashboard, mcp |
 | `POST /v1/tool-calls/{call_id}/decision` | `{"decision": "allow"|"deny"|"rewrite","final_args":{}|null,"decided_by","reason"}` → `ToolCallRow` | dashboard, mcp |
+| `GET /v1/heal-proposals?status=&agent_id=&limit=50` *(added 8 Nov)* | → `{"items": [HealProposalRow]}` | dashboard, mcp |
+| `POST /v1/heal-proposals/{id}/decision` *(added 8 Nov)* | `{"decision": "apply"|"reject","reason","requested_by"}` → `HealProposalRow` | dashboard, mcp |
 | `GET /v1/roi` | → `RoiReport` (see §8) | dashboard, mcp |
 | `WS /v1/stream` | server pushes `{"type": "metric"|"verdict"|"action"|"alert"|"tool_call","data":{...}}` | optional clients |
 
@@ -222,6 +230,8 @@ Every tool calls the C2 API (§6) — so it works against the mock API.
 | `get_memory` / `edit_memory` | `agent_id` / `agent_id, content, reason` | MemoryRow | edit: yes |
 | `list_pending_tool_calls` | — | pending ToolCallRows | no |
 | `decide_tool_call` | `call_id, decision, final_args?, reason` | ToolCallRow | yes |
+| `list_heal_proposals` *(added 8 Nov)* | — | pending HealProposalRows | no |
+| `decide_heal` *(added 8 Nov)* | `proposal_id, decision, reason` | HealProposalRow | **yes** (annotated `destructiveHint`) |
 | `get_roi_report` | — | RoiReport | no |
 
 `requested_by` / `decided_by` / `edited_by` = `"mcp"` for everything sent through MCP (audit trail).

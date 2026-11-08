@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import Optional, Protocol
 
 from shared.config import settings
-from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, MemoryConflict, MemoryRow,
-                              MetricRow, SpanRow, ToolCallRow, VerdictRow, load_json, utc_now_iso)
+from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealProposalRow, MemoryConflict,
+                              MemoryRow, MetricRow, SpanRow, ToolCallRow, VerdictRow, load_json, utc_now_iso)
 
 TABLES = ("agents", "spans", "agent_metrics", "alerts", "verdicts", "actions", "commands",
-          "agent_memory", "tool_calls")
-JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail")
+          "agent_memory", "tool_calls", "heal_proposals")
+JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail", "patch")
 
 
 def _since_iso(minutes: float) -> str:
@@ -53,6 +53,9 @@ class Store(Protocol):
     def insert_tool_call(self, row: ToolCallRow) -> int: ...
     def decide_tool_call(self, call_id: int, decision: str, final_args: Optional[dict],
                          decided_by: str, reason: str) -> None: ...
+    def insert_heal_proposal(self, row: HealProposalRow) -> int: ...
+    def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
+                             reason: str = "") -> None: ...
     # reads
     def list_agents(self) -> list[dict]: ...
     def get_agent(self, agent_id: str) -> Optional[dict]: ...
@@ -67,6 +70,9 @@ class Store(Protocol):
     def memory_history(self, agent_id: str, limit: int = 10) -> list[dict]: ...
     def get_tool_call(self, call_id: int) -> Optional[dict]: ...
     def list_tool_calls(self, status: Optional[str] = None, limit: int = 50) -> list[dict]: ...
+    def get_heal_proposal(self, proposal_id: int) -> Optional[dict]: ...
+    def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
+                            limit: int = 50) -> list[dict]: ...
     # admin
     def reset(self) -> None: ...
 
@@ -118,6 +124,10 @@ class LocalStore:
         id integer primary key autoincrement, agent_id text, tool_name text, args text,
         decision text, final_args text, decided_by text, reason text, value_usd real,
         created_at text, decided_at text);
+    create table if not exists heal_proposals (
+        id integer primary key autoincrement, agent_id text, kind text, patch text,
+        confidence real, status text, verdict_id integer, base_version integer, reason text,
+        decided_by text, decided_at text, created_at text);
     create table if not exists schema_migrations (
         version text primary key, applied_at text);
     """
@@ -214,6 +224,14 @@ class LocalStore:
         self._exec("update tool_calls set decision=?, final_args=?, decided_by=?, reason=?, decided_at=? "
                    "where id=?", (decision, _dump(final_args or {}), decided_by, reason, utc_now_iso(), call_id))
 
+    def insert_heal_proposal(self, row: HealProposalRow) -> int:
+        return self._insert("heal_proposals", row.to_row())
+
+    def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
+                             reason: str = "") -> None:
+        self._exec("update heal_proposals set status=?, decided_by=?, reason=?, decided_at=? where id=?",
+                   (status, decided_by, reason, utc_now_iso(), proposal_id))
+
     # ── reads ──
     def list_agents(self) -> list[dict]:
         return self._select("select * from agents order by agent_id")
@@ -271,6 +289,26 @@ class LocalStore:
             return self._select("select * from tool_calls where decision=? order by id desc limit ?",
                                 (status, limit))
         return self._select("select * from tool_calls order by id desc limit ?", (limit,))
+
+    def get_heal_proposal(self, proposal_id: int) -> Optional[dict]:
+        rows = self._select("select * from heal_proposals where id=?", (proposal_id,))
+        return rows[0] if rows else None
+
+    def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
+                            limit: int = 50) -> list[dict]:
+        where, params = [], []
+        if status:
+            where.append("status=?")
+            params.append(status)
+        if agent_id:
+            where.append("agent_id=?")
+            params.append(agent_id)
+        sql = "select * from heal_proposals"
+        if where:
+            sql += " where " + " and ".join(where)
+        sql += " order by id desc limit ?"
+        params.append(limit)
+        return self._select(sql, tuple(params))
 
     # ── admin ──
     def reset(self) -> None:
@@ -345,6 +383,13 @@ class SupabaseStore:
                          decided_by: str, reason: str) -> None:
         raise NotImplementedError("Fojle Day 4")
 
+    def insert_heal_proposal(self, row: HealProposalRow) -> int:
+        raise NotImplementedError("Fojle Day 4")
+
+    def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
+                             reason: str = "") -> None:
+        raise NotImplementedError("Fojle Day 4")
+
     def list_agents(self) -> list[dict]:
         raise NotImplementedError("Fojle Day 4")
 
@@ -376,6 +421,13 @@ class SupabaseStore:
         raise NotImplementedError("Fojle Day 4")
 
     def list_tool_calls(self, status: Optional[str] = None, limit: int = 50) -> list[dict]:
+        raise NotImplementedError("Fojle Day 4")
+
+    def get_heal_proposal(self, proposal_id: int) -> Optional[dict]:
+        raise NotImplementedError("Fojle Day 4")
+
+    def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
+                            limit: int = 50) -> list[dict]:
         raise NotImplementedError("Fojle Day 4")
 
     def reset(self) -> None:
