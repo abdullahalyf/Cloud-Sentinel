@@ -64,10 +64,12 @@ def main() -> None:
     policy = Policy.load(settings.policy_file, settings.default_budget_usd)
     judge = Judge(settings)
     engine = Engine(store, executor, judge, policy, settings, dry_run=args.dry_run or settings.dry_run,
-                    runtime_name=kind)
+                    runtime_name=kind, policy_path=settings.policy_file)
     before_tick = None
     if kind == "fake":  # the fake fleet generates spans itself and goes through the real tool gate
-        executor.gate = lambda agent, tool, a, v: service.request_tool_call(store, policy, agent, tool, a, v)
+        # the gate reads the LIVE policy, so a hot reload changes the decision (A5)
+        executor.gate = lambda agent, tool, a, v: service.request_tool_call(
+            store, engine.policy_manager.policy, agent, tool, a, v)
         before_tick = executor.step
 
     log.info("Mode: %s · store: %s · judge: %s", kind.upper(),
@@ -80,7 +82,8 @@ def main() -> None:
     import uvicorn
 
     log.info("C2 API on http://localhost:%d  (docs: /docs)", settings.api_port)
-    uvicorn.run(create_app(store, policy, settings, kind, judge.provider), host=settings.api_host,
+    uvicorn.run(create_app(store, policy, settings, kind, judge.provider,
+                           policy_manager=engine.policy_manager), host=settings.api_host,
                 port=settings.api_port, log_level="warning")
 
 

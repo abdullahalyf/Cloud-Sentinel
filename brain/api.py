@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 
 from brain import service
 from brain.policy import Policy
+from brain.policy_reload import PolicyManager
+from brain.policy_schema import validate_yaml as policy_schema_validate
 from shared.config import Settings
 from shared.contracts import CONTRACT_VERSION, HEAL_DECISIONS, HEAL_STATUSES, TOOL_DECISIONS
 
@@ -27,6 +29,10 @@ class CommandIn(BaseModel):
     params: dict[str, Any] = Field(default_factory=dict)
     requested_by: str = "dashboard"
     reason: str = ""
+
+
+class PolicyValidateIn(BaseModel):
+    yaml: str = ""
 
 
 class MemoryIn(BaseModel):
@@ -63,9 +69,20 @@ def clamp_minutes(minutes: float, top: float = 24 * 60) -> float:
     return max(0.1, min(float(minutes), top)) if minutes == minutes else 5.0  # NaN → default
 
 
-def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> FastAPI:
+def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
+               policy_manager: Optional[PolicyManager] = None) -> FastAPI:
     app = FastAPI(title="CloudSentinel C2 API", version=f"contract-{CONTRACT_VERSION}",
                   description="Command & Control for AI agent fleets: observe, pause, heal, kill.")
+
+    # A5: the policy in force. The manager knows the file, so the API can also reload it and
+    # report the last error. Without a manager (a test, a script) the API still serves the
+    # policy it was given.
+    manager = policy_manager or PolicyManager(policy, cfg.policy_file, store=store,
+                                               default_budget=cfg.default_budget_usd)
+
+    def live_policy() -> Policy:
+        """The policy that is in force right now (it can change under us — A5)."""
+        return manager.policy
 
     @app.exception_handler(RequestValidationError)
     async def bad_request(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -146,7 +163,10 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
 
     @app.post("/v1/agents/{agent_id}/tool-calls", dependencies=[Depends(auth)])
     def tool_call(agent_id: str, body: ToolCallIn) -> dict:
-        return call(service.request_tool_call, store, policy, agent_id, body.tool_name, body.args, body.value_usd)
+        # the live policy, not the one from startup: A5 lets an operator change the rules
+        # without a restart
+        return call(service.request_tool_call, store, live_policy(), agent_id, body.tool_name, body.args,
+                    body.value_usd)
 
     @app.get("/v1/tool-calls", dependencies=[Depends(auth)])
     def tool_calls(status: Optional[str] = None, limit: int = 50) -> dict:
@@ -169,6 +189,25 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str) -> F
     @app.get("/v1/roi", dependencies=[Depends(auth)])
     def roi() -> dict:
         return service.roi(store, cfg.roi_horizon_minutes)
+
+    # ── policy (CONTRACTS §11) ──
+    @app.get("/v1/policy", dependencies=[Depends(auth)])
+    def get_policy() -> dict:
+        """The policy that is in force right now."""
+        return manager.view()
+
+    @app.post("/v1/policy/reload", dependencies=[Depends(auth)])
+    def reload_policy() -> dict:
+        """Re-read the policy file now, whether or not it changed."""
+        result = manager.reload_now()
+        return {"ok": result.loaded or not result.changed, "policy": manager.view(),
+                "errors": result.errors, "summary": result.summary}
+
+    @app.post("/v1/policy/validate", dependencies=[Depends(auth)])
+    def validate_policy(body: PolicyValidateIn) -> dict:
+        """Check a policy file's text. Changes nothing."""
+        errors = policy_schema_validate(body.yaml or "")
+        return {"ok": not errors, "errors": errors}
 
     # ── auto-heal proposals (CONTRACTS §7) ──
     @app.get("/v1/heal-proposals", dependencies=[Depends(auth)])

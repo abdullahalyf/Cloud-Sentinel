@@ -137,6 +137,23 @@ def get_roi_report() -> dict:
 
 
 @mcp.tool(annotations=SAFE)
+def get_policy() -> dict:
+    """The policy in force: budgets, what a tripped breaker does, and the tool-call rules."""
+    return _api("GET", "/v1/policy")
+
+
+@mcp.tool(annotations=SAFE)
+def validate_policy(yaml: str) -> dict:
+    """
+    Check a policy file's text without changing anything.
+
+    Returns the errors with the exact path of what is wrong ("tools[2].when.op: must be one of
+    gt, gte, lt, lte, eq, ne, contains"), so the file can be fixed before it is deployed.
+    """
+    return _api("POST", "/v1/policy/validate", {"yaml": yaml})
+
+
+@mcp.tool(annotations=SAFE)
 def list_heal_proposals(status: str = "pending") -> list[dict]:
     """Heal proposals waiting for a decision (the judge's proposed patches for sick agents)."""
     return _api("GET", f"/v1/heal-proposals?status={status}")["items"]
