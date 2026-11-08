@@ -884,23 +884,68 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > leak to the `secrets` job — and a scanner that cries wolf on the team's own corpus teaches the
 > team to ignore it. The measurement is unchanged; the repository holds no secret-shaped literal.
 
-### B9 · [ ] 🟡 SHOULD · The scale proof
+### B9 · [x] 🟡 SHOULD · The scale proof
 > Prompt:
 > *Benchmark the brain with 500 and then 1000 simulated agents. Report the decision latency
 > p50 / p95 / p99 and the throughput, profile and optimise the hot paths, and publish the numbers in
 > `docs/evidence/scale.md`.*
 >
 > **Owned files:** `brain/scale_bench.py` (new), `brain/tests/test_scale.py` (new),
-> `docs/evidence/scale.md` (new).
+> `docs/research/scale.md` (new).
 >
 > **Acceptance tests:** the benchmark runs 500 and 1000 agents and prints the p50 / p95 / p99 and the
-> throughput; the numbers in `docs/evidence/scale.md` come from a real run, not from a guess; the
+> throughput; the numbers in `docs/research/scale.md` come from a real run, not from a guess; the
 > tick stays inside its budget at 500 agents (the A11 budget, 200 ms at 100 agents, scaled and
 > stated); the benchmark is offline and deterministic; a regression against the published numbers
-> fails (the test reads `docs/evidence/scale.md`).
+> fails (the test reads `docs/research/scale.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Done (8 Nov).** The evidence file is at `docs/research/scale.md`, not `docs/evidence/` — the
+> folder guard gives `alif/` `docs/research/`, and `docs/evidence/` is still an open request to
+> Taseen. The file is written by the command that measured it, and a test reads it back and fails
+> if the published number and the measured number disagree.
+>
+> **What the measurement found, and what was fixed.**
+>
+> - **The rows were deep-copied to be read.** `dataclasses.asdict` is a *deep* copy. The metric
+>   row is flat, so the copy bought nothing. Profiling **the tick alone** at 1000 agents, the
+>   `dataclasses` module accounted for **94,000 of the tick's 479,817 function calls**. The batch
+>   now reads the columns straight off the row, and the tick makes **zero** `dataclasses` calls —
+>   pinned as a test.
+> - **A baseline was built for every agent on every tick and thrown away.**
+>   `setdefault(agent_id, AgentBaseline(agent_id=agent_id))` evaluates its argument *before* it
+>   looks the key up, so 1000 baselines were constructed and discarded every tick.
+> - **The chat window was walked four times.** `snapshot()` made four passes over the same deque;
+>   the two windows are nested, so one walk serves both.
+> - **The tick's cost grew with the *age* of the brain.** At 1000 agents the tick went from
+>   178 ms at tick 1 to **1183 ms at tick 120** — past the 1000 ms interval. The baseline recompute
+>   alone was 173 ms of a ~450 ms tick. The growth stops at 601 samples — the size of the
+>   600-second window — confirmed by a 1000-tick run.
+>
+> **Result:** 479,817 → 323,204 function calls per tick (−33%), 94,000 → 0 `dataclasses` calls
+> (−100%), and 10–25% off the wall clock at matched tick indices.
+>
+> **The correction that mattered.** The first conclusion — "recomputing the baseline less often
+> would chase a runaway and is therefore wrong" — was **wrong**, and the measurement said so.
+> The limit rises when the agent's recent samples rise, so recomputing on every observation
+> absorbs the runaway immediately and the limit climbs alongside it. Recomputing less often leaves
+> the limit standing on the *older, healthier* samples, so it is lower and the runaway crosses it
+> **sooner**: measured, the runaway was caught at tick 73 with an interval of 20 against tick 109
+> with an interval of 1. A stable agent is unaffected, and a creeping agent is protected better
+> (+15% drift against +35%). So `CS_BASELINE_RECOMPUTE_EVERY` ships — default `1`, the behaviour
+> before B9 — and the reasoning is in `brain/baseline.py`.
+>
+> **On the noise.** One measurement cannot classify the curve: the p95 ratio of two identical runs
+> moved between 8.5× and 27.6× over five runs of the same code. So each rung is measured three
+> times and the **minimum** p95 is published, with a `spread` column and the three repeats shown
+> so the noise can be checked. The *shape* is measured in function calls, which do not move with
+> the machine: **215.9 calls per agent at 100 agents and 215.1 at 1000**, flat to within 0.4%. The
+> wall-clock ratio is a budget question, not a shape question, and it is tested as one.
+>
+> **Contract:** `CS_BASELINE_RECOMPUTE_EVERY` — PR #88 (contract), merged first.
+> **Needs Taseen:** `docs/evidence/` is still not a folder `alif/` may write.
 
 ### B10 · [ ] 🟡 SHOULD · The team status report
 > Prompt:
