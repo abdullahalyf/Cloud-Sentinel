@@ -209,8 +209,10 @@ def test_the_cascade_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
 def test_the_audit_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
     """`/v1/audit` (B7) — the mock and the real API must say the same thing.
 
-    The real API is behind `CS_AUDIT_ENABLED`, so it is off by default and the
-    endpoint does not exist until the flag is on — a 404, not an empty report.
+    The brain side landed as PR #80, so both must serve it now. The real API is
+    behind `CS_AUDIT_ENABLED`, but unlike the backtest and the cascade it does
+    not 404 when the flag is off: it says `enabled: false` and serves the chain
+    it has. So the endpoint exists either way.
     """
     from dataclasses import replace
 
@@ -219,11 +221,8 @@ def test_the_audit_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
     real = TestClient(create_app(sim.store, sim.policy, on, "fake", "fallback"))
     mock = TestClient(mock_app)
     r, m = real.get("/v1/audit"), mock.get("/v1/audit")
-    assert m.status_code == 200, "the mock must serve /v1/audit once the contract lands"
-    if r.status_code == 404:
-        # the brain side has not landed yet — the mock leads, which is allowed
-        return
-    assert r.status_code == 200
+    assert m.status_code == 200, "the mock must serve /v1/audit"
+    assert r.status_code == 200, "the real API must serve /v1/audit now the brain side has landed"
     rb, mb = r.json(), m.json()
     missing = keys(rb) - keys(mb)
     assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
@@ -232,6 +231,23 @@ def test_the_audit_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
     # only the *shape* can be compared — and the real chain may be empty.
     if rb["entries"] and mb["entries"]:
         assert set(rb["entries"][0]) == set(mb["entries"][0])
+
+
+def test_the_audit_endpoint_exists_even_with_the_flag_off(sim, cfg):
+    """The flag decides whether the chain is *written*, not whether it is *read*.
+
+    An operator asking "is the log tamper-proof?" deserves an answer rather than
+    a 404 — and a chain written before the flag was turned off is still a chain,
+    so hiding it would be the one thing a tamper-evident log must never do.
+    """
+    from dataclasses import replace
+
+    sim.run(3)
+    off = replace(cfg, audit_enabled=False)
+    real = TestClient(create_app(sim.store, sim.policy, off, "fake", "fallback"))
+    r = real.get("/v1/audit")
+    assert r.status_code == 200
+    assert r.json()["enabled"] is False
 
 
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
