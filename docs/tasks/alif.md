@@ -106,7 +106,7 @@ and ask Taseen (H3).
 **Acceptance:** the tests above pass. With a key, Claude reaches recall ≥ 0.90, precision ≥ 0.90, p50 < 3 s and zero invalid outputs.
 If not, A2 tunes it, so write the gap down.
 
-### A2 · [ ] Judge prompt + detector threshold tuning
+### A2 · [~] (alif/puku-a2-tuning, 2026-11-08) Judge prompt + detector threshold tuning
 **Owns:** `brain/judge.py` (prompt), `brain/tuning.py` + `brain/tuning.json` (new), `shared/config.py` defaults (contract branch),
 `.env.example`, CONTRACTS §3, `docs/research/judge-eval.md`.
 > Prompt:

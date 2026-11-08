@@ -12,6 +12,7 @@ import math
 import re
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 from brain.detectors import Finding
 from brain.state import Snapshot
@@ -124,6 +125,32 @@ def _memory_fix(memory: dict) -> str:
     return ""
 
 
+def _distinct_prompts(ctx: JudgeContext) -> tuple[int, int]:
+    """(number of prompts, number of DISTINCT prompts). Repetition is one tell."""
+    prompts = [str(p.get("prompt") or "").strip() for p in ctx.prompts if p.get("prompt") is not None]
+    return len(prompts), len(set(prompts))
+
+
+def _work_is_repeating(ctx: JudgeContext) -> bool:
+    """
+    True when the agent is asking the SAME thing over and over.
+
+    A rate limit on its own is not a reason to stop an agent: a busy agent handling
+    twelve different orders is normal. What burns money is the same request repeated
+    while the spend climbs.
+
+    This is a WEAK signal and is only used where it is decisive on its own. A single
+    snapshot cannot tell a healthy agent that repeats one question (an FAQ bot, an
+    hourly cron) from a runaway one — the difference is whether the tool calls keep
+    succeeding, which the LLM judge reads from the logs. The fallback must not claim
+    more certainty than it has, so it only stops when the repetition is unambiguous.
+    """
+    total, distinct = _distinct_prompts(ctx)
+    if total < 4:
+        return False
+    return distinct == 1
+
+
 def fallback_verdict(ctx: JudgeContext, cfg: Settings, note: str = "") -> Verdict:
     """Deterministic heuristic used when no LLM is available. Conservative: PAUSE, never KILL."""
     s, prefix = ctx.snapshot, (f"[{note}] " if note else "")
@@ -147,10 +174,25 @@ def fallback_verdict(ctx: JudgeContext, cfg: Settings, note: str = "") -> Verdic
                        prefix + f"Calls {failing[-1].get('tool')} in a cycle and the last 3 calls all failed: "
                                 "retrying something that keeps failing.", "fallback", fix)
     if "memory_high" in rules:
-        return Verdict("PAUSE", 0.7, "memory_leak",
-                       prefix + f"Memory at {s.memory_pct:.0f}% and climbing: heading for a crash.", "fallback")
+        # High memory alone is not a leak: a long-lived agent sits at 70% and stays there.
+        # What crashes the container is the same work repeated until memory grows.
+        if _work_is_repeating(ctx):
+            return Verdict("PAUSE", 0.7, "memory_leak",
+                           prefix + f"Memory at {s.memory_pct:.0f}% while repeating the same request: "
+                                    "heading for a crash.", "fallback")
+        return Verdict("WARN", 0.5, "other",
+                       prefix + f"Memory at {s.memory_pct:.0f}%: watching whether it keeps growing.", "fallback")
     if "token_spike" in rules:
+        # A rate limit on its own is NOT a reason to stop an agent. A busy agent that asks
+        # the same question of ten different customers, or an hourly cron, looks exactly
+        # like a token bomb from a single snapshot — only the LLM judge, which reads the
+        # logs, can tell them apart. The fallback stays conservative and warns.
         return Verdict("WARN", 0.55, "token_spike", prefix + "Token spend is high but prompts vary.", "fallback")
+    if "budget_80pct" in rules:
+        # Most of the budget is gone. A slow leak looks exactly like legitimate work that
+        # happens to run long, so the fallback only stops it when the work is repeating.
+        return Verdict("WARN", 0.5, "other",
+                       prefix + f"{s.budget_used_pct:.0f}% of the budget is used: watching it.", "fallback")
     return Verdict("WARN", 0.5, "other", prefix + ctx.finding.text, "fallback")
 
 
@@ -187,13 +229,17 @@ class Judge:
             self.provider = "fallback"
         log.info("Judge: %s%s", self.provider, f" ({cfg.claude_model})" if self.provider == "claude" else "")
 
-    def judge(self, ctx: JudgeContext) -> Verdict:
+    def judge(self, ctx: JudgeContext, prompt_variant: Optional[str] = None) -> Verdict:
+        """
+        `prompt_variant` swaps the system prompt. Only the LLM judges use it; the
+        fallback judge is deterministic and ignores it (A2's tuning measures both).
+        """
         started = time.time()
         try:
             if self.provider == "claude":
-                v = self._claude(ctx)
+                v = self._claude(ctx, prompt_variant)
             elif self.provider == "gemini":
-                v = self._gemini(ctx)
+                v = self._gemini(ctx, prompt_variant)
             else:
                 v = fallback_verdict(ctx, self.cfg)
         except Exception as exc:
@@ -204,11 +250,22 @@ class Judge:
         v.latency_ms = round((time.time() - started) * 1000, 1)
         return v
 
-    def _claude(self, ctx: JudgeContext) -> Verdict:
+    def _system_prompt(self, prompt_variant: Optional[str]) -> str:
+        """The prompt to send. `current` (the default) is the one in production."""
+        if not prompt_variant or prompt_variant == "current":
+            return SYSTEM_PROMPT
+        try:
+            from brain.tuning import PROMPT_VARIANTS
+
+            return PROMPT_VARIANTS.get(prompt_variant, SYSTEM_PROMPT)
+        except Exception:
+            return SYSTEM_PROMPT
+
+    def _claude(self, ctx: JudgeContext, prompt_variant: Optional[str] = None) -> Verdict:
         response = self._client.messages.create(
             model=self.cfg.claude_model,
             max_tokens=1024,
-            system=SYSTEM_PROMPT,
+            system=self._system_prompt(prompt_variant),
             messages=[{"role": "user", "content": build_user_message(ctx, self.cfg)}],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": VERDICT_SCHEMA}},
         )
@@ -230,11 +287,12 @@ class Judge:
             v.cost_usd = cost_usd(self.cfg.claude_model, v.input_tokens, v.output_tokens)
         return v
 
-    def _gemini(self, ctx: JudgeContext) -> Verdict:
+    def _gemini(self, ctx: JudgeContext, prompt_variant: Optional[str] = None) -> Verdict:
         response = self._client.models.generate_content(
             model=self.cfg.gemini_model,
             contents=build_user_message(ctx, self.cfg),
-            config={"system_instruction": SYSTEM_PROMPT, "response_mime_type": "application/json"},
+            config={"system_instruction": self._system_prompt(prompt_variant),
+                    "response_mime_type": "application/json"},
         )
         data = json.loads(response.text)
         if not isinstance(data, dict):

@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from brain.detectors import Finding, Level
-from brain.judge import Judge, JudgeContext, fallback_verdict
+from brain.judge import Judge, JudgeContext, Verdict, fallback_verdict
 from brain.state import Snapshot
 from shared.config import Settings, settings
 from shared.contracts import JUDGE_ACTIONS
@@ -231,8 +231,16 @@ def false_positive_rate_by_family(rows: list[dict]) -> dict:
 
 # ── running the judge over the dataset ──────────────────────────────────────
 def run_eval(cfg: Settings, path: Path = DATASET, judge: str = "fallback", runs: int = 1,
-             only: Optional[str] = None) -> dict:
-    """Run every incident through the judge and score the result."""
+             only: Optional[str] = None, prompt_variant: Optional[str] = None,
+             reevaluate=None) -> dict:
+    """
+    Run every incident through the judge and score the result.
+
+    `prompt_variant` swaps the system prompt (used by A2's tuning).
+    `reevaluate` is a callable (snapshot, cfg) -> Finding. When given, the detectors
+    run again with the current settings, so a different threshold really does change
+    which incidents the judge is asked about.
+    """
     rows = load_dataset(path)
     if only:
         rows = [r for r in rows if only in r.family]
@@ -247,18 +255,41 @@ def run_eval(cfg: Settings, path: Path = DATASET, judge: str = "fallback", runs:
     costs: list[float] = []
     for inc in rows:
         ctx = inc.to_context()
+        flagged = True
+        if reevaluate is not None:
+            # The detectors run again with the current settings, so a different threshold
+            # really does change what the judge is asked about. If the detectors no longer
+            # flag the agent, the judge is never consulted and the breaker never acts —
+            # that is the whole point of the thresholds, so the eval must honour it.
+            new_finding = reevaluate(ctx.snapshot, judge_cfg)
+            if new_finding.level == Level.OK:
+                flagged = False
+            else:
+                ctx.finding = new_finding
         verdicts = []
         for _ in range(max(1, runs)):
-            v = j.judge(ctx)
+            if not flagged:
+                # nobody asked the judge: the agent was left running
+                v = Verdict("IGNORE", 0.0, "other", "not flagged by the detectors", "detectors")
+            else:
+                v = j.judge(ctx, prompt_variant=prompt_variant)
             verdicts.append(v)
         last = verdicts[-1]
         latencies.extend(v.latency_ms for v in verdicts)
         costs.extend(v.cost_usd for v in verdicts)
+        # The breaker only acts on PAUSE/KILL when the confidence clears
+        # BRAIN_KILL_CONFIDENCE (brain/breaker.py). Scoring the raw verdict would make that
+        # threshold look irrelevant, so the eval scores the action that actually happens:
+        # a PAUSE the breaker would ignore is a WARN.
+        effective = last.action
+        if last.action in STOP_ACTIONS and last.confidence < judge_cfg.brain_kill_confidence:
+            effective = "WARN"
         out_rows.append({
             "id": inc.id, "family": inc.family, "note": inc.note,
             "intervene": bool(inc.label.get("intervene")),
             "ok_actions": list(inc.label.get("ok_actions") or []),
-            "action": last.action, "confidence": last.confidence, "pattern": last.pattern,
+            "action": effective, "raw_action": last.action,
+            "confidence": last.confidence, "pattern": last.pattern,
             "source": last.source, "reason": last.reason, "suggested_fix": last.suggested_fix,
             "latency_ms": last.latency_ms, "cost_usd": last.cost_usd,
             "actions_seen": sorted({v.action for v in verdicts}),
