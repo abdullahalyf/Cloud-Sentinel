@@ -1278,6 +1278,78 @@ half is finished and green — **1041 passed, 4 skipped**.
 > *The B3 demo runner 20/20, the full suite, the B10 status report, and the C2 rehearsal once
 > more.*
 
+---
+
+## 🛑 Handoff — 8 Nov 2026, 15:30 UTC: stopped here on purpose (Alif ran out of tokens)
+
+**Where the C-series stands.** **C0 is done. C1's build half is done; its numbers are
+waiting on one secret.** C2 through C10 are **not started** — they are untouched, and
+each one below says what "done" means, so a fresh agent can pick them up without
+re-deriving anything.
+
+**The suite is green as of this handoff: `python -m pytest -q` → 1049 passed, 4 skipped.**
+`main` is at `23a027d`. Nothing is uncommitted.
+
+### What is DONE and merged into `main`
+
+| Task | Commit | What landed |
+| --- | --- | --- |
+| C0 | `cf13dce` | PR #96 (folder guard for `alif/`) and PR #97 (Supabase audit methods + the `to_row()` deep copy, `asdict` 4.47 µs → 1.16 µs) — **both still open, for their owners to merge** |
+| C0 (docs) | `74677db` | PR #78 — the B6 cascade docs |
+| C1a | `cbe5218` | PR #99 — `brain/judge_eval_ci.py`, the runner that writes the Claude numbers *or writes nothing*; 22 tests |
+| C1 (docs) | `524b44b` | PR #101 — Taseen's exact steps for the `ANTHROPIC_API_KEY` secret |
+| B10 | `23a027d` | PR #102 — the status report now names the human-only work ("মানুষের দরকার — Taseen") |
+
+### What is DONE but waiting on a person
+
+**C1's numbers.** The build is finished and green; only the *measurement* is missing.
+- **Taseen must merge PR #100** (`taseen/judge-eval-workflow`) — the workflow is in
+  `.github/`, which is his folder, so I did not merge it.
+- **Taseen must add one secret:** `ANTHROPIC_API_KEY` (a **$5 spend limit** is plenty —
+  the whole labelled set at 3 runs costs ≈ **$0.03** on Haiku, ≈ 10× that on Opus).
+  Exact steps: `docs/tasks/taseen.md` → "Requests from Alif's agent" → C1.
+  Check it with `gh secret list`.
+- **Then the agent's job is two commands:** `gh workflow run judge-eval.yml`, and merge the
+  PR it opens. The pack's "never measured" note becomes real numbers with a command to
+  reproduce them. **No further human step.**
+- **Check `gh secret list` after every later task** — the moment it shows up, run the above.
+
+### What is LEFT (C2–C10, in order)
+
+Each is a `### C<n>` heading above with its own acceptance note. The two that a judge
+will actually press on are **C3** (the red-team evasion numbers) and **C6** (the
+submission draft) — if the token budget allows nothing else, do those two.
+
+| Task | Priority | One-line "done" |
+| --- | --- | --- |
+| **C2** | 🔴 | The whole stack booted from `main` with the real components where they exist, and the B3 demo runner run against it. Fix what is ours; PR or note the rest. |
+| **C3** | 🔴 | Adversarial agents (slow loops, heavy paraphrasing, work split across agents, healthy pacing, budget leaks under threshold) tried against the breaker. **Evasion rate measured, detectors hardened, before/after numbers published.** |
+| **C4** | 🔴 | Two hours of a mixed fleet. Memory, CPU, latency drift and false positives tracked; the leaks fixed. |
+| **C5** | 🟡 | A STRIDE threat model for the whole system, plus an ADR for every major decision. |
+| **C6** | 🟡 | `docs/research/submission-draft.md` — all 8 required sections plus the MCP disclosure (per `docs/research/hackathon.md`). **Every claim links to a number in `pitch-numbers.md`.** |
+| **C7** | 🟡 | 40 likely judge questions with short answers, each with evidence and a command. |
+| **C8** | 🟡 | A deterministic recording of the demo runner, plus a fallback script for when the live demo fails. |
+| **C9** | 🟡 | `docs/research/self-score.md` — 1–10 per rubric criterion. Take the **2 lowest**, write ≤ 5 tasks (D1–D5), execute them, re-score **once**. |
+| **C10** | 🔴 | The closing run: B3 demo runner 20/20, the full suite, B10 status, C2 rehearsal once more. |
+
+### The rules that still apply to whoever picks this up
+
+- Every task: mark IN PROGRESS → branch → build → tests → **full suite green** → merge →
+  mark DONE → **3 Bangla lines in `docs/SUMMARY_BN.md`** → **run B10** to refresh
+  `docs/research/STATUS_BN.md`.
+- New behaviour goes **behind flags**. Contract changes are **additive only**, via a
+  `contract/` branch.
+- **Alif does nothing by hand.** Every human-only item goes to `docs/tasks/taseen.md`
+  and appears under "মানুষের দরকার" in the status report. **Never** list anything under
+  "needs Alif".
+- **A teammate's folder is never merged by Alif.** Implement the fix, open the PR into
+  their folder, and let them merge it.
+- Evidence goes in `docs/research/`. The folder guard decides what a branch may touch —
+  `.github/` is Taseen's, `shared/` is the contract folder, `eval/` is Orin's,
+  `dashboard/` is Tamjid's, `telemetry/` + `shared/store.py` are Fojle's.
+- **Freeze: 2026-11-12 23:59 Asia/Dhaka.** After that, only fixes, stability, docs and
+  submission.
+
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)
 - 2026-11-04 (lead): the flaky failure was the CrewAI adapter test (thread-pool event handlers). Fixed in telemetry/ (Fojle's folder) with `flush()` + early-completion handling; nothing to do in brain/. A10 should still watch the `adapters` job.
