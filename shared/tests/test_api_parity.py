@@ -108,6 +108,26 @@ def test_the_shapes_are_the_same_now(sim, cfg):
             f"docs/CONTRACTS.md and in MOCK_AHEAD_OF_REAL")
 
 
+def test_the_explain_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
+    """`/explain` needs an agent id, so it cannot go in the static GETS list.
+
+    The mock leads here (the contract lands the mock first, the brain branch follows),
+    so the real API's fields must be a subset of the mock's until the brain lands.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    r = real.get("/v1/agents/beta/explain")
+    m = mock.get("/v1/agents/beta/explain")
+    if r.status_code == 404:
+        # the brain side has not landed yet — the mock leads, which is allowed
+        assert m.status_code == 200, "the mock must serve /explain once the contract lands"
+        return
+    assert r.status_code == 200 and m.status_code == 200
+    rb, mb = r.json(), m.json()
+    missing = keys(rb) - keys(mb)
+    assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+
+
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
 BEHAVIOUR = [
     ("post", "/v1/agents/beta/commands", {"command": "NUKE"}),

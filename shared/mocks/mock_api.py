@@ -26,7 +26,8 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
-                              ToolCallRow, VerdictRow, agent_view, load_json, utc_now_iso)
+                              ToolCallRow, VerdictRow, agent_view, explain_event, explain_report, load_json,
+                              utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
@@ -197,6 +198,38 @@ def nodes(agent_id: str, minutes: float = 10, limit: int = 100) -> dict:
     return {"items": items[-max(1, limit):],
             "edges": [{"source": a, "target": b, "count": n} for (a, b), n in sorted(edges.items())],
             "last_node": last["node"] if last else None, "next_node": last["next"] if last else None}
+
+
+@app.get("/v1/agents/{agent_id}/explain")
+def explain(agent_id: str, minutes: float = 10) -> dict:
+    """What happened to this agent, and why (A13).
+
+    The story is built from the same fake events the mock already serves: the alert,
+    the verdict, the action and the heal proposal. The *text* comes from
+    `shared.contracts.explain_report`, so the mock and the real API say exactly the
+    same thing — that is what the golden-text test compares.
+    """
+    view = next((a for a in _fleet() if a["agent_id"] == agent_id), None)
+    if view is None:
+        _bad(404, f"agent {agent_id} not found")
+    now = time.time()
+    events: list[dict] = []
+    for a in ALERTS:
+        if a.get("agent_id") == agent_id:
+            events.append(explain_event("alert", now - 30, "rules flagged it", a.get("message", "")))
+    verdict = _verdict()
+    if agent_id == verdict["agent_id"]:
+        events.append(explain_event("verdict", now - 20, verdict["action"], verdict["reason"]))
+    for act in ACTIONS:
+        if act.get("agent_id") == agent_id:
+            events.append(explain_event("action", now - 10, act["action"], act.get("reason", "")))
+    for p in HEAL_PROPOSALS.values():
+        if p.get("agent_id") == agent_id:
+            events.append(explain_event("heal", now - 5, p.get("kind", "patch"), p.get("reason", "")))
+    events.sort(key=lambda e: e["ts"])
+    saved = sum(float(a.get("saved_usd") or 0) for a in ACTIONS if a.get("agent_id") == agent_id)
+    return explain_report(agent_id, view["state"], events, minutes=minutes,
+                           spend_usd=view["spend_usd"], budget_usd=view["budget_usd"], saved_usd=saved)
 
 
 @app.get("/v1/metrics")

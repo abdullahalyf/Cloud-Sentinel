@@ -426,3 +426,132 @@ def agent_view(agent: dict, metric: Optional[dict], verdict: Optional[dict]) -> 
 ROI_FORMULA = ("KILL/PAUSE: saved = $/min at the moment of action × horizon (how long a runaway agent would "
                "burn before a human notices). TOOL_DENY: saved = value at stake. "
                "TOOL_REWRITE: saved = value at stake × (1 − new amount / old amount).")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. The incident explanation (CONTRACTS §6, A13)
+# ─────────────────────────────────────────────────────────────────────────────
+# The explanation is built here, in the contract folder, because the **mock API and the
+# real API must say the same thing**. The mock (dashboard development) and the brain
+# (production) live in different folders, and a golden-text test compares them. If the
+# text were written twice — once in `shared/mocks/` and once in `brain/` — the two would
+# drift, and the golden test would be testing the mock against itself.
+#
+# It is deliberately deterministic: no key, no network, no clock of its own. The same
+# agent and the same events always produce the same paragraph. That is what makes it
+# testable and what makes it safe to cache. The optional Claude polish is added by the
+# caller (the brain), never here.
+
+# The words a verdict's action is described with, in the summary.
+_ACTION_WORDS = {
+    "KILL": "killed",
+    "PAUSE": "paused",
+    "WARN": "warned about",
+    "IGNORE": "left alone",
+}
+
+
+def explain_event(kind: str, ts: float, title: str, detail: str = "") -> dict:
+    """One link in the story. The shape is the contract, so it is built here."""
+    return {"kind": kind, "ts": round(float(ts or 0), 1), "title": str(title), "detail": str(detail)}
+
+
+def explain_summary(agent_id: str, state: str, events: list[dict], spend_usd: float = 0.0,
+                    budget_usd: float = 0.0, saved_usd: float = 0.0) -> str:
+    """
+    The plain-English paragraph: what happened to this agent, and why.
+
+    Deterministic on purpose — the same events always produce the same words, so a
+    golden-text test can pin them and a dashboard can cache them.
+    """
+    state = (state or "unknown").upper()
+    spend = float(spend_usd or 0.0)
+    budget = float(budget_usd or 0.0)
+
+    if not events:
+        return (f"{agent_id} is {state}. Nothing happened in this window: no alert fired, no judge "
+                f"verdict was reached, and no action was taken.")
+
+    # The last thing that happened to it is the outcome.
+    outcome = events[-1]
+    kind = outcome.get("kind")
+    if kind == "action":
+        verb = _ACTION_WORDS.get(str(outcome.get("title", "")).upper(),
+                                 str(outcome.get("title", "acted on")))
+        head = f"{agent_id} is {state}: the brain {verb} it."
+    elif kind == "verdict":
+        action = str(outcome.get("title", "")).upper()
+        head = (f"{agent_id} is {state}: the judge decided {action}, "
+                f"and the breaker did not act on it.")
+    elif kind == "alert":
+        head = f"{agent_id} is {state}: the rules flagged it and the judge has not answered yet."
+    elif kind == "heal":
+        head = f"{agent_id} is {state}: a fix was applied and it is back at work."
+    else:
+        head = f"{agent_id} is {state}."
+
+    counts: dict[str, int] = {}
+    for e in events:
+        k = str(e.get("kind"))
+        counts[k] = counts.get(k, 0) + 1
+    parts = [f"{n} {k}{'s' if n != 1 else ''}" for k, n in sorted(counts.items()) if k in
+             ("alert", "verdict", "action", "heal")]
+    if parts:
+        head += " In this window there were " + ", ".join(parts) + "."
+
+    if budget > 0:
+        head += f" It has spent ${spend:.4f} of its ${budget:.2f} budget."
+    if saved_usd > 0:
+        head += f" That intervention saved about ${saved_usd:.2f}."
+
+    # The reason the judge gave, when there was one.
+    for e in reversed(events):
+        if e.get("kind") == "verdict" and e.get("detail"):
+            head += f" The judge said: {e['detail']}"
+            break
+    return head
+
+
+def explain_report(agent_id: str, state: str, events: list[dict], minutes: float = 10.0,
+                   spend_usd: float = 0.0, budget_usd: float = 0.0, saved_usd: float = 0.0) -> dict:
+    """
+    The whole `ExplainReport` (CONTRACTS §6).
+
+    `polished_summary` is always `None` here: the Claude polish is the brain's job, and it
+    must never be able to break the endpoint. A client renders `polished_summary` when it
+    is there and falls back to `summary` when it is `None`.
+    """
+    events = list(events or [])
+    counts = {"alerts": 0, "verdicts": 0, "actions": 0, "heals": 0}
+    for e in events:
+        k = str(e.get("kind"))
+        if k == "alert":
+            counts["alerts"] += 1
+        elif k == "verdict":
+            counts["verdicts"] += 1
+        elif k == "action":
+            counts["actions"] += 1
+        elif k == "heal":
+            counts["heals"] += 1
+    outcome = None
+    for e in reversed(events):
+        if e.get("kind") == "action":
+            outcome = str(e.get("title") or "") or None
+            break
+    if outcome is None:
+        for e in reversed(events):
+            if e.get("kind") == "verdict":
+                outcome = str(e.get("title") or "") or None
+                break
+    return {
+        "agent_id": agent_id,
+        "state": state or "unknown",
+        "minutes": float(minutes),
+        "summary": explain_summary(agent_id, state or "unknown", events, spend_usd, budget_usd, saved_usd),
+        "polished_summary": None,
+        "events": events,
+        "counts": counts,
+        "outcome": outcome,
+        "cost": {"spend_usd": float(spend_usd or 0.0), "budget_usd": float(budget_usd or 0.0),
+                 "saved_usd": float(saved_usd or 0.0)},
+    }
