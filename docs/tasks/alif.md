@@ -477,7 +477,7 @@ having in the store for the *other* users — a `store.transaction()` context ma
 caller batch and would be a nicer API than the brain reaching into `store._conn`. Noted in
 `docs/tasks/fojle.md`, with the rule about baselines that a general version has to keep.
 
-### A12 · [ ] Judge v2: cost cap + model comparison
+### A12 · [ ] IN PROGRESS (Puku) · Judge v2: cost cap + model comparison
 - An hourly judge spend cap (`CS_JUDGE_MAX_USD_PER_HOUR`, contract). Above it, use the fallback and write an alert.
 - Bangla/English mixed prompts in the dataset.
 - Run brain.judge_eval for the fallback and for every Claude model available to the key (and Gemini if a key exists).

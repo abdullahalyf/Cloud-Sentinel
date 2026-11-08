@@ -22,6 +22,7 @@ from brain.breaker import Breaker, Effect
 from brain.detectors import Finding, evaluate
 from brain.heal import PatchRejected, decide as decide_heal, may_autoheal, propose as propose_heal, validate
 from brain.judge import Judge, JudgeContext, Verdict
+from brain.judge_spend import CAPPED_ALERT_RULE
 from brain.policy import Policy
 from brain.policy_reload import PolicyManager
 from brain.sharding import Shard
@@ -48,6 +49,7 @@ class Engine:
         self.pending: dict[str, Future] = {}
         self.last_autoheal: dict[str, float] = {}   # agent → when we last auto-healed it
         self.last_finding: dict[str, Finding] = {}  # agent → the finding the judge last saw
+        self._capped_alerted: set[str] = set()      # agents we already told about the cap (A12)
         self.cursor = 0
         self.runtime_ids: Optional[set] = None
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
@@ -318,6 +320,8 @@ class Engine:
             # the judge was not confident enough to stop the agent, but it still has an idea:
             # file it as a proposal so a human can look at it. Nothing is changed.
             self._propose_only(agent_id, v, verdict_id)
+        if v.source == "fallback" and self._capped_now():
+            self._alert_capped(agent_id)
 
     # ── auto-heal ────────────────────────────────────────────────────────────
     def _propose_only(self, agent_id: str, v: Verdict, verdict_id: int) -> None:
@@ -434,6 +438,28 @@ class Engine:
 
     def _alert(self, agent_id: str, f: Finding, critical: bool) -> None:
         self.store.insert_alert(AlertRow(agent_id, "critical" if critical else "warning", ",".join(f.rules), f.text))
+
+    # ── the judge's spend cap (A12) ──────────────────────────────────────────
+    def _capped_now(self) -> bool:
+        """True when the LLM judge is over its hourly cap."""
+        spend = getattr(self.judge, "spend", None)
+        return bool(spend is not None and spend.capped())
+
+    def _alert_capped(self, agent_id: str) -> None:
+        """Tell the operator that the LLM judge is off because of the spend cap.
+
+        The alert is written once per agent, not once per verdict: a fleet of forty
+        agents asking the judge every minute would otherwise bury the dashboard under
+        the same line forty times a minute.
+        """
+        if agent_id in self._capped_alerted:
+            return
+        self._capped_alerted.add(agent_id)
+        spend = self.judge.spend
+        message = (f"The LLM judge is over its hourly cap (${self.cfg.judge_max_usd_per_hour:.2f}); "
+                   f"the deterministic judge is deciding instead. Spent ${spend.spend():.4f} in the last hour.")
+        log.warning("%s — %s", agent_id, message)
+        self.store.insert_alert(AlertRow(agent_id, "warning", CAPPED_ALERT_RULE, message))
 
     def _record(self, agent_id: str, br: Breaker, snap: Snapshot, rt: Optional[RuntimeInfo]) -> None:
         # A11: both rows go into the tick's batch instead of straight to the store, so

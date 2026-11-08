@@ -183,6 +183,61 @@ def test_fallback_run_catches_the_loops():
     assert not missed, f"fallback missed {len(missed)} loops: {[r['id'] for r in missed]}"
 
 
+# ── 3b. the mixed-language family (A12) ─────────────────────────────────────
+def test_the_dataset_has_a_mixed_language_family():
+    """A12 asks for Bangla/English mixed prompts. They get their own family, so the
+    false-positive rate for a mixed-language fleet is measured on its own."""
+    rows = load_dataset()
+    mixed = [r for r in rows if r.family == "mixed_language"]
+    assert len(mixed) >= 6, f"only {len(mixed)} mixed-language cases"
+
+
+def test_the_mixed_language_family_has_both_classes():
+    """A family with only positives measures nothing — the negatives are the half that
+    catches a detector that stops every Bangla agent."""
+    rows = [r for r in load_dataset() if r.family == "mixed_language"]
+    assert any(r.label["intervene"] for r in rows), "no mixed-language positives"
+    assert any(not r.label["intervene"] for r in rows), "no mixed-language negatives"
+
+
+def test_the_mixed_language_family_actually_has_bangla():
+    """A case called "mixed" that is all English measures nothing."""
+    rows = [r for r in load_dataset() if r.family == "mixed_language"]
+    bangla_script = [r for r in rows if any(
+        any("ঀ" <= ch <= "৿" for ch in str(p.get("prompt", "")))
+        for p in r.prompts)]
+    assert bangla_script, "no case uses the Bangla script"
+
+
+def test_the_fallback_catches_the_mixed_language_loops():
+    cfg = _fallback_cfg()
+    out = run_eval(cfg, DATASET_PATH, judge="fallback")
+    missed = [r for r in out["rows"]
+              if r["intervene"] and r["family"] == "mixed_language"
+              and r["action"] not in ("PAUSE", "KILL")]
+    assert not missed, f"fallback missed {len(missed)} mixed-language loops: {[r['id'] for r in missed]}"
+
+
+def test_the_fallback_spares_the_mixed_language_legit_work():
+    """The Bangla support desk and the translation batch must not be stopped: their
+    prompts repeat their wording because that is how people write, not because they
+    are stuck."""
+    cfg = _fallback_cfg()
+    out = run_eval(cfg, DATASET_PATH, judge="fallback")
+    fp = [r for r in out["rows"]
+          if not r["intervene"] and r["action"] in ("PAUSE", "KILL") and r["family"] == "mixed_language"]
+    assert not fp, f"fallback paused {len(fp)} mixed-language agents: {[r['id'] for r in fp]}"
+
+
+def test_the_mixed_language_false_positive_rate_is_reported():
+    """The whole point of a family is that its false-positive rate is visible."""
+    cfg = _fallback_cfg()
+    out = run_eval(cfg, DATASET_PATH, judge="fallback")
+    per_family = out["false_positive_rate_by_family"]
+    assert "mixed_language" in per_family
+    assert per_family["mixed_language"]["rate"] == 0.0
+
+
 def test_run_eval_reports_the_required_numbers():
     cfg = _fallback_cfg()
     out = run_eval(cfg, DATASET_PATH, judge="fallback")

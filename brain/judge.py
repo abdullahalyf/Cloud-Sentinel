@@ -16,6 +16,7 @@ from typing import Optional
 from typing import Optional
 
 from brain.detectors import Finding
+from brain.judge_spend import JudgeSpend
 from brain.state import Snapshot
 from shared.config import Settings
 from shared.contracts import JUDGE_ACTIONS, PATTERNS
@@ -287,10 +288,14 @@ def parse_verdict(data: dict, source: str) -> Verdict:
 
 
 class Judge:
-    def __init__(self, cfg: Settings):
+    def __init__(self, cfg: Settings, spend=None, clock=None):
         self.cfg = cfg
         self.provider = cfg.judge
         self._client = None
+        # A12: the hourly spend cap. `spend` is injected so a test can drive it with a
+        # fake clock; `clock` is what the cap measures against (the engine's own clock,
+        # not a second one that drifts away from it).
+        self.spend = spend if spend is not None else JudgeSpend(cfg.judge_max_usd_per_hour, clock=clock)
         try:
             if self.provider == "claude":
                 import anthropic
@@ -311,20 +316,35 @@ class Judge:
         fallback judge is deterministic and ignores it (A2's tuning measures both).
         """
         started = time.time()
-        try:
-            if self.provider == "claude":
-                v = self._claude(ctx, prompt_variant)
-            elif self.provider == "gemini":
-                v = self._gemini(ctx, prompt_variant)
-            else:
-                v = fallback_verdict(ctx, self.cfg)
-        except Exception as exc:
-            log.error("%s judge failed: %s", self.provider, exc)
-            v = fallback_verdict(ctx, self.cfg, f"{self.provider} unavailable")
+        if self._over_cap():
+            # A12: the cap is reached. The deterministic judge takes over, and the
+            # verdict says why, so the operator reading the dashboard sees the reason
+            # and not just a different-looking verdict.
+            v = fallback_verdict(ctx, self.cfg, f"judge cost capped at "
+                                               f"${self.cfg.judge_max_usd_per_hour:.2f}/hour")
+        else:
+            try:
+                if self.provider == "claude":
+                    v = self._claude(ctx, prompt_variant)
+                elif self.provider == "gemini":
+                    v = self._gemini(ctx, prompt_variant)
+                else:
+                    v = fallback_verdict(ctx, self.cfg)
+            except Exception as exc:
+                log.error("%s judge failed: %s", self.provider, exc)
+                v = fallback_verdict(ctx, self.cfg, f"{self.provider} unavailable")
+            if v.source != "fallback":
+                self.spend.record(v.cost_usd)
         if v.source != "fallback" and not v.suggested_fix:
             v.suggested_fix = _memory_fix(ctx.memory) if v.pattern in ("semantic_loop", "infinite_loop") else ""
         v.latency_ms = round((time.time() - started) * 1000, 1)
         return v
+
+    def _over_cap(self) -> bool:
+        """True when the LLM judge must not be called because of the spend cap."""
+        if self.provider == "fallback":
+            return False        # there is nothing to cap: the fallback costs nothing
+        return self.spend.capped()
 
     def _system_prompt(self, prompt_variant: Optional[str]) -> str:
         """The prompt to send. `current` (the default) is the one in production."""

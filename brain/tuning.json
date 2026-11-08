@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-08 03:50 UTC",
+  "generated_at": "2026-11-08 05:51 UTC",
   "judge": "fallback",
   "dataset": "brain\\eval_data\\incidents.jsonl",
   "before": {
@@ -26,14 +26,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -46,14 +46,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -66,14 +66,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -86,14 +86,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -106,14 +106,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -126,14 +126,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -146,14 +146,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -166,14 +166,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -186,14 +186,14 @@
       "loop_repeat_threshold": 6,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -206,14 +206,14 @@
       "loop_repeat_threshold": 10,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -226,14 +226,14 @@
       "loop_repeat_threshold": 12,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -246,14 +246,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -266,14 +266,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -286,14 +286,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -306,14 +306,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -326,14 +326,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -346,14 +346,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -366,14 +366,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -386,14 +386,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -406,14 +406,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -426,14 +426,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -446,14 +446,14 @@
       "loop_repeat_threshold": 6,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -466,14 +466,14 @@
       "loop_repeat_threshold": 10,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -486,14 +486,14 @@
       "loop_repeat_threshold": 12,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -506,14 +506,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -526,14 +526,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -546,14 +546,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -566,14 +566,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -586,14 +586,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -606,14 +606,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -626,14 +626,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -646,14 +646,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -666,14 +666,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -686,14 +686,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -706,14 +706,14 @@
       "loop_repeat_threshold": 6,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -726,14 +726,14 @@
       "loop_repeat_threshold": 10,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -746,14 +746,14 @@
       "loop_repeat_threshold": 12,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -766,14 +766,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -786,14 +786,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.8065,
-      "f1": 0.8929,
+      "recall": 0.8235,
+      "f1": 0.9032,
       "false_positives": 0,
       "false_negatives": 6,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.8064516129032258,
+        0.8235294117647058,
         1.0,
         -6
       ]
@@ -806,14 +806,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -826,14 +826,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -846,14 +846,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -866,14 +866,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -886,14 +886,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -906,14 +906,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -926,14 +926,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -946,14 +946,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -966,14 +966,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -986,14 +986,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1006,14 +1006,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1026,14 +1026,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1046,14 +1046,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1066,14 +1066,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1086,14 +1086,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1106,14 +1106,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1126,14 +1126,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1146,14 +1146,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1166,14 +1166,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1186,14 +1186,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1206,14 +1206,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1226,14 +1226,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1246,14 +1246,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1266,14 +1266,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7742,
-      "f1": 0.8727,
+      "recall": 0.7941,
+      "f1": 0.8852,
       "false_positives": 0,
       "false_negatives": 7,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7741935483870968,
+        0.7941176470588235,
         1.0,
         -7
       ]
@@ -1286,14 +1286,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1306,14 +1306,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1326,14 +1326,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1346,14 +1346,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1366,14 +1366,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1386,14 +1386,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1406,14 +1406,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1426,14 +1426,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1446,14 +1446,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1466,14 +1466,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1486,14 +1486,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1506,14 +1506,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7419,
-      "f1": 0.8519,
+      "recall": 0.7647,
+      "f1": 0.8667,
       "false_positives": 0,
       "false_negatives": 8,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7419354838709677,
+        0.7647058823529411,
         1.0,
         -8
       ]
@@ -1526,14 +1526,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.7097,
-      "f1": 0.8302,
+      "recall": 0.7353,
+      "f1": 0.8475,
       "false_positives": 0,
       "false_negatives": 9,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7096774193548387,
+        0.7352941176470589,
         1.0,
         -9
       ]
@@ -1546,14 +1546,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.7097,
-      "f1": 0.8302,
+      "recall": 0.7353,
+      "f1": 0.8475,
       "false_positives": 0,
       "false_negatives": 9,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7096774193548387,
+        0.7352941176470589,
         1.0,
         -9
       ]
@@ -1566,14 +1566,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.7097,
-      "f1": 0.8302,
+      "recall": 0.7353,
+      "f1": 0.8475,
       "false_positives": 0,
       "false_negatives": 9,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.7096774193548387,
+        0.7352941176470589,
         1.0,
         -9
       ]
@@ -1586,14 +1586,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
       "precision": 1.0,
-      "recall": 0.6774,
-      "f1": 0.8077,
+      "recall": 0.7059,
+      "f1": 0.8276,
       "false_positives": 0,
       "false_negatives": 10,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.6774193548387096,
+        0.7058823529411765,
         1.0,
         -10
       ]
@@ -1606,14 +1606,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
       "precision": 1.0,
-      "recall": 0.6774,
-      "f1": 0.8077,
+      "recall": 0.7059,
+      "f1": 0.8276,
       "false_positives": 0,
       "false_negatives": 10,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.6774193548387096,
+        0.7058823529411765,
         1.0,
         -10
       ]
@@ -1626,14 +1626,14 @@
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
       "precision": 1.0,
-      "recall": 0.6774,
-      "f1": 0.8077,
+      "recall": 0.7059,
+      "f1": 0.8276,
       "false_positives": 0,
       "false_negatives": 10,
       "false_positive_rate": 0.0,
       "objective": [
         0,
-        0.6774193548387096,
+        0.7058823529411765,
         1.0,
         -10
       ]
@@ -1649,13 +1649,13 @@
       "recall": 0.0,
       "f1": 0.0,
       "false_positives": 0,
-      "false_negatives": 31,
+      "false_negatives": 34,
       "false_positive_rate": 0.0,
       "objective": [
         0,
         0.0,
         0.0,
-        -31
+        -34
       ]
     },
     {
@@ -1669,13 +1669,13 @@
       "recall": 0.0,
       "f1": 0.0,
       "false_positives": 0,
-      "false_negatives": 31,
+      "false_negatives": 34,
       "false_positive_rate": 0.0,
       "objective": [
         0,
         0.0,
         0.0,
-        -31
+        -34
       ]
     },
     {
@@ -1689,13 +1689,13 @@
       "recall": 0.0,
       "f1": 0.0,
       "false_positives": 0,
-      "false_negatives": 31,
+      "false_negatives": 34,
       "false_positive_rate": 0.0,
       "objective": [
         0,
         0.0,
         0.0,
-        -31
+        -34
       ]
     },
     {
@@ -1705,16 +1705,16 @@
       "soft_memory_pct": 70.0,
       "loop_repeat_threshold": 8,
       "prompt_variant": "current",
-      "precision": 0.9615,
-      "recall": 0.8065,
-      "f1": 0.8772,
+      "precision": 0.9655,
+      "recall": 0.8235,
+      "f1": 0.8889,
       "false_positives": 1,
       "false_negatives": 6,
-      "false_positive_rate": 0.0303,
+      "false_positive_rate": 0.0278,
       "objective": [
         -1,
-        0.8064516129032258,
-        0.9615384615384616,
+        0.8235294117647058,
+        0.9655172413793104,
         -6
       ]
     },
@@ -1725,16 +1725,16 @@
       "soft_memory_pct": 70.0,
       "loop_repeat_threshold": 4,
       "prompt_variant": "current",
-      "precision": 0.9615,
-      "recall": 0.8065,
-      "f1": 0.8772,
+      "precision": 0.9655,
+      "recall": 0.8235,
+      "f1": 0.8889,
       "false_positives": 1,
       "false_negatives": 6,
-      "false_positive_rate": 0.0303,
+      "false_positive_rate": 0.0278,
       "objective": [
         -1,
-        0.8064516129032258,
-        0.9615384615384616,
+        0.8235294117647058,
+        0.9655172413793104,
         -6
       ]
     },
@@ -1745,16 +1745,16 @@
       "soft_memory_pct": 70.0,
       "loop_repeat_threshold": 8,
       "prompt_variant": "few_shot",
-      "precision": 0.9615,
-      "recall": 0.8065,
-      "f1": 0.8772,
+      "precision": 0.9655,
+      "recall": 0.8235,
+      "f1": 0.8889,
       "false_positives": 1,
       "false_negatives": 6,
-      "false_positive_rate": 0.0303,
+      "false_positive_rate": 0.0278,
       "objective": [
         -1,
-        0.8064516129032258,
-        0.9615384615384616,
+        0.8235294117647058,
+        0.9655172413793104,
         -6
       ]
     },
@@ -1765,16 +1765,16 @@
       "soft_memory_pct": 70.0,
       "loop_repeat_threshold": 4,
       "prompt_variant": "few_shot",
-      "precision": 0.9615,
-      "recall": 0.8065,
-      "f1": 0.8772,
+      "precision": 0.9655,
+      "recall": 0.8235,
+      "f1": 0.8889,
       "false_positives": 1,
       "false_negatives": 6,
-      "false_positive_rate": 0.0303,
+      "false_positive_rate": 0.0278,
       "objective": [
         -1,
-        0.8064516129032258,
-        0.9615384615384616,
+        0.8235294117647058,
+        0.9655172413793104,
         -6
       ]
     },
@@ -1785,16 +1785,16 @@
       "soft_memory_pct": 70.0,
       "loop_repeat_threshold": 8,
       "prompt_variant": "checklist",
-      "precision": 0.9615,
-      "recall": 0.8065,
-      "f1": 0.8772,
+      "precision": 0.9655,
+      "recall": 0.8235,
+      "f1": 0.8889,
       "false_positives": 1,
       "false_negatives": 6,
-      "false_positive_rate": 0.0303,
+      "false_positive_rate": 0.0278,
       "objective": [
         -1,
-        0.8064516129032258,
-        0.9615384615384616,
+        0.8235294117647058,
+        0.9655172413793104,
         -6
       ]
     },
@@ -1805,16 +1805,16 @@
       "soft_memory_pct": 70.0,
       "loop_repeat_threshold": 4,
       "prompt_variant": "checklist",
-      "precision": 0.9615,
-      "recall": 0.8065,
-      "f1": 0.8772,
+      "precision": 0.9655,
+      "recall": 0.8235,
+      "f1": 0.8889,
       "false_positives": 1,
       "false_negatives": 6,
-      "false_positive_rate": 0.0303,
+      "false_positive_rate": 0.0278,
       "objective": [
         -1,
-        0.8064516129032258,
-        0.9615384615384616,
+        0.8235294117647058,
+        0.9655172413793104,
         -6
       ]
     }
