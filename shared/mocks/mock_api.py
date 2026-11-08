@@ -109,13 +109,24 @@ def seed() -> None:
 seed()
 
 
+def _baseline(agent: str) -> dict:
+    """A learned baseline per agent (A4): {metric: {median, limit, samples}}."""
+    base = {"alpha": 4000, "beta": 3500, "gamma": 5000, "delta": 2500}[agent]
+    return {
+        "tokens_per_min": {"median": base, "limit": int(base * 1.6), "samples": 120},
+        "usd_per_min": {"median": round(base * 4e-6, 5), "limit": round(base * 6.4e-6, 5), "samples": 120},
+        "calls_per_sec": {"median": 0.2, "limit": 0.8, "samples": 120},
+    }
+
+
 def _fleet() -> list[dict]:
     now = time.time()
     out = []
     for a in AGENTS:
         m = _metric(a, now)
         row = {"agent_id": a, "display_name": a, "runtime": "mock", "state": _state(a), "budget_usd": BUDGETS[a],
-               "spend_usd": m["spend_usd"], "total_tokens": m["total_tokens"], "updated_at": utc_now_iso()}
+               "spend_usd": m["spend_usd"], "total_tokens": m["total_tokens"], "baseline": _baseline(a),
+               "updated_at": utc_now_iso()}
         out.append(agent_view(row, m, _verdict() if a == "beta" and _state(a) != "healthy" else None))
     return out
 

@@ -75,6 +75,9 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `PROBATION_SECONDS` | 30 | brain | |
 | `CS_AUTOHEAL` *(added 8 Nov)* | `true` | brain | apply a confident judge patch automatically; false → every patch waits for a human |
 | `CS_AUTOHEAL_MIN_CONFIDENCE` *(added 8 Nov)* | `0.85` | brain | judge confidence at or above which a patch is applied without a human |
+| `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
+| `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
+| `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
 | `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
@@ -133,7 +136,7 @@ Every table has `id` (auto increment). Columns marked JSON are TEXT containing J
 
 | Table | Columns | Written by | Read by |
 |---|---|---|---|
-| `agents` (PK `agent_id`, upsert) | agent_id, display_name, runtime, runtime_id, state, budget_usd, spend_usd, total_tokens, last_seen_ts, updated_at | brain | api |
+| `agents` (PK `agent_id`, upsert) | agent_id, display_name, runtime, runtime_id, state, budget_usd, spend_usd, total_tokens, last_seen_ts, baseline (JSON), updated_at | brain | api |
 | `spans` | trace_id, span_id, parent_span_id, agent_id, operation, name, provider, model, input_tokens, output_tokens, cost_usd, tool_name, tool_args (JSON), prompt_preview, prompt_hash, task_id, task_status, status (`ok`·`error`), error_type, start_ts, end_ts, duration_ms, detail (JSON; `graph_node`: `{node, step, framework, changed, next}`, else `{}`), created_at | collector / fake fleet | brain, api, eval |
 | `agent_metrics` | agent_id, state, tokens_per_min, usd_per_min, calls_per_sec, total_tokens, spend_usd, budget_usd, exact_repeats, loop_score, tool_cycle (0/1), memory_mb, memory_pct, created_at | brain | api, eval |
 | `alerts` | agent_id, severity (`info`·`warning`·`critical`), rule, message, created_at | brain | api |
@@ -200,7 +203,12 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 
 **`AgentView`** = `agents` row + latest metric:
 `{agent_id, display_name, runtime, state, budget_usd, spend_usd, total_tokens, tokens_per_min, usd_per_min,
-calls_per_sec, exact_repeats, loop_score, tool_cycle, memory_pct, last_verdict: VerdictRow|null, updated_at}`
+calls_per_sec, exact_repeats, loop_score, tool_cycle, memory_pct, baseline: {metric: {median, limit, samples}},
+last_verdict: VerdictRow|null, updated_at}`
+
+**`baseline`** *(added 8 Nov)* — the agent's own learned limits, so the dashboard can say "normal for this
+agent". `{metric: {median: float, limit: float, samples: int}}` for `tokens_per_min`, `usd_per_min` and
+`calls_per_sec`. Empty `{}` while the agent is still in warmup.
 
 **`NodeFeed`** (LangGraph/CrewAI flow, oldest → newest):
 `{"items": [{ts, node, step, framework, changed: {key: preview}, next, status, duration_ms, trace_id}],

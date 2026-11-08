@@ -31,6 +31,20 @@ def test_agents_upsert(store):
     assert store.get_agent("nobody") is None
 
 
+def test_the_agent_baseline_survives_a_round_trip(store):
+    """A4: the baseline is JSON, so it comes back as a dict — not as the text it was written as."""
+    baseline = {"tokens_per_min": {"median": 4000, "limit": 6400, "samples": 120}}
+    store.upsert_agent(AgentRow("beta", baseline=baseline))
+    got = store.get_agent("beta")["baseline"]
+    assert got == baseline
+    # a later upsert keeps the baseline it already had
+    store.upsert_agent(AgentRow("beta", state="healthy"))
+    assert store.get_agent("beta")["baseline"] == baseline
+    # and a row without one is an empty baseline, never a crash
+    store.upsert_agent(AgentRow("gamma"))
+    assert store.get_agent("gamma")["baseline"] == {}
+
+
 def test_spans_cursor_and_recent(store):
     now = time.time()
     store.insert_spans([SpanRow("a", "chat", "chat sim", start_ts=now - i, tool_args={"x": i}) for i in range(3)])

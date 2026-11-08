@@ -36,5 +36,17 @@ def test_agent_view_has_contract_keys():
     v = agent_view({"agent_id": "beta", "state": "paused"}, {"usd_per_min": 0.1, "tool_cycle": 1}, None)
     assert set(v) == {"agent_id", "display_name", "runtime", "state", "budget_usd", "spend_usd", "total_tokens",
                       "tokens_per_min", "usd_per_min", "calls_per_sec", "exact_repeats", "loop_score", "tool_cycle",
-                      "memory_pct", "last_verdict", "updated_at"}
+                      "memory_pct", "baseline", "last_verdict", "updated_at"}
     assert v["tool_cycle"] is True and v["state"] == "paused"
+
+
+def test_agent_view_carries_the_baseline():
+    """The baseline is a dict (decoded from the JSON column) — the dashboard reads it."""
+    baseline = {"tokens_per_min": {"median": 4000, "limit": 6400, "samples": 120}}
+    v = agent_view({"agent_id": "beta", "baseline": baseline}, {}, None)
+    assert v["baseline"] == baseline
+    # a row that still holds the JSON text (the raw column) decodes too
+    v2 = agent_view({"agent_id": "beta", "baseline": '{"tokens_per_min": {"median": 4000}}'}, {}, None)
+    assert v2["baseline"] == {"tokens_per_min": {"median": 4000}}
+    # and a missing column is an empty baseline, never a crash
+    assert agent_view({"agent_id": "beta"}, {}, None)["baseline"] == {}

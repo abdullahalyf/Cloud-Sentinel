@@ -183,7 +183,13 @@ class AgentRow(_Row):
     spend_usd: float = 0.0
     total_tokens: int = 0
     last_seen_ts: float = 0.0
+    baseline: str = "{}"            # JSON text; adaptive per-agent limits (A4)
     updated_at: str = field(default_factory=utc_now_iso)
+
+    def to_row(self) -> dict:
+        d = asdict(self)
+        d["baseline"] = _dump(self.baseline)
+        return d
 
 
 @dataclass
@@ -370,6 +376,9 @@ class Executor(Protocol):
 def agent_view(agent: dict, metric: Optional[dict], verdict: Optional[dict]) -> dict:
     """Build the AgentView JSON from an agents row + latest metric + latest verdict."""
     m = metric or {}
+    baseline = agent.get("baseline")
+    if isinstance(baseline, str):
+        baseline = load_json(baseline)
     return {
         "agent_id": agent["agent_id"],
         "display_name": agent.get("display_name") or agent["agent_id"],
@@ -385,6 +394,7 @@ def agent_view(agent: dict, metric: Optional[dict], verdict: Optional[dict]) -> 
         "loop_score": float(m.get("loop_score") or 0),
         "tool_cycle": bool(m.get("tool_cycle") or 0),
         "memory_pct": float(m.get("memory_pct") or 0),
+        "baseline": baseline if isinstance(baseline, dict) else {},
         "last_verdict": verdict,
         "updated_at": agent.get("updated_at", ""),
     }
