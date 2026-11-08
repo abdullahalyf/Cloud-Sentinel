@@ -490,8 +490,30 @@ class SupabaseStore:
     def upsert_agent(self, row: AgentRow) -> None:
         raise NotImplementedError("Fojle Day 2")
 
+    # ── the spans (implemented here, because the brain cannot write them) ────
     def insert_spans(self, rows: list[SpanRow]) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """
+        Write a batch of spans.
+
+        `SpanRow.to_row()` gives the **exact** columns of the `spans` table,
+        minus the `id` column — which Postgres generates itself (`bigint
+        generated always as identity`). Sending `id` would fail, and sending
+        fewer columns than the table has would fail too, so the row is sent
+        as `to_row()` produces it, unchanged.
+
+        `tool_args` and `detail` are `text` columns holding JSON text (the
+        schema says so), so they go over the wire as the strings they already
+        are. They are decoded back into Python objects on the way out by
+        `decode()`, the same as every other store.
+
+        The batch is sent as one insert, not one request per span: the brain
+        writes a batch every tick, and a per-row request would turn one write
+        into dozens of round trips.
+        """
+        if not rows:
+            return
+        payload = [r.to_row() for r in rows]
+        self._db.table("spans").insert(payload).execute()
 
     def insert_metric(self, row: MetricRow) -> None:
         raise NotImplementedError("Fojle Day 2")
@@ -521,18 +543,43 @@ class SupabaseStore:
                              reason: str = "") -> None:
         raise NotImplementedError("Fojle Day 4")
 
-    # ── TODO(Fojle) Day 4: the tamper-evident audit chain (B7) ───────────────
+    # ── the tamper-evident audit chain (B7) ──────────────────────────────────
     # Copy the LocalStore method with the same name exactly. The chain is
     # append-only: `insert_audit` only ever inserts, and `audit_entries` reads
     # the chain in `seq` order.
     def insert_audit(self, row: AuditRow) -> None:
-        raise NotImplementedError("Fojle Day 4")
+        """Append one link to the chain. Nothing here is ever updated.
+
+        This is a **plain insert**, never an upsert. An upsert would let a row
+        be rewritten in place, and a chain whose rows can be rewritten is not a
+        chain — that is the whole point of it. The `seq` the brain computed is
+        written as given; the store does not recompute it, because recomputing
+        it here would race with a second brain worker writing the same chain.
+        """
+        self._db.table("audit_log").insert({
+            "seq": int(row.seq),
+            "agent_id": row.agent_id,
+            "kind": row.kind,
+            "actor": row.actor,
+            "action": row.action,
+            "reason": row.reason,
+            "prev_hash": row.prev_hash,
+            "hash": row.hash,
+            "created_at": row.created_at,
+        }).execute()
 
     def audit_entries(self, limit: int = 200, after_seq: int = 0) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        """The chain, oldest first. `after_seq` reads only what comes after a position."""
+        res = (self._db.table("audit_log").select("*")
+               .gt("seq", int(after_seq or 0)).order("seq").limit(int(limit)).execute())
+        return [decode(r) for r in (res.data or [])]
 
     def audit_head(self) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        """The last link in the chain — the one whose hash everything else points at."""
+        res = (self._db.table("audit_log").select("*")
+               .order("seq", desc=True).limit(1).execute())
+        rows = res.data or []
+        return rows[0] if rows else None
 
     def list_agents(self) -> list[dict]:
         raise NotImplementedError("Fojle Day 4")
