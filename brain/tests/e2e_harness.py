@@ -24,6 +24,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -85,6 +86,28 @@ class Proc:
             return self.log.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return ""
+
+
+TICK_RE = re.compile(r"tick took (\d+) ms")
+
+
+def tick_durations(text: str) -> list[int]:
+    """The tick durations, in milliseconds, out of a brain's log.
+
+    The engine logs one line per tick ("tick took N ms"), so the log is the honest
+    record of how long the loop actually took — the process knows better than a
+    test that only watches the clock from outside.
+    """
+    return [int(m) for m in TICK_RE.findall(text)]
+
+
+def percentile(values: list[int], pct: float) -> float:
+    """The p-th percentile of a list of numbers (nearest-rank)."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, int(round(pct / 100.0 * len(ordered))))
+    return float(ordered[min(rank, len(ordered)) - 1])
 
 
 @dataclass
@@ -210,6 +233,27 @@ class Harness:
         # what the test is. The API only accepts a known set of requesters.
         self.json_api(f"/v1/agents/{agent_id}/commands", "POST",
                       {"command": command, "params": params or {}, "requested_by": "terminal"})
+
+    # ── what the brain is doing ─────────────────────────────────────────────
+    def tick_ms(self) -> list[int]:
+        """The tick durations the brain logged, in milliseconds."""
+        return tick_durations(self.procs[0].output() if self.procs else "")
+
+    def tick_p95(self) -> float:
+        """The p95 tick duration, in milliseconds.
+
+        Read out of the brain's own log: the process knows how long its tick took, and
+        a test that only watches the clock from outside would miss a tick that took
+        400 ms because the machine was busy.
+        """
+        return percentile(self.tick_ms(), 95)
+
+    def alerts(self) -> list[dict]:
+        return self.json_api("/v1/alerts").get("items", [])
+
+    def db_path(self) -> Path:
+        """The SQLite file the brain and the collector share."""
+        return self.tmp / "fleet.db"
 
     # ── the MCP server, over stdio ──────────────────────────────────────────
     def mcp_call(self, tool: str, arguments: Optional[dict] = None,

@@ -102,6 +102,10 @@ class Engine:
                 self.tick(started)
             except Exception:
                 log.exception("tick failed — continuing")
+            # The tick's own duration, every tick. The brain has to stay inside its tick
+            # budget: a tick that runs longer than the interval means the loop falls
+            # behind, and the fleet is observed less and less often.
+            log.info("tick took %.0f ms", (time.time() - started) * 1000)
             time.sleep(max(0.0, self.cfg.tick_seconds - (time.time() - started)))
 
     def tick(self, now: Optional[float] = None) -> None:
@@ -396,11 +400,24 @@ class Engine:
         elif not self.dry_run:
             fn = {"PAUSE": self.executor.pause, "KILL": self.executor.kill, "RESUME": self.executor.resume,
                   "RESTART": self.executor.restart}[e.action]
-            res = fn(agent_id)
-            result = res.message
-            if not res.ok:
-                log.error("%s %s failed: %s", e.action, agent_id, res.message)
-                self.store.insert_alert(AlertRow(agent_id, "critical", "executor_failed", f"{e.action}: {res.message}"))
+            # The runtime can fail in two ways: it can *say* it failed, or it can throw.
+            # A throw is the worse one — the Docker daemon is gone, the k8s API is down —
+            # and it must not take the tick with it. A failed pause that nobody hears
+            # about is the worst outcome of all: the brain believes the agent is stopped,
+            # and it is running.
+            try:
+                res = fn(agent_id)
+            except Exception as exc:
+                result = f"{type(exc).__name__}: {exc}"
+                log.exception("%s %s raised", e.action, agent_id)
+                self.store.insert_alert(AlertRow(agent_id, "critical", "executor_failed",
+                                                 f"{e.action} raised: {result}"))
+            else:
+                result = res.message
+                if not res.ok:
+                    log.error("%s %s failed: %s", e.action, agent_id, res.message)
+                    self.store.insert_alert(AlertRow(agent_id, "critical", "executor_failed",
+                                                     f"{e.action}: {res.message}"))
         if e.action in ("RESUME", "RESTART"):
             self._window(agent_id).reset_activity()
             self.pending.pop(agent_id, None)
