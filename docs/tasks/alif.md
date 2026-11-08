@@ -861,6 +861,11 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Note (8 Nov):** `docs/evidence/` is not in `alif/`'s allowed folders, so the evidence went to
+> `docs/research/security.md` instead — the folder the guard *does* allow. The contract half landed
+> as PR #83 (`CS_SECURITY_ENABLED`, `CS_SECURITY_REDACT_ENABLED`, `CS_SECURITY_DENY_THRESHOLD`, the
+> `tool_registry` table, and the mock's three endpoints); the brain half is this PR.
 
 ### B9 · [ ] 🟡 SHOULD · The scale proof
 > Prompt:
