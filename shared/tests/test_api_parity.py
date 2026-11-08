@@ -128,6 +128,26 @@ def test_the_explain_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
     assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
 
 
+def test_the_tool_risk_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
+    """`/tool-risk` (A14) — the mock leads here, the brain branch follows.
+
+    The real API's fields must be a subset of the mock's until the brain lands.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    r = real.get("/v1/tool-risk")
+    m = mock.get("/v1/tool-risk")
+    if r.status_code == 404:
+        # the brain side has not landed yet — the mock leads, which is allowed
+        assert m.status_code == 200, "the mock must serve /tool-risk once the contract lands"
+        return
+    assert r.status_code == 200 and m.status_code == 200
+    rb, mb = r.json(), m.json()
+    missing = keys(rb) - keys(mb)
+    assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+    assert keys(rb["counts"]) == keys(mb["counts"])
+
+
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
 BEHAVIOUR = [
     ("post", "/v1/agents/beta/commands", {"command": "NUKE"}),
