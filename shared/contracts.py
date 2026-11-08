@@ -1098,3 +1098,91 @@ def backtest_summary(report: dict) -> str:
     counts = report.get("counts") or {}
     return (f"{counts.get('catches', 0)} caught, {counts.get('false_positives', 0)} false positive(s), "
             f"${report.get('usd_saved', 0.0):.2f} saved")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 8. The cascade (CONTRACTS §6, B6)
+# ─────────────────────────────────────────────────────────────────────────────
+# One runaway is one agent. A **cascade** is worse: the agents keep each other
+# running, so pausing one of them leaves the chain alive and the next one
+# starts the whole thing again.
+#
+# The evidence is the **call graph** between agents: agent A's span whose
+# `parent_span_id` is a span of agent B means B called A. A **cycle** in that
+# graph (A → B → A) is a cascade. A **fan-out** (one agent called by many, or
+# one agent calling many, in a short window) is a contagion.
+#
+# The containment is the whole point: **every agent in the chain is paused in
+# the same tick**, because pausing one link of a cycle only moves the problem.
+#
+# Like the postmortem and the backtest, the *shape* lives here so the mock and
+# the real API say the same thing, and the *builder* lives in the brain.
+
+# The two kinds of cascade. A "loop" is a cycle; a "contagion" is a fan-out.
+CASCADE_KINDS = ("loop", "contagion")
+
+# The rules that name a cascade in the alerts table.
+CASCADE_RULES = ("cascade_loop", "cascade_contagion")
+
+# The action a cascade ends in. A cascade is contained by pausing, not by
+# killing: the chain is still there and the operator may want to look at it.
+CASCADE_ACTION = "PAUSE"
+
+# The actor that appears on the cascade's actions.
+CASCADE_ACTOR = "brain:cascade"
+
+
+def cascade_edge(source: str, target: str, calls: int = 0) -> dict:
+    """One link in the agent-to-agent call graph: `source` called `target`."""
+    return {"source": source, "target": target, "calls": int(calls or 0)}
+
+
+def cascade_agent(agent_id: str, role: str = "member", reason: str = "") -> dict:
+    """One agent in a cascade, and what it was doing in it.
+
+    `role` says why the agent is here: "source" started the chain, "member" is
+    caught in it, "target" is the one being flooded.
+    """
+    return {"agent_id": agent_id, "role": role, "reason": reason}
+
+
+def cascade_report(kind: str = "loop", cascade_id: str = "", agents: Optional[list] = None,
+                   edges: Optional[list] = None, contained: Optional[list] = None,
+                   detected_at: Optional[float] = None, reason: str = "",
+                   usd_saved: float = 0.0) -> dict:
+    """
+    One cascade: what it is, who is in it, and who was stopped because of it.
+
+    `contained` is the list of agents the brain paused **in the same tick**. It
+    is reported separately from `agents` on purpose: the chain is bigger than
+    the part that was actually stopped, and a reader must be able to see both.
+    """
+    agents = list(agents or [])
+    edges = list(edges or [])
+    contained = list(contained or [])
+    return {
+        "kind": kind, "cascade_id": cascade_id, "agents": agents, "edges": edges,
+        "contained": contained, "detected_at": detected_at, "reason": reason,
+        "usd_saved": round(float(usd_saved or 0.0), 4),
+        "counts": {"agents": len(agents), "edges": len(edges), "contained": len(contained)},
+    }
+
+
+def cascade_view(cascades: Optional[list] = None, as_of: Optional[float] = None) -> dict:
+    """Every cascade the brain has seen, newest first."""
+    cascades = list(cascades or [])
+    return {
+        "cascades": cascades,
+        "counts": {"cascades": len(cascades),
+                   "agents": sum(len(c.get("agents") or []) for c in cascades),
+                   "contained": sum(len(c.get("contained") or []) for c in cascades)},
+        "as_of": as_of,
+    }
+
+
+def cascade_summary(report: dict) -> str:
+    """The cascade as one plain line, for the CLI and for a dashboard caption."""
+    counts = report.get("counts") or {}
+    agents = ", ".join(str(a.get("agent_id") or "") for a in (report.get("agents") or []))
+    return (f"{report.get('kind', 'cascade')}: {counts.get('agents', 0)} agents ({agents}), "
+            f"{counts.get('contained', 0)} contained")

@@ -80,6 +80,9 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_BUDGET_WARN_USD_PER_MIN` *(added 8 Nov, B4)* | `0` | brain | the burn rate at which the brain warns that a budget is going to run out; `0` → no warning |
 | `CS_BACKTEST_ENABLED` *(added 8 Nov, B5)* | `false` | brain | serve `GET /v1/backtest` — replay the stored traces against a candidate policy. `false` → the endpoint does not exist (the CLI still works: it only reads) |
 | `CS_BACKTEST_WINDOW_MINUTES` *(added 8 Nov, B5)* | `60` | brain | how many minutes of stored traces the backtest replays |
+| `CS_CASCADE_ENABLED` *(added 8 Nov, B6)* | `false` | brain | detect the chains where agents keep each other running — alpha → beta → alpha, or one agent flooding the others — and contain the **whole chain** in one tick. `false` → the old behaviour exactly (every agent handled on its own) |
+| `CS_CASCADE_WINDOW_MINUTES` *(added 8 Nov, B6)* | `10` | brain | how many minutes of spans the agent-to-agent call graph is built from |
+| `CS_CASCADE_FANOUT_CALLS` *(added 8 Nov, B6)* | `20` | brain | how many calls into one agent in the window make a contagion |
 | `CS_BASELINE_ENABLED` *(added 8 Nov)* | `true` | brain | learn per-agent limits from healthy behaviour; false → the fixed soft limits only |
 | `CS_BASELINE_WARMUP_SECONDS` *(added 8 Nov)* | `60` | brain | how long an agent runs on the fixed soft limits before its own baseline is used |
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
@@ -267,6 +270,7 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `POST /v1/policy/validate` *(added 8 Nov)* | `{"yaml": "..."}` → `{"ok": bool, "errors": ["tools[2].when.op: must be one of …"]}` — validates YAML text, changes nothing | dashboard, mcp |
 | `GET /v1/budgets` *(added 8 Nov, B4)* | → `BudgetReport` (below) — the org → team → agent budget tree, with a burn-rate forecast at every level | dashboard, mcp |
 | `GET /v1/backtest?policy_path=` *(added 8 Nov, B5)* | → `BacktestReport` (below) — what a candidate policy would have caught, the false positives, and the money saved. Behind `CS_BACKTEST_ENABLED` | dashboard, mcp |
+| `GET /v1/cascades` *(added 8 Nov, B6)* | → `CascadeView` (below) — the chains where agents keep each other running, and who was contained because of them. Behind `CS_CASCADE_ENABLED` | dashboard, mcp |
 | `WS /v1/stream` | server pushes `{"type": "metric"|"verdict"|"action"|"alert"|"tool_call","data":{...}}` | optional clients |
 
 **`PolicyView`** *(added 8 Nov)* — the policy actually in force:
@@ -445,6 +449,53 @@ distrust it. The report is then `catches: []`, `false_positives: []`, `usd_saved
 same report — the same catches, in the same order, with the same numbers. A backtest that varied
 run to run could not be used to compare two policies.
 
+**`CascadeView`** *(added 8 Nov, B6)* — the chains where agents keep each other running:
+
+```
+{
+  "cascades": [                   # newest first
+    {
+      "kind": "loop"|"contagion", # a cycle, or one agent flooding the others
+      "cascade_id": str,          # stable id — the same chain keeps the same id
+      "agents": [                 # EVERY agent in the chain, and its role in it
+        {"agent_id": str,
+         "role": "source"|"member"|"target",
+         "reason": str}
+      ],
+      "edges": [                  # the agent-to-agent call graph that made the chain
+        {"source": str, "target": str, "calls": int}
+      ],
+      "contained": [str],         # the agents the brain paused IN THE SAME TICK
+      "detected_at": float,
+      "reason": str,
+      "usd_saved": float,
+      "counts": {"agents": int, "edges": int, "contained": int}
+    }
+  ],
+  "counts": {"cascades": int, "agents": int, "contained": int},
+  "as_of": float|null
+}
+```
+
+**The evidence is the call graph between the agents.** Agent A's span whose `parent_span_id`
+is a span of agent B means **B called A**. A **cycle** in that graph (A → B → A) is a
+cascade: the two agents keep each other running. A **fan-out** — one agent called by many,
+or calling many, in the window — is a **contagion**.
+
+**The containment is the whole point: the WHOLE chain, in one tick.** Pausing one link of a
+cycle only moves the problem — the other agent starts the whole thing again. So every agent
+in the chain is paused together, and `contained` says who was actually stopped, which is
+**not always everyone in `agents`**: an agent that was already dead, or one the brain does
+not own, is in the chain and not in `contained`. The two lists are separate on purpose.
+
+**A healthy agent that merely appears in the same window is not swept up.** The chain is
+built from the *call graph*, not from "these agents were busy at the same time" — being
+nearby is not being connected.
+
+**The cascade is a PAUSE, not a KILL.** The chain is still there and an operator may want to
+look at it. The actions carry the actor `brain:cascade` and the alerts carry the rules
+`cascade_loop` / `cascade_contagion`.
+
 **`PostmortemReport`** *(added 8 Nov, B2)* — the postmortem of one incident:
 
 ```
@@ -554,7 +605,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| _(none — the mock and the real API are in step)_ | | |
+| `GET /v1/cascades` | the whole endpoint | the brain side (B6) |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
