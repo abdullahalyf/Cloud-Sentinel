@@ -312,7 +312,7 @@ plus 9 in `shared/tests/test_mcp_contract.py` (the two that compare the repo aga
 server skip until the package is in the tree — they are the ones that catch the two readers
 drifting apart). `brain/MCP.md` has the Claude Desktop, Claude Code and Codex snippets.
 
-### A8 · [ ] IN PROGRESS (Puku) Horizontal scaling: shard agents across brain workers
+### A8 · [x] (alif/puku-a8-sharding, 2026-11-08) Horizontal scaling: shard agents across brain workers
 **Owns:** `brain/sharding.py` (new), `brain/engine.py`, `brain/__main__.py`, plus a contract branch for the `workers` table, `CS_WORKER_ID` and the health fields.
 > Prompt:
 > *Goal: N brain worker processes share the fleet, and one dies → the others take its agents within 15 s.
@@ -329,6 +329,18 @@ drifting apart). `brain/MCP.md` has the Claude Desktop, Claude Code and Codex sn
 - No command runs twice.
 - Tick p95 < 200 ms per worker at 50 agents.
 - Numbers go in `docs/research/brain-scaling.md`. Note Taseen's T13 load test in `taseen.md`.
+
+**Done.** `brain/sharding.py` (rendezvous hashing, the `Shard`, the heartbeat, the takeover) + the
+engine's `owns()`/`_reshard()` + `python -m brain --worker [--worker-id]`. The contract side is
+`workers` table + `CS_WORKER_ID`/`CS_WORKER_HEARTBEAT_SECONDS`/`CS_WORKER_STALE_SECONDS` + the health
+fields (PR #38) and the one-sided parity rule (PR #39). 30 tests in `brain/tests/test_sharding.py`.
+
+Measured: split 24/26 of 50, takeover **12.0 s** (budget 15), tick p95 **194 ms** (budget 200),
+commands run once. Numbers and the profile in `docs/research/brain-scaling.md`.
+
+The tick is close to the line: `sqlite3.Connection.commit` is 64% of it, because `LocalStore`
+commits once per write and the brain writes two rows per agent per tick. The fix is a batched write
+in `shared/store.py` (Fojle's folder) — noted in `docs/tasks/fojle.md`.
 
 ### A9 · [ ] Full-stack E2E + chaos suite (runs nightly in CI)
 **Owns:** `brain/tests/e2e/`, `brain/tests/chaos/` (new). The nightly workflow `.github/workflows/nightly.yml` already exists and runs
