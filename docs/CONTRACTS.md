@@ -202,6 +202,20 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 |---|---|---|
 | `GET /v1/health` | → `{"ok": true, "mode": "fake"|"docker"|"k8s"|"mock", "judge": "claude"|"gemini"|"fallback", "contract": 2}` | all |
 | `GET /v1/health` *(added 8 Nov, A8)* | the same, plus `"workers": [{"worker_id", "started_at", "last_seen", "agents_owned", "pid"}]` and `"agents_total": int` — one entry per live worker, and how many agents the fleet has between them | all |
+
+#### The mock leads the real API
+
+The mock (dashboard development) and the real API are in different folders, so a change to
+one cannot land in the same PR as the other. The mock is therefore sometimes ahead:
+
+| Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
+|---|---|---|
+| `GET /v1/health` | `workers`, `agents_total` | A8 — `alif/puku-a8-sharding` |
+
+The rule is one-sided: **the mock may lead, the mock may never lag.** A client written
+against the mock must keep working against the real API, so every field the real API has
+must also be in the mock (`shared/tests/test_api_parity.py`). When the brain side lands,
+delete the row above — it is a record of a gap, not a permanent difference.
 | `GET /v1/fleet` | → `{"agents": [AgentView]}` | dashboard, mcp |
 | `GET /v1/agents/{id}` | → `{"agent": AgentView, "spans": [SpanRow ≤50], "verdicts": [VerdictRow ≤10], "memory": MemoryRow|null}` | dashboard, mcp |
 | `GET /v1/agents/{id}/nodes?minutes=10&limit=100` *(added 4 Nov)* | → `NodeFeed` (below) | dashboard |
