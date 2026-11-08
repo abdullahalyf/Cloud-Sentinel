@@ -1,4 +1,4 @@
-import { livePoll } from '../lib/live';
+import { livePoll } from '../utils/live';
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, Play, Cpu, DollarSign } from 'lucide-react';

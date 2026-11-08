@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GraphView } from '../GraphView';
-import { layoutGraph, cyclicEdges, edgeWidth, COL_W } from '../../lib/fleetGraph';
+import { layoutGraph, cyclicEdges, edgeWidth, COL_W } from '../../utils/fleetGraph';
 import { api } from '../../api/client';
 import type { GraphResponse } from '../../api/types';
 

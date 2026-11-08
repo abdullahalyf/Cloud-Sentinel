@@ -1,4 +1,4 @@
-import { livePoll } from '../lib/live';
+import { livePoll } from '../utils/live';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'react-router-dom';
@@ -7,7 +7,7 @@ import { api } from '../api/client';
 import type { AgentState } from '../api/types';
 import { Panel } from '../components/Panel';
 import { StateBadge } from '../components/StateBadge';
-import { buildIncidents, stateAt, type EventKind, type Outcome } from '../lib/incidents';
+import { buildIncidents, stateAt, type EventKind, type Outcome } from '../utils/incidents';
 
 const KIND_COLOR: Record<EventKind, string> = {
   alert: 'var(--color-state-suspicious)',

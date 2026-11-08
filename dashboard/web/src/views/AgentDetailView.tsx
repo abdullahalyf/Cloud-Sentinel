@@ -1,4 +1,4 @@
-import { livePoll } from '../lib/live';
+import { livePoll } from '../utils/live';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';

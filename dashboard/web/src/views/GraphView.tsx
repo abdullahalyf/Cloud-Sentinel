@@ -5,8 +5,8 @@ import '@xyflow/react/dist/style.css';
 import { Network } from 'lucide-react';
 import { api } from '../api/client';
 import { Panel } from '../components/Panel';
-import { livePoll } from '../lib/live';
-import { cyclicEdges, edgeWidth, layoutGraph } from '../lib/fleetGraph';
+import { livePoll } from '../utils/live';
+import { cyclicEdges, edgeWidth, layoutGraph } from '../utils/fleetGraph';
 
 const KIND_BORDER: Record<string, string> = {
   agent: 'var(--color-accent)',

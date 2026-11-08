@@ -4,7 +4,7 @@ import { LineChart } from 'echarts/charts';
 import { GridComponent, TooltipComponent, MarkLineComponent, LegendComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { ActionRow, AgentView, MetricRow } from '../api/types';
-import { actionMarkers, budgetLeftSeries, projectToZero } from '../lib/burndown';
+import { actionMarkers, budgetLeftSeries, projectToZero } from '../utils/burndown';
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, LegendComponent, CanvasRenderer]);
 

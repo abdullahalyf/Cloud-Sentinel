@@ -1,4 +1,4 @@
-import { livePoll } from '../lib/live';
+import { livePoll } from '../utils/live';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -17,8 +17,8 @@ import { api } from '../api/client';
 import type { AgentState, AgentView } from '../api/types';
 import { Panel } from '../components/Panel';
 import { AgentCard } from '../components/AgentCard';
-import { groupByNode, hasNodes } from '../lib/nodes';
-import { useCountUp } from '../lib/useCountUp';
+import { groupByNode, hasNodes } from '../utils/nodes';
+import { useCountUp } from '../utils/useCountUp';
 import { areaFromLine, fmtCompact, smoothPath, useRollingSeries } from '../components/charts';
 
 export function sortFleetAgents(agents: AgentView[]): AgentView[] {

@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Check, Circle, Loader2, Play, RotateCcw, Square, X, AlertTriangle } from 'lucide-react';
 import { api, ApiError } from '../api/client';
-import { DEMO_STEPS, resetDemo, runDemo, type StepStatus } from '../lib/demo';
+import { DEMO_STEPS, resetDemo, runDemo, type StepStatus } from '../utils/demo';
 
 interface Props {
   onClose: () => void;

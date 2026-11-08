@@ -1,4 +1,4 @@
-import { livePoll } from '../lib/live';
+import { livePoll } from '../utils/live';
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DollarSign, RotateCcw, ChevronRight } from 'lucide-react';
@@ -6,8 +6,8 @@ import { api } from '../api/client';
 import type { RoiReport } from '../api/types';
 import { Panel } from '../components/Panel';
 import { BudgetBurnDown } from '../components/BudgetBurnDown';
-import { useCountUp } from '../lib/useCountUp';
-import { taskRowsByWasted } from '../lib/burndown';
+import { useCountUp } from '../utils/useCountUp';
+import { taskRowsByWasted } from '../utils/burndown';
 import { areaFromLine, hashString, mulberry32, smoothPath } from '../components/charts';
 
 /* ───────── helpers ───────── */
