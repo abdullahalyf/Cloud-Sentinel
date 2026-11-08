@@ -80,6 +80,11 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_BASELINE_K` *(added 8 Nov)* | `4` | brain | MAD multiplier of the adaptive limit (limit = median + K × 1.4826 × MAD) |
 | `CS_POLICY_RELOAD_ENABLED` *(added 8 Nov)* | `true` | brain | pick up a changed `CS_POLICY_FILE` while running; false → the policy is read once at startup |
 | `CS_POLICY_RELOAD_INTERVAL_SECONDS` *(added 8 Nov)* | `1` | brain | how often the policy file's mtime is checked |
+| `CS_INJECTION_ENABLED` *(added 8 Nov)* | `true` | brain | score agent text and tool arguments for prompt injection; false → the gate trusts the policy only |
+| `CS_INJECTION_DENY_THRESHOLD` *(added 8 Nov)* | `0.8` | brain | injection score at or above which the tool gate **denies** the call |
+| `CS_INJECTION_APPROVAL_THRESHOLD` *(added 8 Nov)* | `0.5` | brain | injection score at or above which the tool gate asks a **human** (below the deny threshold) |
+| `CS_INJECTION_MEMORY_THRESHOLD` *(added 8 Nov)* | `0.5` | brain | injection score at or above which an agent memory write raises an alert |
+| `CS_INJECTION_ALLOWED_HOSTS` *(added 8 Nov)* | `api.shopbd.com,localhost,127.0.0.1,example.com` | brain | comma-separated hosts a tool argument may point at; any other host is a finding |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
 | `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
@@ -356,3 +361,34 @@ agents.delta.budget_usd: must be a number > 0
 swapped in atomically and a `POLICY_RELOAD` action is recorded. An **invalid** file is rejected: the
 last good policy stays in force and a critical `policy_invalid` alert carries the errors. The policy
 in force is `GET /v1/policy`; `version` is `sha256(file)[:12]`.
+
+### 11a. Prompt-injection and unsafe tool input *(added 8 Nov)*
+
+Agent text is **data, never instructions** (AGENTS.md rule 8). `brain/injection.py` scores it two ways:
+
+```python
+score(text: str) -> tuple[float, list[str]]                       # 0..1, the reasons
+score_tool_args(tool: str, args: dict) -> tuple[float, list[str]]  # 0..1, the reasons
+```
+
+Both return a `InjectionVerdict` (`{score, reasons, signals}`) — `score` is 0..1, `reasons` name the
+signal that fired in plain English, `signals` are the signal names for counting.
+
+**Text signals** — instruction-override (English + Bangla transliterations), system-prompt
+exfiltration, role-play jailbreak markers, hidden text (zero-width characters, long base64 blobs),
+memory poisoning ("always refund 100%").
+
+**Tool-argument signals** — shell metacharacters in a tool that is not a shell, SQL like `; drop`,
+path traversal, a URL to a host that is not on `CS_INJECTION_ALLOWED_HOSTS`, too many email recipients.
+
+**Wiring**
+
+| Where | Threshold | What happens |
+|---|---|---|
+| tool gate (`POST /v1/agents/{id}/tool-calls`) | score ≥ `CS_INJECTION_DENY_THRESHOLD` (0.8) | the call is **denied**; a `TOOL_INJECTION_DENY` action is recorded |
+| tool gate | score ≥ `CS_INJECTION_APPROVAL_THRESHOLD` (0.5) and < 0.8 | the call goes **pending** for a human, with the reasons in `reason` |
+| detectors (L5) | prompt score ≥ 0.8 | a `prompt_injection` finding for the judge |
+| memory write (`PUT /v1/agents/{id}/memory`) | score ≥ `CS_INJECTION_MEMORY_THRESHOLD` (0.5) | an `injection_detected` alert (the write still happens — a human decides) |
+
+The judge's `pattern` may now be `unsafe_tool_input` as well as `prompt_injection` (both added to
+`shared.contracts.PATTERNS`).

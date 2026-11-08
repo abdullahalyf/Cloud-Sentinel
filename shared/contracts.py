@@ -57,10 +57,10 @@ JUDGE_ACTIONS = ("KILL", "PAUSE", "WARN", "IGNORE")
 
 ActionType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
                      "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
-                     "POLICY_RELOAD"]
+                     "POLICY_RELOAD", "TOOL_INJECTION_DENY"]
 ACTION_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "WARN", "SET_BUDGET",
                 "MEMORY_EDIT", "TOOL_ALLOW", "TOOL_DENY", "TOOL_REWRITE", "AUTO_HEAL",
-                "POLICY_RELOAD")
+                "POLICY_RELOAD", "TOOL_INJECTION_DENY")
 
 Actor = Literal["rules", "claude", "gemini", "fallback", "human", "policy", "mcp", "brain:autoheal"]
 
@@ -68,9 +68,9 @@ CommandType = Literal["KILL", "PAUSE", "RESUME", "RESTART", "GO_ROGUE", "SET_BUD
 COMMAND_TYPES = ("KILL", "PAUSE", "RESUME", "RESTART", "GO_ROGUE", "SET_BUDGET")
 
 Pattern = Literal["infinite_loop", "semantic_loop", "token_spike", "memory_leak", "bad_tool_call",
-                  "prompt_injection", "legitimate_burst", "other"]
+                  "prompt_injection", "unsafe_tool_input", "legitimate_burst", "other"]
 PATTERNS = ("infinite_loop", "semantic_loop", "token_spike", "memory_leak", "bad_tool_call",
-            "prompt_injection", "legitimate_burst", "other")
+            "prompt_injection", "unsafe_tool_input", "legitimate_burst", "other")
 
 ToolDecision = Literal["pending", "allow", "deny", "rewrite", "timeout"]
 TOOL_DECISIONS = ("pending", "allow", "deny", "rewrite", "timeout")
@@ -221,6 +221,27 @@ class AlertRow(_Row):
     rule: str
     message: str
     created_at: str = field(default_factory=utc_now_iso)
+
+
+@dataclass
+class InjectionVerdict:
+    """
+    The result of scoring one piece of agent text or one tool call (CONTRACTS §11, added 8 Nov).
+
+    `score` is 0..1. `reasons` are short, human-readable — they say WHICH signal fired, so the
+    dashboard and the judge can explain a deny without reading the source.
+    """
+    score: float = 0.0
+    reasons: list[str] = field(default_factory=list)
+    signals: list[str] = field(default_factory=list)   # the signal names, for counting
+
+    @property
+    def hit(self) -> bool:
+        return self.score > 0.0
+
+    def to_dict(self) -> dict:
+        return {"score": round(self.score, 3), "reasons": list(self.reasons),
+                "signals": list(self.signals)}
 
 
 @dataclass

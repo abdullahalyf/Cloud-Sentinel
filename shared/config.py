@@ -116,6 +116,12 @@ class Settings:
     # ── Policy hot reload (A5): pick up a changed policies.yaml without a restart ──
     policy_reload_enabled: bool
     policy_reload_interval_seconds: float
+    # ── Prompt-injection detection (A6): agent text is data, never instructions ──
+    injection_enabled: bool
+    injection_deny_threshold: float        # score ≥ this → the tool gate denies
+    injection_approval_threshold: float    # score ≥ this (and < deny) → the tool gate asks a human
+    injection_memory_threshold: float      # score ≥ this on a memory write → alert
+    injection_allowed_hosts: str           # comma-separated hosts a tool may call
     # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
     export_phoenix: bool = False
     phoenix_endpoint: str = "http://localhost:6006"
@@ -182,6 +188,12 @@ def load_settings() -> Settings:
         baseline_k=_float("CS_BASELINE_K", 4.0),
         policy_reload_enabled=_bool("CS_POLICY_RELOAD_ENABLED", True),
         policy_reload_interval_seconds=_float("CS_POLICY_RELOAD_INTERVAL_SECONDS", 1.0),
+        injection_enabled=_bool("CS_INJECTION_ENABLED", True),
+        injection_deny_threshold=_float("CS_INJECTION_DENY_THRESHOLD", 0.8),
+        injection_approval_threshold=_float("CS_INJECTION_APPROVAL_THRESHOLD", 0.5),
+        injection_memory_threshold=_float("CS_INJECTION_MEMORY_THRESHOLD", 0.5),
+        injection_allowed_hosts=_str("CS_INJECTION_ALLOWED_HOSTS",
+                                     "api.shopbd.com,localhost,127.0.0.1,example.com"),
         export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),
