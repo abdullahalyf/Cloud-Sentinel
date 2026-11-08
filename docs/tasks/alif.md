@@ -175,7 +175,7 @@ proposal. A stale `base_version` expires. The contract (table, endpoints, settin
 landed as #28; the brain side is `alif/puku-a3-autoheal`. 38 acceptance tests in
 `brain/tests/test_heal.py`. Notes written in `tamjid.md` and `orin.md`.
 
-### A4 · [x] (alif/puku-a4-baselines, 2026-11-08) Adaptive per-agent baselines instead of fixed limits
+### A4 · [x] (alif/puku-a4-baselines, 2026-11-08, merged as #31 → 0923e0c) Adaptive per-agent baselines instead of fixed limits
 **Owns:** `brain/baseline.py` (new), `brain/detectors.py`, `brain/engine.py`, plus a contract branch for `AgentView.baseline` and the settings.
 > Prompt:
 > *Read brain/detectors.py, brain/state.py and shared/config.py. For each agent, learn a robust baseline of tokens/min, usd/min, LLM calls/s,
@@ -211,7 +211,7 @@ the agent row is written again — the brain upserts it every tick, so a blind u
 18 acceptance tests in `brain/tests/test_baseline.py`, plus an API test that the fleet carries the
 baseline. The harness is still all ✅.
 
-### A5 · [ ] Policy-as-code with hot reload
+### A5 · [x] (alif/puku-a5-policy-reload, 2026-11-08) Policy-as-code with hot reload
 **Owns:** `brain/policy.py`, `brain/policy_schema.py` (new, pure Python), `brain/api.py`, `brain/mcp_server.py`, plus a contract branch for the endpoints and `CS_POLICY_FILE`.
 > Prompt:
 > *Read brain/policy.py, brain/policies.yaml and CONTRACTS §11.
@@ -230,6 +230,24 @@ baseline. The harness is still all ✅.
 - Broken YAML → the old policy is still enforced, plus the alert.
 - The validate endpoint returns path errors.
 - Parity test.
+
+**Result:** `brain/policy_schema.py` validates a policy file with explicit pure-Python checks (no
+new dependency) and every error names the exact path — `tools[2].when.op: must be one of gt, gte,
+lt, lte, eq, ne, contains`. `brain/policy_reload.py` owns the policy in force: it watches the
+file's mtime, and on a change it loads and validates the file. A **valid** file is swapped in
+atomically (one assignment — no tool call ever sees half a policy), gets `version = sha256[:12]`,
+and records a `POLICY_RELOAD` action with a one-line diff summary ("budget $0.50 → $1.00, +1
+rule(s): issue_refund"). An **invalid** file is **rejected**: the last good policy stays in
+force and a critical `policy_invalid` alert carries the errors. A *deleted* file is also rejected —
+removing the rules would silently open the fleet up, so that takes a human on purpose. The engine
+checks the file once per tick (`CS_POLICY_RELOAD_INTERVAL_SECONDS`, default 1) and pushes the new
+`on_trip` / `on_hard_limit` into the live breakers, so a changed policy applies to the very next
+trip. The API serves `GET /v1/policy`, `POST /v1/policy/reload` and `POST /v1/policy/validate`;
+MCP gained `get_policy` and `validate_policy` (both read-only, so the MCP tool count is 16 now).
+The contract side landed as #32 (`b6f7f49`) — the endpoints, the `POLICY_RELOAD` action type,
+`CS_POLICY_RELOAD_*` and a mock that reads the policy file on its own. 34 acceptance tests in
+`brain/tests/test_policy_reload.py`, including the acceptance case: editing `policies.yaml`
+changes a tool-gate decision within 2 ticks, with no restart.
 
 ### A6 · [ ] Prompt-injection and unsafe tool-input detection
 **Owns:** `brain/injection.py` (new), `brain/eval_data/injection.jsonl` (new), `brain/service.py` (tool gate), `brain/detectors.py`,

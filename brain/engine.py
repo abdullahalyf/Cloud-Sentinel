@@ -23,6 +23,7 @@ from brain.detectors import Finding, evaluate
 from brain.heal import PatchRejected, decide as decide_heal, may_autoheal, propose as propose_heal, validate
 from brain.judge import Judge, JudgeContext, Verdict
 from brain.policy import Policy
+from brain.policy_reload import PolicyManager
 from brain.state import AgentWindow, Snapshot
 from shared.config import Settings
 from shared.contracts import (ActionRow, AgentRow, AlertRow, Executor, MetricRow, RuntimeInfo, VerdictRow,
@@ -33,7 +34,8 @@ log = logging.getLogger("brain.engine")
 
 class Engine:
     def __init__(self, store, executor: Executor, judge: Judge, policy: Policy, cfg: Settings,
-                 dry_run: bool = False, sync_judge: bool = False, runtime_name: str = "fake"):
+                 dry_run: bool = False, sync_judge: bool = False, runtime_name: str = "fake",
+                 policy_path: str = ""):
         self.store, self.executor, self.judge, self.policy, self.cfg = store, executor, judge, policy, cfg
         self.dry_run, self.sync_judge, self.runtime_name = dry_run, sync_judge, runtime_name
         self.windows: dict[str, AgentWindow] = {}
@@ -47,6 +49,10 @@ class Engine:
         self.cursor = 0
         self.runtime_ids: Optional[set] = None
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
+        # A5: the policy manager watches the policy file and swaps the policy in when it changes.
+        self.policy_manager = PolicyManager(policy, policy_path or cfg.policy_file, store=store,
+                                            default_budget=cfg.default_budget_usd)
+        self.policy = self.policy_manager.policy
         # A4: per-agent baselines. Loaded from the store, so a restart keeps them.
         self.baselines: dict[str, AgentBaseline] = {}
         self.first_seen: dict[str, float] = {}   # agent → when we first saw it (the warmup clock)
@@ -84,6 +90,7 @@ class Engine:
 
     def tick(self, now: Optional[float] = None) -> None:
         now = time.time() if now is None else now
+        self._safe(self._reload_policy, now)
         self._safe(self._run_commands, now)
         self._safe(self._ingest)
         listed = self._safe(self.executor.list_agents)
@@ -92,6 +99,27 @@ class Engine:
         for agent_id in sorted(set(self.windows) | set(runtime)):
             self._safe(self._watch, agent_id, runtime.get(agent_id), now)
         self._safe(self._expire_tool_calls, now)
+
+    def _reload_policy(self, now: float) -> None:
+        """
+        Pick up a changed policy file (A5).
+
+        The check is the file's mtime — cheap enough to do every tick. A valid file is swapped
+        in atomically; an invalid one is rejected and the last good policy stays in force.
+        """
+        if not self.cfg.policy_reload_enabled:
+            return
+        if now - self.policy_manager.last_checked < self.cfg.policy_reload_interval_seconds:
+            return
+        self.policy_manager.last_checked = now
+        result = self.policy_manager.check(now)
+        if result.loaded:
+            self.policy = self.policy_manager.policy
+            # the breakers read on_trip / on_hard_limit when they act, so a changed policy
+            # applies to the very next trip — not only to agents seen after the reload
+            for br in self.breakers.values():
+                br.on_trip = self.policy.on_trip
+                br.on_hard_limit = self.policy.on_hard_limit
 
     @staticmethod
     def _safe(fn, *args):
