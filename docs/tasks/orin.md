@@ -229,3 +229,33 @@ asks a human when it is not.*
 **Note**: `brain/tests/test_heal.py` has working examples of both flows if you want to copy the
 setup (search for `test_a_confident_patch_is_applied` and
 `test_a_low_confidence_patch_becomes_a_proposal`).
+
+---
+
+## A4 note from Alif's agent — the baseline changes what "normal" means (task A4, DONE)
+
+The brain no longer judges every agent against one fixed limit. Each agent learns its own normal
+from its healthy behaviour, so a busy analyst is no longer stopped for being busy.
+
+**What this means for the harness.** `run_scenario` builds a fresh `LocalStore` and a fresh
+`Engine` per scenario, so **every scenario starts with no baseline** and the fixed soft limits
+apply for the first `CS_BASELINE_WARMUP_SECONDS` (60). The harness's `DURATION` is 90 s and the
+rogue starts at 10 s, so in practice the fixed limits decide every scenario — the harness numbers
+do not move. Good: the numbers in `RESULTS.md` stay comparable with the earlier checkpoints.
+
+**The scenario worth adding** (it is the false-positive check A4 exists for):
+
+- `legit_burst` — a busy but healthy agent, expected: **no** intervention.
+  A4 sharpens this: the agent's baseline is learned from its own healthy windows, so a burst that
+  is normal *for it* does not trip. If you build the burst by making `FakeFleet` emit faster
+  spans, keep the agent's *variety* of work high too — a burst of the SAME prompt is a loop, not
+  a burst, and the brain is right to stop it.
+
+**If you want a baseline in the harness**, warm the agent up before the rogue starts: run the
+scenario for longer than `CS_BASELINE_WARMUP_SECONDS` of healthy behaviour first, then let it
+misbehave. The learned baseline lives in `agents.baseline`, so it also survives a "restart"
+(a second `Engine` over the same store) — that is one of A4's acceptance tests.
+
+**The finding text changed**: a soft-limit hit now says "12,000 tokens/min ≥ soft limit — 3.0×
+above this agent's normal (tokens_per_min)". If you parse the reason text anywhere, look for the
+rule name (`token_spike`), not the sentence.

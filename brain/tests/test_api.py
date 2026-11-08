@@ -45,3 +45,18 @@ def test_tripped_agent_gets_no_tools(sim, cfg):
     sim.store.upsert_agent(AgentRow("ghost", state="paused"))
     call = client(sim, cfg).post("/v1/agents/ghost/tool-calls", json={"tool_name": "search_kb"}).json()
     assert call["decision"] == "deny" and "paused" in call["reason"]
+
+
+def test_the_fleet_carries_the_learned_baseline(sim, cfg):
+    """A4: the dashboard can show 'normal for this agent'."""
+    from shared.contracts import AgentRow
+
+    baseline = {"tokens_per_min": {"median": 4000, "limit": 6400, "samples": 120}}
+    sim.store.upsert_agent(AgentRow("alpha", baseline=baseline))
+    sim.store.upsert_agent(AgentRow("gamma"))   # an agent without one
+    agents = client(sim, cfg).get("/v1/fleet").json()["agents"]
+    alpha = next(a for a in agents if a["agent_id"] == "alpha")
+    assert alpha["baseline"] == baseline
+    # an agent without one still has the key, so the dashboard never crashes on it
+    gamma = next(a for a in agents if a["agent_id"] == "gamma")
+    assert gamma["baseline"] == {}

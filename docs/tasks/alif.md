@@ -175,7 +175,7 @@ proposal. A stale `base_version` expires. The contract (table, endpoints, settin
 landed as #28; the brain side is `alif/puku-a3-autoheal`. 38 acceptance tests in
 `brain/tests/test_heal.py`. Notes written in `tamjid.md` and `orin.md`.
 
-### A4 · [ ] Adaptive per-agent baselines instead of fixed limits
+### A4 · [x] (alif/puku-a4-baselines, 2026-11-08) Adaptive per-agent baselines instead of fixed limits
 **Owns:** `brain/baseline.py` (new), `brain/detectors.py`, `brain/engine.py`, plus a contract branch for `AgentView.baseline` and the settings.
 > Prompt:
 > *Read brain/detectors.py, brain/state.py and shared/config.py. For each agent, learn a robust baseline of tokens/min, usd/min, LLM calls/s,
@@ -193,6 +193,23 @@ landed as #28; the brain side is `alif/puku-a3-autoheal`. 38 acceptance tests in
 - a restart restores the baseline
 - legit_burst is not paused
 - the harness is all ✅
+
+**Result:** `brain/baseline.py` learns a rolling median and MAD over the last 10 minutes of an
+agent's **healthy** windows only (a suspicious, paused, probation or killed agent is not normal,
+so it never teaches the brain a new normal). The adaptive soft limit is
+`median + CS_BASELINE_K (4) × 1.4826 × MAD`, clamped between a quarter of the fixed soft limit
+and the fixed hard limit — the hard limits stay absolute. Two additions the tests forced:
+the MAD is floored at a fraction of the median (a perfectly stable agent has MAD 0, and a limit
+of exactly its median would trip on its own jitter), and the rate metric `calls_per_sec` gets a
+wider floor because it arrives in bursts. The detector takes the baseline as an argument and the
+finding says "3.4× above this agent's normal". The engine learns during the warmup but does not
+*use* the baseline until `CS_BASELINE_WARMUP_SECONDS` (60) has passed — until then the fixed soft
+limits decide. The learned limits live in `agents.baseline` (contract #30), so a brain restart
+keeps them; the engine restores them from the store at startup. The contract side landed as #30
+(`agents.baseline`, `AgentView.baseline`, `CS_BASELINE_*`, and a store that keeps a baseline when
+the agent row is written again — the brain upserts it every tick, so a blind upsert would wipe it).
+18 acceptance tests in `brain/tests/test_baseline.py`, plus an API test that the fleet carries the
+baseline. The harness is still all ✅.
 
 ### A5 · [ ] Policy-as-code with hot reload
 **Owns:** `brain/policy.py`, `brain/policy_schema.py` (new, pure Python), `brain/api.py`, `brain/mcp_server.py`, plus a contract branch for the endpoints and `CS_POLICY_FILE`.
