@@ -797,7 +797,9 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B6 · [ ] 🟡 SHOULD · Cascade detection
+### B6 · [x] 🟡 SHOULD · Cascade detection
+> ✅ 2026-11-08 · contract PR [#75](https://github.com/abdullahalyf/Cloud-Sentinel/pull/75) (the shapes) · brain PR [#76](https://github.com/abdullahalyf/Cloud-Sentinel/pull/76) · gap PR [#77](https://github.com/abdullahalyf/Cloud-Sentinel/pull/77) · 18 brain tests + 16 contract tests
+>
 > Prompt:
 > *Detect cross-agent loops and contagion — A → B → A, or one rogue agent flooding the others — and
 > contain **the whole chain together**, not one agent at a time. Add a simulator scenario for it
