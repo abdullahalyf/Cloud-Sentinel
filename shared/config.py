@@ -22,26 +22,45 @@ except ImportError:  # dotenv is optional
     pass
 
 
+def _strip_comment(value) -> str:
+    """
+    Drop a trailing `# comment` from an env value.
+
+    `.env.example` writes `CS_API_TOKEN=                    # set to require ...`.
+    python-dotenv keeps that comment as the VALUE, so an unset setting silently
+    becomes the comment text — and `CS_API_TOKEN` then demands a header equal to
+    "# set to require header X-CS-Token on the C2 API", which locks out every
+    legitimate client. An inline comment only counts when it is preceded by
+    whitespace, so a value like `abc#def` stays intact.
+    """
+    text = str(value)
+    head, sep, _ = text.partition("#")
+    if sep and head and not head.endswith((" ", "\t")):
+        # a `#` glued to a non-empty value is part of the value (`abc#def`)
+        return text.strip()
+    return head.strip()
+
+
 def _str(name: str, default: str = "") -> str:
-    return os.getenv(name, default).strip()
+    return _strip_comment(os.getenv(name, default))
 
 
 def _int(name: str, default: int) -> int:
     try:
-        return int(os.getenv(name, default))
+        return int(_strip_comment(os.getenv(name, default)))
     except ValueError:
         return default
 
 
 def _float(name: str, default: float) -> float:
     try:
-        return float(os.getenv(name, default))
+        return float(_strip_comment(os.getenv(name, default)))
     except ValueError:
         return default
 
 
 def _bool(name: str, default: bool) -> bool:
-    return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+    return _strip_comment(os.getenv(name, str(default))).lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)

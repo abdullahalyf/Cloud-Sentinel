@@ -71,7 +71,7 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `LOOP_REPEAT_THRESHOLD` | 8 | brain | exact repeats in 60 s |
 | `LOOP_SCORE_THRESHOLD` | 0.6 | brain | semantic loop score (0–1) |
 | `BRAIN_COOLDOWN_SECONDS` | 10 | brain | min gap between judge calls per agent |
-| `BRAIN_KILL_CONFIDENCE` | 0.6 | brain | min judge confidence to act |
+| `BRAIN_KILL_CONFIDENCE` | 0.6 | brain | min judge confidence to act — a PAUSE below it is a WARN in practice |
 | `PROBATION_SECONDS` | 30 | brain | |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
@@ -81,6 +81,15 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `PHOENIX_PROJECT_NAME` | `cloudsentinel` | collector | Phoenix project (resource `openinference.project.name`) |
 | `CS_EXPORT_CLOUDWATCH` *(added 5 Nov)* | `false` | collector | also write every stored span as a CloudWatch EMF JSON line |
 | `CS_CLOUDWATCH_FILE` *(added 5 Nov)* | `data/cloudwatch.jsonl` | collector | where the EMF lines go |
+
+**Tuned defaults.** `SOFT_MEMORY_PCT`, `LOOP_REPEAT_THRESHOLD`, `LOOP_SCORE_THRESHOLD` and
+`BRAIN_KILL_CONFIDENCE` are not guesses: `python -m brain.tuning` grid-searches them against the
+64 labelled incidents in `brain/eval_data/incidents.jsonl` and writes the winner to `brain/tuning.json`.
+The objective is *zero false positives first, then max recall* — a judge that stops healthy agents is
+worse than no judge, because operators learn to ignore it. The current winner (fallback judge)
+reaches precision 1.000 / recall 0.806 / F1 0.893 with **no** false positives. Re-run
+`python -m brain.tuning --judge fallback` after changing any of them; `brain/tests/test_tuning.py`
+fails if the defaults drift away from the winner.
 
 ---
 
