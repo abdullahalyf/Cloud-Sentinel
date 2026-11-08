@@ -253,6 +253,8 @@ Interactive docs at `/docs`. Errors: `{"detail": "..."}` with 400/404/409.
 | `GET /v1/tool-calls?status=pending` | → `{"items": [ToolCallRow]}` | dashboard, mcp |
 | `POST /v1/tool-calls/{call_id}/decision` | `{"decision": "allow"|"deny"|"rewrite","final_args":{}|null,"decided_by","reason"}` → `ToolCallRow` | dashboard, mcp |
 | `GET /v1/tool-risk?agent_id=` *(added 8 Nov, A14)* | → `ToolRiskReport` (below) — what a human has approved, per (agent, tool, args) | dashboard, mcp |
+| `GET /v1/incidents/{id}/postmortem` *(added 8 Nov, B2)* | → `PostmortemReport` (below) — the structured postmortem of one incident | dashboard, mcp |
+| `GET /v1/incidents/{id}/postmortem.md` *(added 8 Nov, B2)* | → the same postmortem as markdown (`text/markdown`) | dashboard, mcp |
 | `GET /v1/heal-proposals?status=&agent_id=&limit=50` *(added 8 Nov)* | → `{"items": [HealProposalRow]}` | dashboard, mcp |
 | `POST /v1/heal-proposals/{id}/decision` *(added 8 Nov)* | `{"decision": "apply"|"reject","reason","requested_by"}` → `HealProposalRow` | dashboard, mcp |
 | `GET /v1/roi` | → `RoiReport` (see §8) | dashboard, mcp |
@@ -321,6 +323,60 @@ Agents **without a container** (a LangGraph/CrewAI process, any external OTel ag
 PAUSE/KILL are enforced by the SDK — the tool gate denies every tool call, and `cs.wait_if_paused()` (called by
 the adapters before every node / LLM call) blocks while paused and raises `AgentKilled` when killed.
 
+**`PostmortemReport`** *(added 8 Nov, B2)* — the postmortem of one incident:
+
+```
+{
+  "incident_id": int,            # the alert id — an incident *is* an alert
+  "agent_id": str,
+  "root_cause": {
+    "rule": str,                 # the rule that fired (never "unknown" if one did)
+    "pattern": str,              # the pattern the judge saw (falls back to the rule)
+    "detector": str,             # "rules" | "judge"
+    "headline": str,             # "loop_semantic — semantic_loop", or the rule alone
+    "reason": str                # the judge's own words, "" when it said nothing
+  },
+  "timeline": [                  # oldest → newest; the order is the point
+    {"kind": "evidence"|"alert"|"verdict"|"action"|"heal",
+     "ts": float, "title": str, "detail": str, "ref": str|null}
+  ],
+  "evidence": [                  # the real span ids — not a summary of them
+    {"span_id": str, "trace_id": str, "operation": str, "start_ts": float}
+  ],
+  "money": {
+    "usd_saved": float,          # 0.0 when nothing was saved
+    "tokens_saved": int,         # 0 when nothing was saved
+    "spend_usd": float,
+    "formula": str               # the ROI formula (§8) that produced the number
+  },
+  "timings": {
+    "time_to_detect_seconds": float|null,  # first evidence → alert
+    "time_to_heal_seconds": float|null,    # alert → the action that fixed it
+    "detected_at": float|null,
+    "healed_at": float|null
+  },
+  "resolution": str              # what finally happened: PAUSE | KILL | ... | ""
+}
+```
+
+**An incident *is* an alert.** There is no separate incident table: an incident is the moment the
+brain flagged an agent and said "something is wrong here". The verdict that followed, the action
+that was taken and the heal that fixed it are all part of *that* incident — so the incident id is
+the alert id, and `GET /v1/incidents/{id}/postmortem` 404s for an id no alert ever had.
+
+**The order is the point.** The timeline is sorted by time, so an alert can never precede the
+verdict that caused it. A timeline whose entries cannot be traced back to a row or a span is a
+story, not a record — hence `ref` on every event and the *real* `span_id`/`trace_id` in `evidence`.
+
+**A number that cannot be measured is `null`, never a made-up zero.** "0.0 seconds" and "we do
+not know" are different facts and only one of them is true, so an unmeasurable
+`time_to_detect_seconds` is `null`. In the markdown it reads "not measured".
+
+**The markdown renders the JSON, it never recomputes it.** `GET /v1/incidents/{id}/postmortem.md`
+returns the same numbers as the JSON endpoint — a report that says "$0.12 saved" when the JSON
+says `0.12` is a report nobody can trust. The shape and the renderer live in `shared/contracts.py`,
+so the mock and the real API say the same thing.
+
 **`ToolRiskReport`** *(added 8 Nov, A14)* — what a human has approved, per (agent, tool, args):
 
 ```
@@ -376,7 +432,7 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| _(none — the mock and the real API are in step)_ | | |
+| `GET /v1/incidents/{id}/postmortem` · `.md` | the whole endpoint (B2) | the brain side (PR pending) |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.

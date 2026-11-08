@@ -27,6 +27,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
                               ToolCallRow, VerdictRow, agent_view, explain_event, explain_report, load_json,
+                              postmortem_event, postmortem_markdown, postmortem_report, postmortem_root_cause,
                               tool_risk_from_history, tool_risk_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
@@ -244,6 +245,79 @@ def explain(agent_id: str, minutes: float = 10) -> dict:
     saved = sum(float(a.get("saved_usd") or 0) for a in ACTIONS if a.get("agent_id") == agent_id)
     return explain_report(agent_id, view["state"], events, minutes=minutes,
                            spend_usd=view["spend_usd"], budget_usd=view["budget_usd"], saved_usd=saved)
+
+
+@app.get("/v1/incidents/{incident_id}/postmortem")
+def postmortem(incident_id: int) -> dict:
+    """The postmortem of one incident (B2).
+
+    An incident *is* an alert: the moment the brain flagged an agent and said
+    "something is wrong here". The verdict, the action and the heal that followed
+    are part of that incident, so the incident id is the alert id.
+
+    The shape comes from `shared.contracts.postmortem_report`, so the mock and the
+    real API say exactly the same thing — that is what the parity test compares.
+    """
+    alert = next((a for a in ALERTS if int(a.get("id") or 0) == int(incident_id)), None)
+    if alert is None:
+        _bad(404, f"incident {incident_id} not found")
+    return _postmortem_for(alert)
+
+
+def _postmortem_for(alert: dict) -> dict:
+    """The postmortem of one alert, built from the mock's fake events."""
+    agent_id = str(alert.get("agent_id") or "")
+    now = time.time()
+    # The alert is the incident. The evidence is the span-ish moment just before it.
+    detected_at = now - 30.0
+    timeline = [
+        postmortem_event("evidence", detected_at - 10.0, "the agent started repeating itself",
+                         "the same intent, 14 times in 60s", ref="mock-evidence"),
+        postmortem_event("alert", detected_at, str(alert.get("rule") or "flagged"),
+                         str(alert.get("message") or ""), ref=str(alert.get("id"))),
+    ]
+    verdict = _verdict()
+    if verdict["agent_id"] == agent_id:
+        timeline.append(postmortem_event("verdict", detected_at + 10.0, verdict["action"],
+                                         verdict["reason"], ref=str(verdict.get("id"))))
+    for act in ACTIONS:
+        if act.get("agent_id") == agent_id:
+            timeline.append(postmortem_event("action", detected_at + 20.0, str(act.get("action") or "?"),
+                                             str(act.get("reason") or ""), ref=str(act.get("id"))))
+    for p in HEAL_PROPOSALS.values():
+        if p.get("agent_id") == agent_id:
+            timeline.append(postmortem_event("heal", detected_at + 25.0, str(p.get("kind") or "patch"),
+                                             str(p.get("reason") or ""), ref=str(p.get("id"))))
+
+    saved = sum(float(a.get("usd_saved_estimate") or 0) for a in ACTIONS
+                if a.get("agent_id") == agent_id and a.get("action") in ("KILL", "PAUSE"))
+    tokens = sum(int(a.get("tokens_saved_estimate") or 0) for a in ACTIONS
+                 if a.get("agent_id") == agent_id and a.get("action") in ("KILL", "PAUSE"))
+    view = next((a for a in _fleet() if a["agent_id"] == agent_id), {})
+    return postmortem_report(
+        int(alert.get("id") or 0), agent_id,
+        postmortem_root_cause(str(alert.get("rule") or ""), verdict.get("pattern", ""),
+                              verdict.get("reason", ""), detector=verdict.get("source", "rules")),
+        timeline,
+        [{"span_id": "mock-span-0001", "trace_id": "mock-trace-0001",
+          "operation": "chat", "start_ts": detected_at - 10.0}],
+        {"usd_saved": saved, "tokens_saved": tokens, "spend_usd": view.get("spend_usd", 0.0)},
+        {"time_to_detect_seconds": 10.0, "time_to_heal_seconds": 20.0,
+         "detected_at": detected_at, "healed_at": detected_at + 20.0},
+        resolution=f"{agent_id} was {str(alert.get('rule') or 'flagged')} and the brain stepped in.",
+    )
+
+
+@app.get("/v1/incidents/{incident_id}/postmortem.md")
+def postmortem_markdown_endpoint(incident_id: int) -> str:
+    """The same postmortem, as markdown."""
+    alert = next((a for a in ALERTS if int(a.get("id") or 0) == int(incident_id)), None)
+    if alert is None:
+        _bad(404, f"incident {incident_id} not found")
+    from fastapi.responses import PlainTextResponse
+
+    return PlainTextResponse(postmortem_markdown(_postmortem_for(alert)),
+                             media_type="text/markdown; charset=utf-8")
 
 
 @app.get("/v1/metrics")
