@@ -1,0 +1,157 @@
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/700.css';
+
+@import './tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background-color: #06070D;
+  background-image: linear-gradient(180deg, rgba(7, 9, 14, 0.88) 0%, rgba(14, 19, 31, 0.94) 100%), url('/background.jpg');
+  background-size: 110% 110%;
+  background-attachment: fixed;
+  background-position: center;
+  animation: bgFloatPan 36s ease-in-out infinite alternate;
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-sm-size);
+  line-height: var(--type-body-sm-lh);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Custom Electric Blue AI Cursor (tamjid/dashboard-ui) */
+html, body, #root, * {
+  cursor: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIj4KPHBhdGggZD0iTTMgMkwxOCAxMUwxMSAxM0w4IDE5TDMgMloiIGZpbGw9IiMwNjA4MTMiIHN0cm9rZT0iIzAwRjBGRiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CjxjaXJjbGUgY3g9IjUiIGN5PSI0IiByPSIyIiBmaWxsPSIjMDBGMEZGIi8+Cjwvc3ZnPg==') 3 2, auto !important;
+}
+
+button, a, select, input, textarea, [role="button"], summary, [data-baseweb="tab"] {
+  cursor: url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyOCIgaGVpZ2h0PSIyOCIgdmlld0JveD0iMCAwIDI4IDI4IiBmaWxsPSJub25lIj4KPGNpcmNsZSBjeD0iMTQiIGN5PSIxNCIgcj0iOSIgc3Ryb2tlPSIjMDBGMEZGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1kYXNoYXJyYXk9IjMgMyIvPgo8Y2lyY2xlIGN4PSIxNCIgY3k9IjE0IiByPSIzLjUiIGZpbGw9IiMwMEYwRkYiLz4KPGxpbmUgeDE9IjE0IiB5MT0iMiIgeDI9IjE0IiB5Mj0iNiIgc3Ryb2tlPSIjMDBGMEZGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMTQiIHkxPSIyMiIgeDI9IjE0IiB5Mj0iMjYiIHN0cm9rZT0iIzAwRjBGRiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPGxpbmUgeDE9IjIiIHkxPSIxNCIgeDI9IjYiIHkyPSIxNCIgc3Ryb2tlPSIjMDBGMEZGIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSIxNCIgeDI9IjI2IiB5Mj0iMTQiIHN0cm9rZT0iIzAwRjBGRiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiLz4KPC9zdmc+') 14 14, pointer !important;
+}
+
+/* Background Cinematic Panning Animation */
+@keyframes bgFloatPan {
+  0% { background-position: 50% 50%; background-size: 108% 108%; }
+  33% { background-position: 53% 47%; background-size: 114% 114%; }
+  66% { background-position: 47% 53%; background-size: 111% 111%; }
+  100% { background-position: 50% 50%; background-size: 108% 108%; }
+}
+
+/* Moving Aurora Lighting Effect Behind Content */
+.aurora-glow {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: radial-gradient(circle at 18% 28%, rgba(0, 240, 255, 0.16) 0%, transparent 45%),
+              radial-gradient(circle at 82% 72%, rgba(129, 140, 248, 0.14) 0%, transparent 45%),
+              radial-gradient(circle at 50% 48%, rgba(37, 99, 235, 0.12) 0%, transparent 55%);
+  pointer-events: none;
+  z-index: 0;
+  animation: auroraShift 16s ease-in-out infinite alternate !important;
+}
+
+@keyframes auroraShift {
+  0% { transform: scale(1) translate(0px, 0px); opacity: 0.8; }
+  50% { transform: scale(1.12) translate(30px, -20px); opacity: 1; }
+  100% { transform: scale(1) translate(-20px, 30px); opacity: 0.8; }
+}
+
+/* Drifting Cybernetic Micro-Grid */
+.cyber-grid {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(rgba(0, 240, 255, 0.035) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0, 240, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  pointer-events: none;
+  z-index: 0;
+  animation: gridDrift 50s linear infinite !important;
+}
+
+@keyframes gridDrift {
+  0% { background-position: 0 0; }
+  100% { background-position: 44px 44px; }
+}
+
+/* Moving Cybernetic Laser Scanner */
+.cyber-scanner-laser {
+  position: fixed;
+  left: 0;
+  width: 100vw;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 0%, rgba(0, 240, 255, 0.2) 20%, #00F0FF 50%, rgba(0, 240, 255, 0.2) 80%, transparent 100%);
+  box-shadow: 0 0 16px #00F0FF, 0 0 32px rgba(0, 240, 255, 0.6);
+  pointer-events: none;
+  z-index: 1;
+  animation: laserScan 9s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes laserScan {
+  0% { top: -2%; opacity: 0; }
+  10% { opacity: 0.85; }
+  90% { opacity: 0.85; }
+  100% { top: 102%; opacity: 0; }
+}
+
+/* Numeric Discipline: Tabular Numbers Everywhere */
+.tabular-nums,
+[data-mono="true"],
+code,
+pre,
+.telemetry-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Accessible Focus Rings */
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Custom Scrollbar for Mission Control */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
