@@ -342,12 +342,13 @@ The gaps are recorded here, and the table is empty when there are none:
 
 | Endpoint | Fields the mock has and the real API does not (yet) | Closed by |
 |---|---|---|
-| `GET /v1/tool-risk` *(A14)* | the whole endpoint — the mock has it, the real API does not yet | the A14 brain branch |
+| _(none — the mock and the real API are in step)_ | | |
 
 When the brain side lands, delete its row — it is a record of a gap, not a permanent difference.
 A8's gap (`/v1/health`: `workers`, `agents_total`) closed when `b22d509` merged.
 A13's gap (`GET /v1/agents/{id}/explain`: the whole endpoint) closed when the brain side landed
 as PR #47.
+A14's gap (`GET /v1/tool-risk`: the whole endpoint) closed when the brain side landed as PR #51.
 
 ---
 
