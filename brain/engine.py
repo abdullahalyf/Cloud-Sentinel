@@ -24,6 +24,7 @@ from brain.heal import PatchRejected, decide as decide_heal, may_autoheal, propo
 from brain.judge import Judge, JudgeContext, Verdict
 from brain.policy import Policy
 from brain.policy_reload import PolicyManager
+from brain.sharding import Shard
 from brain.state import AgentWindow, Snapshot
 from shared.config import Settings
 from shared.contracts import (ActionRow, AgentRow, AlertRow, Executor, MetricRow, RuntimeInfo, VerdictRow,
@@ -35,7 +36,7 @@ log = logging.getLogger("brain.engine")
 class Engine:
     def __init__(self, store, executor: Executor, judge: Judge, policy: Policy, cfg: Settings,
                  dry_run: bool = False, sync_judge: bool = False, runtime_name: str = "fake",
-                 policy_path: str = ""):
+                 policy_path: str = "", shard: Optional[Shard] = None):
         self.store, self.executor, self.judge, self.policy, self.cfg = store, executor, judge, policy, cfg
         self.dry_run, self.sync_judge, self.runtime_name = dry_run, sync_judge, runtime_name
         self.windows: dict[str, AgentWindow] = {}
@@ -57,6 +58,21 @@ class Engine:
         self.baselines: dict[str, AgentBaseline] = {}
         self.first_seen: dict[str, float] = {}   # agent → when we first saw it (the warmup clock)
         self._load_baselines()
+        # A8: this worker's share of the fleet. Without a shard the engine owns everything
+        # (the single-process default), so nothing else changes for the ordinary case.
+        self.shard = shard
+        self.owned: Optional[set[str]] = None   # None = "everything" (no shard)
+
+    def owns(self, agent_id: str) -> bool:
+        """Does this worker act on this agent?
+
+        With no shard, yes — the engine watches the whole fleet. With a shard, only the
+        agents this worker owns. Two workers acting on one agent would pause it twice and
+        count every metric twice.
+        """
+        if self.owned is None:
+            return True
+        return agent_id in self.owned
 
     def _load_baselines(self) -> None:
         """Restore what the store kept: a brain restart must not forget what an agent is like."""
@@ -96,9 +112,26 @@ class Engine:
         listed = self._safe(self.executor.list_agents)
         runtime = {r.agent_id: r for r in (listed or [])}
         self.runtime_ids = set(runtime) if listed is not None else None   # None = runtime unknown this tick
+        self._safe(self._reshard, now)
         for agent_id in sorted(set(self.windows) | set(runtime)):
+            if not self.owns(agent_id):
+                continue   # somebody else's agent — do not touch it
             self._safe(self._watch, agent_id, runtime.get(agent_id), now)
         self._safe(self._expire_tool_calls, now)
+
+    def _reshard(self, now: float) -> None:
+        """
+        Work out which agents are ours (A8).
+
+        The heartbeat comes first: the other workers can only see us if we say we are alive,
+        and a worker that just started has to be seen before it can own anything.
+        """
+        if self.shard is None:
+            return
+        if self.shard.needs_heartbeat(now):
+            self.shard.heartbeat(now)
+        agent_ids = set(self.windows) | set(self.runtime_ids or set())
+        self.owned = self.shard.owned_agents(agent_ids, now)
 
     def _reload_policy(self, now: float) -> None:
         """
@@ -395,6 +428,10 @@ class Engine:
     # ── commands ─────────────────────────────────────────────────────────────
     def _run_commands(self, now: float) -> None:
         for cmd in self.store.pending_commands():
+            # A8: only the worker that owns the agent runs its commands. If two workers ran
+            # the same command, the agent would be paused twice and the action counted twice.
+            if not self.owns(str(cmd.get("agent_id") or "")):
+                continue
             try:
                 status, result = self._run_command(cmd, now)
             except Exception as exc:

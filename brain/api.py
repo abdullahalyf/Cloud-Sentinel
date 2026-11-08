@@ -111,7 +111,19 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
 
     @app.get("/v1/health")
     def health() -> dict:
-        return {"ok": True, "mode": mode, "judge": judge, "contract": CONTRACT_VERSION}
+        # A8: the workers the fleet is shared between. A store that cannot say (an old
+        # Supabase schema) must not take the whole health check down — the brain is up,
+        # and that is what a health check is for.
+        #
+        # Every worker in the table is listed, alive or not. Deciding who is alive is the
+        # shard's job (it knows its own clock); a health check that filtered on the
+        # store's wall clock would disagree with the workers about who is dead.
+        try:
+            workers = store.list_workers()
+        except Exception:
+            workers = []
+        return {"ok": True, "mode": mode, "judge": judge, "contract": CONTRACT_VERSION,
+                "workers": workers, "agents_total": len(service.fleet_view(store))}
 
     @app.get("/v1/fleet", dependencies=[Depends(auth)])
     def fleet() -> dict:

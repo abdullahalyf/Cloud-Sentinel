@@ -6,6 +6,7 @@ Start the brain: engine loop + C2 API (:8000) in one process.
     python -m brain --fake --no-auto-rogue
     python -m brain --dry-run       # never actually pause/kill, only log
     python -m brain --no-api        # engine only
+    python -m brain --worker        # A8: one shard of the fleet, no API — run N of these
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from brain.api import create_app
 from brain.engine import Engine
 from brain.judge import Judge
 from brain.policy import Policy
+from brain.sharding import Shard, worker_id_from_env
 from shared.config import settings
 from shared.store import get_store
 
@@ -43,6 +45,9 @@ def main() -> None:
     p.add_argument("--no-auto-rogue", action="store_true", help="[fake] only go rogue via dashboard/script")
     p.add_argument("--dry-run", action="store_true", help="log actions instead of executing them")
     p.add_argument("--no-api", action="store_true", help="do not start the C2 API")
+    p.add_argument("--worker", action="store_true",
+                   help="A8: run as a shard of the fleet (no API). Start N of them to spread the work.")
+    p.add_argument("--worker-id", default="", help="A8: this worker's id (default: the hostname and pid)")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
 
@@ -63,8 +68,17 @@ def main() -> None:
 
     policy = Policy.load(settings.policy_file, settings.default_budget_usd)
     judge = Judge(settings)
+
+    # A8: a worker is a shard of the fleet. The shard is what gives the engine its
+    # "these agents are mine" rule, so it is built here and handed to the engine.
+    shard = None
+    if args.worker:
+        shard = Shard(store, worker_id=worker_id_from_env(args.worker_id),
+                      heartbeat_seconds=settings.worker_heartbeat_seconds,
+                      stale_seconds=settings.worker_stale_seconds)
+
     engine = Engine(store, executor, judge, policy, settings, dry_run=args.dry_run or settings.dry_run,
-                    runtime_name=kind, policy_path=settings.policy_file)
+                    runtime_name=kind, policy_path=settings.policy_file, shard=shard)
     # A6: the injection gate. One gate for the whole process — the fake fleet's tool calls and
     # the API's tool calls must be judged the same way.
     gate = service.InjectionGate(
@@ -81,8 +95,18 @@ def main() -> None:
 
     log.info("Mode: %s · store: %s · judge: %s", kind.upper(),
              "Supabase" if settings.use_supabase else f"SQLite ({settings.local_db_path})", judge.provider)
-    if args.no_api:
-        engine.run_forever(before_tick)
+    if shard is not None:
+        log.info("Worker %s · heartbeat every %.1fs · a worker is stale after %.1fs",
+                 shard.worker_id, shard.heartbeat_seconds, shard.stale_seconds)
+
+    if args.no_api or args.worker:
+        # A worker never serves the API: the API belongs to the brain process, and two
+        # APIs on one port would just fight. The workers only watch and act.
+        try:
+            engine.run_forever(before_tick)
+        finally:
+            if shard is not None:
+                shard.shutdown()
         return
     threading.Thread(target=engine.run_forever, args=(before_tick,), daemon=True, name="engine").start()
 

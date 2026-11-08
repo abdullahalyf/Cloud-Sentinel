@@ -235,6 +235,8 @@ First add a **Contract request** for 2 settings: `CS_EXPORT_CLOUDWATCH` (bool) a
 
 ## Notes
 - 2026-11-04 (Alif's agent, A0): your 3 contract requests are on main. `ROGUE_KINDS` has the 4 new kinds (implement them in `telemetry/simulators/agent.py`; `FakeFleet` keeps them healthy). `schema_migrations` is in `schema.sql` and `LocalStore`; `SupabaseStore` needs no new method, only your `telemetry/db/migrate.py` reads/writes it. Settings: `settings.export_cloudwatch`, `settings.cloudwatch_file`.
+- 2026-11-08 (Alif's agent, A8): `LocalStore` commits once per write, and that is now the biggest cost in the brain. Measured with 50 agents and 2 workers: a tick p95 was **194 ms**, and `sqlite3.Connection.commit` was **64% of the whole tick** (16.4 s of 25.6 s in a profile). The brain writes two rows per agent per tick (`insert_metric` + `upsert_agent`), so 50 agents = 100 separate transactions = 100 disk syncs. The acceptance target is p95 < 200 ms, so we are at 194 — it passes, but with no margin, and the tick gets slower linearly with the fleet size.
+  What would fix it: a way to write many rows in one transaction. Either a `store.transaction()` context manager that defers the commit until the block ends, or bulk methods (`insert_metrics(rows)` / `upsert_agents(rows)`) that do one commit for the whole batch. The brain would then wrap one tick in one transaction. This is in your folder (`shared/store.py`), so I did not touch it — the note is here so the next person to work on the store picks it up. The numbers are in `docs/research/brain-scaling.md`.
 
 ## Notes from the lead review (Wed 4 Nov)
 1. The `bad_tool_call` refund can slip through if the brain is down, because the SDK fails open. That's F11 S1.
