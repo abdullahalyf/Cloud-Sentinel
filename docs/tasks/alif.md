@@ -777,6 +777,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
 ### B5 · [ ] 🟡 SHOULD · Policy backtesting
+> 🔄 2026-11-08 · IN PROGRESS · branch `alif/b5-policy-backtest` · contract PR [#71](https://github.com/abdullahalyf/Cloud-Sentinel/pull/71)
+>
 > Prompt:
 > *Replay stored historical traces against a new or a changed policy and report what it would have
 > caught: the catches, the false positives, and the money saved. Expose it as a CLI and as an API.*
