@@ -659,6 +659,269 @@ OTLP → the real collector app → the store — with the trace id and the pare
 - `/v1/agents/{id}/nodes`, and SDK-enforced control for agents without a container.
 - **Not done:** the real Claude run (no key in that cloud session). A1 covers it.
 
+---
+
+# 🆕 B-series backlog (added 8 Nov 2026, by Alif)
+
+**Where this sits.** Twelve new tasks, B1 to B12, in the order Alif asked for. The first four are
+🔴 MUST, the next five 🟡 SHOULD, the last two 🟢 STRETCH. They run *after* the A-series, on the
+same loop (claim a branch, write the acceptance tests first, `python -m pytest -q` green, PR,
+squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
+
+**The rules that cover every task in this series** (from Alif, 8 Nov):
+
+1. **Every new behaviour goes behind a config flag**, in `shared/config.py` and `.env.example`.
+   The default is **off** unless the behaviour is *fully* tested. A flag that defaults to on and
+   is only half-tested is how a demo breaks at 3 AM.
+2. **Contract changes go through the contract process** — a `contract/…` branch, additive only.
+   The mock may lead the real API, never lag.
+3. **Code freeze: after 2026-11-12 23:59 (Asia/Dhaka)** — only bug fixes, demo stability and docs.
+   A B task that has not merged by then is not started; it is left in the file for after the freeze.
+4. **Never edit a teammate's folder.** A needed change in `telemetry/`, `dashboard/`, `eval/`,
+   `infra/`, `docker-compose.yml` or `.github/` goes into a note in that person's task file.
+
+### B1 · [ ] 🔴 MUST · Verified auto-heal (the shadow dry-run)
+> Prompt:
+> *The judge proposes a structured patch (a memory edit, a tool override, or a model downgrade).
+> Today a confident patch is applied straight away, and the only evidence it worked is whether the
+> agent trips again on probation. That is a bet. Before applying a patch, **replay the agent's
+> recent context against the patch in a shadow dry-run**: take the agent's recent spans and memory,
+> apply the patch *in a copy*, and ask the detectors whether the patched copy would still look bad.
+> Apply the patch automatically **only if the shadow run is healthy AND the judge's confidence is
+> above the threshold**. Anything else — an unhealthy shadow, a low confidence — goes to the
+> approvals inbox (`heal_proposals`) instead. Log the whole flow as spans (the shadow's verdict,
+> the decision, the confidence), so the decision can be read off the trace later.*
+>
+> **Owned files:** `brain/verified_heal.py` (new), `brain/engine.py`, `brain/heal.py`,
+> `brain/verdict_span.py` (the new span events), `shared/config.py`, `.env.example`,
+> `brain/tests/test_verified_heal.py` (new). A contract change (new span event names, new
+> `ActionType`) goes through `contract/…` first, additive only.
+>
+> **Acceptance tests:** a shadow run that stays healthy → the patch is applied automatically and the
+> flow is logged as spans; a shadow run that is *still* unhealthy → the patch becomes a proposal and
+> nothing is applied; a low confidence → a proposal, even when the shadow is healthy; the flag off
+> → every patch is a proposal (the old behaviour, exactly); the shadow never writes to the store
+> (the memory of a paused agent is unchanged by the dry-run); a broken shadow → a proposal, never an
+> exception; the confidence threshold is the configured one, not a constant.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B2 · [ ] 🔴 MUST · Incident postmortems
+> Prompt:
+> *For every incident, generate a structured postmortem: the timeline, the root cause, the evidence
+> spans, the action taken, the money saved, the time to detect and the time to heal. Expose it as
+> `GET /v1/incidents/{id}/postmortem`, as JSON and as markdown, and add it to the mock API.*
+>
+> **Owned files:** `brain/postmortem.py` (new), `brain/api.py`, `brain/service.py`,
+> `brain/tests/test_postmortem.py` (new). The contract (the endpoint, the report shape, the markdown
+> rendering) goes in `shared/contracts.py` + `shared/mocks/mock_api.py` + `docs/CONTRACTS.md` on a
+> `contract/…` branch, additive only.
+>
+> **Acceptance tests:** the postmortem has a timeline in the right order (an alert cannot precede
+> the verdict that caused it); the root cause names the rule and the pattern, not "unknown"; the
+> evidence spans are real span ids from the store; the money saved uses the ROI formula and is 0 when
+> nothing was saved; the time to detect is measured from the first evidence to the alert; the time to
+> heal is measured from the alert to the action; the markdown renders the same numbers as the JSON;
+> an unknown incident is a 404; the mock and the real API say the same thing (parity test).
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B3 · [ ] 🔴 MUST · The deterministic demo runner
+> Prompt:
+> *One command runs the whole "3 AM incident" headless — an agent goes rogue, the brain detects it,
+> the judge decides, the breaker acts, the agent is healed or killed, and the money is counted — with
+> **assertions on every step and on the timing**. It fails loudly if anything drifts. It also writes
+> `docs/evidence/demo_run.md` with the timings. Run it 20 times and fix every flake until it passes
+> 20 out of 20.*
+>
+> **Owned files:** `brain/demo_runner.py` (new), `brain/tests/test_demo_runner.py` (new),
+> `docs/evidence/demo_run.md` (new), `docs/evidence/` (new folder — note: `docs/evidence/` is *not*
+> `docs/research/`, so the folder guard needs it allowed; it is Alif's, asked for by Alif).
+>
+> **Acceptance tests:** the runner asserts the detection happened, the verdict was reached, the
+> action was taken and the cost was counted — and fails when any one of them did not; the timings
+> have a budget and a drift over it fails the run; the run is **deterministic** (the same seed gives
+> the same numbers, twice); the runner writes the markdown with the timings; it works offline, with
+> no Docker and no key; it exits non-zero on a drift.
+>
+> **Done when:** the tests are green, the full suite is green, the runner passes **20 out of 20**
+> consecutive runs (the numbers are recorded in the PR), the PR is merged, the box is `[x]`, and
+> `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B4 · [ ] 🔴 MUST · Budget forecasting and graceful degradation
+> Prompt:
+> *Use hierarchical budgets — org → team → agent — so one agent cannot spend the whole fleet's
+> money, and forecast the burn rate ("this budget is exhausted in X minutes"). Before killing an
+> agent, step down: **throttle** first, then switch to a **cheaper model**, then **pause**, and only
+> then **kill**.*
+>
+> **Owned files:** `brain/budget.py` (new), `brain/engine.py`, `brain/breaker.py`,
+> `brain/state.py`, `shared/config.py`, `.env.example`, `brain/tests/test_budget.py` (new).
+> Contract changes (the new action types `THROTTLE` / `DOWNGRADE`, the new budget table) go through
+> `contract/…` first, additive only — and `telemetry/db/schema.sql` is shared with Taseen.
+>
+> **Acceptance tests:** the org budget is the sum of the team budgets and the team budget is the sum
+> of the agent budgets (an agent over its share does not consume the org's whole budget); the forecast
+> says "exhausted in X min" from the burn rate, and says nothing when the burn rate is zero; the
+> degradation ladder is exactly throttle → cheaper model → pause → kill, and the ladder stops at the
+> first step that works; a threshold step does not skip a rung; the flag off → the old behaviour
+> (pause / kill, no throttle); a failed throttle does not advance the ladder silently.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B5 · [ ] 🟡 SHOULD · Policy backtesting
+> Prompt:
+> *Replay stored historical traces against a new or a changed policy and report what it would have
+> caught: the catches, the false positives, and the money saved. Expose it as a CLI and as an API.*
+>
+> **Owned files:** `brain/backtest.py` (new), `brain/tests/test_backtest.py` (new),
+> `shared/config.py` (the flag), `.env.example`. The API endpoint is a contract change:
+> `contract/…` branch, `shared/contracts.py` + `shared/mocks/mock_api.py` + `docs/CONTRACTS.md`,
+> additive only.
+>
+> **Acceptance tests:** a backtest over a known set of traces reports the same catches twice
+> (deterministic); a false positive is counted, not hidden; the money saved uses the ROI formula;
+> the CLI prints the report and exits 0; the CLI takes a policy file as an argument and uses the
+> running policy when it is not given one; the API and the CLI agree; a store with no history
+> reports zero, not an error.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B6 · [ ] 🟡 SHOULD · Cascade detection
+> Prompt:
+> *Detect cross-agent loops and contagion — A → B → A, or one rogue agent flooding the others — and
+> contain **the whole chain together**, not one agent at a time. Add a simulator scenario for it
+> through the mock (no edits to `telemetry/`).*
+>
+> **Owned files:** `brain/cascade.py` (new), `brain/engine.py`, `brain/tests/test_cascade.py` (new),
+> `shared/config.py` (the flag), `.env.example`. The mock scenario is in `shared/mocks/` →
+> `contract/…` branch. **Never edit `telemetry/`** — Fojle's.
+>
+> **Acceptance tests:** an A → B → A chain is detected as one cascade, not as two separate agents;
+> one agent flooding the others is detected as a contagion; the containment pauses **every** agent in
+> the chain in the same tick; a healthy agent that merely appears in the same window is not swept up;
+> the flag off → the old behaviour (each agent handled on its own); the cascade is written to the
+> store so it can be read back.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B7 · [ ] 🟡 SHOULD · The tamper-evident audit log
+> Prompt:
+> *Every decision and every human action goes into a **hash-chained** log, with a verify command
+> and a `GET /v1/audit` endpoint. This is the governance story for the judges.*
+>
+> **Owned files:** `brain/audit.py` (new), `brain/engine.py`, `brain/service.py`,
+> `brain/tests/test_audit.py` (new), `shared/config.py` (the flag), `.env.example`. The endpoint is a
+> contract change: `contract/…` branch, `shared/contracts.py` + `shared/mocks/mock_api.py` +
+> `docs/CONTRACTS.md`, additive only. A new table needs `telemetry/db/schema.sql` and `LocalStore`
+> — shared with Taseen, so the contract branch carries it and the `SupabaseStore` note goes to
+> Fojle's "Notes" section.
+>
+> **Acceptance tests:** the chain links (`hash` = the previous entry's hash + this entry's content);
+> a tampered entry is caught by the verify command, and the command says **which** entry; deleting
+> an entry from the middle is caught; a chain with no entries verifies; every brain decision and
+> every human action is in the chain (a PAUSE by a human, a TOOL_DENY by the policy, an AUTO_HEAL);
+> the verify command exits non-zero on a broken chain; the endpoint serves the chain and its head
+> hash; the flag off → nothing is chained and the endpoint says so, without failing.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B8 · [ ] 🟡 SHOULD · The security detectors
+> Prompt:
+> *Three detectors: **MCP tool-description poisoning** (a tool whose description tries to steer the
+> agent), **PII / secret leakage in tool outputs**, and **prompt injection in retrieved content**.
+> Each comes with labelled test cases and a measured precision / recall in `docs/evidence/`.*
+>
+> **Owned files:** `brain/security.py` (new), `brain/injection.py` (the retrieved-content part
+> plugs into the existing scorer), `brain/tests/test_security.py` (new),
+> `brain/eval_data/security.jsonl` (new, the labelled cases), `shared/config.py` (the flags),
+> `.env.example`, `docs/evidence/security.md` (new).
+>
+> **Acceptance tests:** each detector fires on its labelled positives and stays quiet on its
+> labelled negatives; the measured precision and recall are written to `docs/evidence/security.md`
+> and are reproducible with one command; a true positive is denied, not merely logged; a secret in a
+> tool output is redacted before it is stored; a poisoned tool description cannot change the gate's
+> decision by itself; the flag off → the detectors do not run and the old behaviour stands.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B9 · [ ] 🟡 SHOULD · The scale proof
+> Prompt:
+> *Benchmark the brain with 500 and then 1000 simulated agents. Report the decision latency
+> p50 / p95 / p99 and the throughput, profile and optimise the hot paths, and publish the numbers in
+> `docs/evidence/scale.md`.*
+>
+> **Owned files:** `brain/scale_bench.py` (new), `brain/tests/test_scale.py` (new),
+> `docs/evidence/scale.md` (new).
+>
+> **Acceptance tests:** the benchmark runs 500 and 1000 agents and prints the p50 / p95 / p99 and the
+> throughput; the numbers in `docs/evidence/scale.md` come from a real run, not from a guess; the
+> tick stays inside its budget at 500 agents (the A11 budget, 200 ms at 100 agents, scaled and
+> stated); the benchmark is offline and deterministic; a regression against the published numbers
+> fails (the test reads `docs/evidence/scale.md`).
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B10 · [ ] 🟡 SHOULD · The team status report
+> Prompt:
+> *A script reads the git log, the task files and the CI results and writes `docs/STATUS_BN.md`:
+> per person, what is done versus what is planned, and who is behind or blocked. Run it after every
+> task you finish, so Alif only needs to read that one file.*
+>
+> **Owned files:** `scripts/status.py` (new), `docs/STATUS_BN.md` (new). `scripts/` is not in the
+> folder guard's allowed list for `alif/` — Alif asked for it, so the guard needs it allowed, and
+> `docs/STATUS_BN.md` too.
+>
+> **Acceptance tests:** the report names every person in `docs/TEAM.md`; per person it counts the done
+> and the planned tasks from their task file; "behind" is decided by a stated rule (planned tasks
+> that are not started, and tasks marked `[!]`); the CI result comes from `gh` when it is available
+> and says "unknown" when it is not (never a crash); the report is in Bangla; it is deterministic
+> for the same git log and task files; it exits 0 and writes the file.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B11 · [ ] 🟢 STRETCH · Packaging
+> Prompt:
+> *Make the SDK and the MCP server pip-installable, with a 5-line quickstart that works from a
+> clean virtualenv. Test it — actually create the venv and run it.*
+>
+> **Owned files:** `telemetry/sdk/pyproject.toml` (new — **Fojle's folder**, so this needs a note in
+> `docs/tasks/fojle.md` or a `contract/` branch), `brain/mcp_pkg/pyproject.toml` (exists — check
+> it), `docs/evidence/quickstart.md` (new), `brain/tests/test_packaging.py` (new).
+>
+> **Acceptance tests:** `pip install ./telemetry/sdk` works in a clean venv; `pip install ./brain/mcp_pkg`
+> works in a clean venv; the installed `cloudsentinel-mcp` command starts and lists its tools; the
+> 5-line quickstart runs from a clean venv and prints a fleet; the test creates a real venv (marked
+> so it can be skipped when there is no network).
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
+### B12 · [ ] 🟢 STRETCH · The evidence pack for the pitch
+> Prompt:
+> *Collect all the key numbers — detection time, heal time, money saved, accuracy, scale — into
+> `docs/evidence/PITCH_NUMBERS.md`, with the **exact command to reproduce each one**. Do not touch
+> `eval/` — Orin uses this file as an input.*
+>
+> **Owned files:** `docs/evidence/PITCH_NUMBERS.md` (new), `docs/evidence/` (the other evidence
+> files B3, B8 and B9 wrote).
+>
+> **Acceptance tests:** every number in the file has a command next to it that produces it; the
+> commands run (a test re-runs the cheap ones and checks the numbers match); nothing is invented —
+> a number with no command behind it is not in the file; `eval/` is untouched.
+>
+> **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
+> and `docs/SUMMARY_BN.md` has its three Bangla lines.
+
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)
 - 2026-11-04 (lead): the flaky failure was the CrewAI adapter test (thread-pool event handlers). Fixed in telemetry/ (Fojle's folder) with `flush()` + early-completion handling; nothing to do in brain/. A10 should still watch the `adapters` job.
