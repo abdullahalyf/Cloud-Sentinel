@@ -8,16 +8,18 @@ from brain import mcp_server as m
 from brain.api import create_app
 from shared.mocks import mock_api
 
-WRITE_TOOLS = {"pause_agent", "resume_agent", "kill_agent", "set_budget", "edit_memory", "decide_tool_call"}
+WRITE_TOOLS = {"pause_agent", "resume_agent", "kill_agent", "set_budget", "edit_memory", "decide_tool_call",
+               "decide_heal"}
 
 
 def _route_to(monkeypatch, app):
     monkeypatch.setattr(m.httpx, "Client", lambda **kw: TestClient(app, headers=kw.get("headers")))
 
 
-def test_twelve_tools_with_contract_annotations():
+def test_seventeen_tools_with_contract_annotations():
+    """CONTRACTS §7 — 17 tools after A14 added get_tool_risk."""
     tools = {t.name: t for t in asyncio.run(m.mcp.list_tools())}
-    assert len(tools) == 12
+    assert len(tools) == 17
     for name, tool in tools.items():
         assert tool.annotations.destructive_hint == (name in WRITE_TOOLS), name
         assert tool.annotations.read_only_hint == (name not in WRITE_TOOLS), name
@@ -51,8 +53,29 @@ def test_every_tool_round_trips(api):
     done = m.decide_tool_call(pending[0]["id"], "deny", "test")
     assert done["decision"] == "deny" and done["decided_by"] == "mcp"
     assert "saved_usd" in m.get_roi_report()
+    risk = m.get_tool_risk()
+    assert "entries" in risk and "threshold" in risk
+
+
+def test_the_policy_tools_work(api):
+    """A5: get_policy reads the policy in force, validate_policy checks a file's text."""
+    policy = m.get_policy()
+    assert policy["defaults"]["budget_usd"] == 0.5
+    assert policy["last_error"] == ""
+    ok = m.validate_policy("defaults:\n  budget_usd: 0.5\ntools:\n  - { match: '*', action: allow }\n")
+    assert ok["ok"] is True and ok["errors"] == []
+    bad = m.validate_policy("tools:\n  - { match: '*', action: block }\n")
+    assert bad["ok"] is False
+    assert "tools[0].action: must be one of allow, deny, approval" in bad["errors"]
 
 
 def test_api_errors_become_readable_tool_errors(api):
-    with pytest.raises(RuntimeError, match="400"):
+    """A bad argument is caught locally (A7) — the message says what is wrong, not a 400."""
+    with pytest.raises(m.ToolError, match="budget_usd must be between"):
         m.set_budget("alpha", -1, "bad")
+
+
+def test_an_api_error_still_becomes_a_readable_error(api):
+    """An error from the API itself (the agent does not exist) is still readable."""
+    with pytest.raises(m.ToolError, match="not found"):
+        m.get_agent("no-such-agent")

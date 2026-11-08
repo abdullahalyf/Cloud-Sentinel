@@ -168,3 +168,94 @@ Record the video (OBS), edit it, upload it to YouTube as **Unlisted** (under 5 m
 
 ## Contract requests
 (Alif's agent reads this list (task A0). Write: what, why, which task.)
+
+---
+
+## A3 note from Alif's agent — a harness scenario for auto-heal (task A3, DONE)
+
+The brain can now **heal** a sick agent instead of only pausing it: the judge proposes a patch, a
+confident one is applied and the agent goes back to work on probation. This deserves a harness
+scenario, because "the agent recovered on its own" is a much stronger demo line than "the agent
+was stopped".
+
+**What is in the brain now** (all in `brain/`, you only need `eval/`):
+- `brain/heal.py` — validates a patch and decides whether it may be applied automatically.
+- The judge's verdict carries an optional `patch`. The fallback judge proposes one when the
+  agent's memory holds exactly one "retry until success" belief (that is what `beta` gets).
+- A **confident** patch (confidence ≥ `CS_AUTOHEAL_MIN_CONFIDENCE`, default 0.85) is written to the
+  agent's memory, an `AUTO_HEAL` action is recorded and the agent is resumed on probation.
+- A **less confident** patch becomes a `pending` proposal for a human instead. Nothing changes.
+- The mock API and the real API both serve `GET /v1/heal-proposals`.
+
+**The scenario to add** — `"auto_heal"`, expected: **intervention** (the agent is stopped first).
+The important extra column is what happens *after* the stop.
+
+**How to drive it** (same pattern as the other scenarios in `eval/harness.py`):
+1. `store.write_memory("beta", {"order_4471": "orders API returned 500 - retry until success"}, "agent")`
+   — the bad belief. The fake fleet's `go_rogue` writes this too.
+2. `fleet.go_rogue(sc.agent, "paraphrase_loop", now)` as usual.
+3. Let the engine tick until the pause happens (as the other scenarios do).
+4. **The judge must be confident.** The fallback judge's semantic-loop verdict is 0.80, which is
+   *below* the 0.85 auto-heal threshold — that is deliberate (the heuristic should not rewrite an
+   agent's memory on its own). To exercise the auto-heal path, either:
+   - stub the judge, like `brain/tests/test_heal.py` does:
+     `engine.judge.judge = lambda ctx: Verdict("PAUSE", 0.95, "semantic_loop", "...", "fallback", "",
+     patch={"memory": [{"op": "set", "key": "order_4471", "value": "cancelled - skip it and move on"}]})`, or
+   - run with `--judge claude` and a real `ANTHROPIC_API_KEY`, where the judge names the belief itself.
+5. Keep ticking for another 30–60 s.
+
+**What to assert** (this is the row the demo wants):
+- an action with `action == "AUTO_HEAL"` and `actor == "brain:autoheal"` exists — that is the
+  heal, and it is a distinct action type from PAUSE/KILL, so it is easy to count;
+- the agent's memory now says `order_4471` → `"cancelled - skip it and move on"`
+  (`store.get_memory("beta")["content"]`);
+- the agent's final state is `probation` (it was healed and put back to work), **not** `paused`;
+- the control agent (`alpha`) was never touched (`false_kills == 0`).
+
+**The number worth putting in the deck**: with auto-heal the agent costs *less* than a plain
+pause, because it stops looping instead of waiting for a human. If you extend the scenario to
+compare, the "with" run should show the agent back at work (`probation`) while the "without" run
+spends the whole duration paused.
+
+**A second, cheap scenario** — `"auto_heal_human"`, expected: intervention **and** a pending
+proposal. Use the same setup but with a low-confidence judge (confidence 0.5). Then assert:
+- no `AUTO_HEAL` action,
+- `store.list_heal_proposals(status="pending")` is not empty,
+- the agent's memory is unchanged and the agent is still `paused`.
+
+That pair is the whole point of A3 in one line: *the brain fixes it alone when it is sure, and
+asks a human when it is not.*
+
+**Note**: `brain/tests/test_heal.py` has working examples of both flows if you want to copy the
+setup (search for `test_a_confident_patch_is_applied` and
+`test_a_low_confidence_patch_becomes_a_proposal`).
+
+---
+
+## A4 note from Alif's agent — the baseline changes what "normal" means (task A4, DONE)
+
+The brain no longer judges every agent against one fixed limit. Each agent learns its own normal
+from its healthy behaviour, so a busy analyst is no longer stopped for being busy.
+
+**What this means for the harness.** `run_scenario` builds a fresh `LocalStore` and a fresh
+`Engine` per scenario, so **every scenario starts with no baseline** and the fixed soft limits
+apply for the first `CS_BASELINE_WARMUP_SECONDS` (60). The harness's `DURATION` is 90 s and the
+rogue starts at 10 s, so in practice the fixed limits decide every scenario — the harness numbers
+do not move. Good: the numbers in `RESULTS.md` stay comparable with the earlier checkpoints.
+
+**The scenario worth adding** (it is the false-positive check A4 exists for):
+
+- `legit_burst` — a busy but healthy agent, expected: **no** intervention.
+  A4 sharpens this: the agent's baseline is learned from its own healthy windows, so a burst that
+  is normal *for it* does not trip. If you build the burst by making `FakeFleet` emit faster
+  spans, keep the agent's *variety* of work high too — a burst of the SAME prompt is a loop, not
+  a burst, and the brain is right to stop it.
+
+**If you want a baseline in the harness**, warm the agent up before the rogue starts: run the
+scenario for longer than `CS_BASELINE_WARMUP_SECONDS` of healthy behaviour first, then let it
+misbehave. The learned baseline lives in `agents.baseline`, so it also survives a "restart"
+(a second `Engine` over the same store) — that is one of A4's acceptance tests.
+
+**The finding text changed**: a soft-limit hit now says "12,000 tokens/min ≥ soft limit — 3.0×
+above this agent's normal (tokens_per_min)". If you parse the reason text anywhere, look for the
+rule name (`token_spike`), not the sentence.

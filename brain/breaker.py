@@ -34,6 +34,9 @@ class Breaker:
         self.last_finding_at = 0.0
         self.probation_until = 0.0
         self.warned = False
+        # Set after an auto-heal (A3). A second trip then PAUSES instead of KILLING: the patch did
+        # not work, so a human has to look — and a pause keeps the state that a kill would destroy.
+        self.pause_on_trip = False
 
     @property
     def active(self) -> bool:
@@ -41,6 +44,9 @@ class Breaker:
         return self.state in ("healthy", "suspicious", "probation")
 
     def _trip(self, mode: str, actor: str, reason: str) -> Effect:
+        if mode == "kill" and self.pause_on_trip:
+            # the auto-heal did not work — pause and let a human look, do not destroy the state
+            mode = "pause"
         self.state = "killed" if mode == "kill" else "paused"
         return Effect("KILL" if mode == "kill" else "PAUSE", actor, reason)
 

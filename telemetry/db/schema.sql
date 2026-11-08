@@ -13,6 +13,7 @@ create table if not exists agents (
     spend_usd     real        not null default 0,
     total_tokens  integer     not null default 0,
     last_seen_ts  double precision not null default 0,
+    baseline      json        not null default '{}'::json,   -- adaptive per-agent limits (A4)
     updated_at    timestamptz not null default now()
 );
 
@@ -22,7 +23,7 @@ create table if not exists spans (
     span_id        text not null default '',
     parent_span_id text not null default '',
     agent_id       text not null,
-    operation      text not null,                 -- invoke_agent | chat | execute_tool | graph_node
+    operation      text not null,                 -- invoke_agent | chat | execute_tool | graph_node | cs_verdict
     name           text not null default '',
     provider       text not null default '',
     model          text not null default '',
@@ -137,11 +138,39 @@ create table if not exists tool_calls (
 );
 create index if not exists tool_calls_decision on tool_calls (decision, id);
 
+-- Auto-heal (A3): the judge proposes a patch, a confident one is applied, the rest waits for a human.
+create table if not exists heal_proposals (
+    id           bigint generated always as identity primary key,
+    agent_id     text not null,
+    kind         text not null default 'memory_patch',  -- memory_patch|tool_policy
+    patch        text not null default '{}',
+    confidence   double precision not null default 0,
+    status       text not null default 'pending',       -- pending|applied|rejected|expired
+    verdict_id   bigint not null default 0,
+    base_version integer not null default 0,             -- the agent_memory version the judge saw
+    reason       text not null default '',
+    decided_by   text not null default '',
+    created_at   timestamptz not null default now(),
+    decided_at   text not null default ''
+);
+create index if not exists heal_proposals_status on heal_proposals (status, id desc);
+
 -- Added 5 Nov (Fojle F9): which telemetry/db/migrations/*.sql files were applied (telemetry/db/migrate.py)
 create table if not exists schema_migrations (
     version    text primary key,
     applied_at timestamptz not null default now()
 );
+
+-- Brain workers (added 8 Nov, A8): every brain worker process heartbeats here every 2 s.
+-- A worker that stops heartbeating is dead — the others take its agents within 15 s.
+create table if not exists workers (
+    worker_id    text primary key,
+    started_at   double precision not null default 0,   -- when the worker came up (not the last beat)
+    last_seen    double precision not null default 0,   -- unix seconds of the last heartbeat
+    agents_owned integer not null default 0,             -- how many agents it currently owns
+    pid          integer not null default 0
+);
+create index if not exists workers_last_seen on workers (last_seen);
 
 -- Hackathon note: the service-role key is used from trusted laptops only.
 -- Never put it in a publicly deployed dashboard (the dashboard talks to the API, not the DB).

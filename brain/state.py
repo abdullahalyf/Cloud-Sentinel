@@ -24,6 +24,12 @@ def _num(value) -> float:
     return v if math.isfinite(v) and v > 0 else 0.0
 
 
+# How many prompt scores the cache keeps per agent (A11). The window holds 16, so 64
+# entries is four windows' worth — enough that a prompt is still cached after it left
+# the window, and small enough that the cache cannot grow without bound.
+_INJECTION_CACHE_SIZE = 64
+
+
 @dataclass
 class Snapshot:
     agent_id: str
@@ -40,6 +46,9 @@ class Snapshot:
     memory_mb: float
     memory_pct: float
     calls_in_window: int
+    # how bad the worst recent prompt scored (A6). It has a default so the many places that
+    # build a Snapshot by position keep working.
+    injection_score: float = 0.0
 
     @property
     def budget_used_pct(self) -> float:
@@ -61,6 +70,12 @@ class AgentWindow:
         self.memory_mb = 0.0
         self.memory_pct = 0.0
         self.last_seen = 0.0
+        # A11: the two scores that used to be recomputed from scratch on every tick.
+        # The loop score is incremental (only the new prompts are clustered), and the
+        # injection score is cached by the text — the same prompt scores the same every
+        # time, and the window slides by one prompt at a time.
+        self.loop_score = loops.IncrementalLoopScore()
+        self._injection: dict[str, float] = {}   # prompt → its injection score
 
     def add(self, span: dict) -> None:
         """Numbers are coerced first, so one broken span (None/"abc" tokens, no timestamp) can't poison the window."""
@@ -100,6 +115,8 @@ class AgentWindow:
         prompts = [c.get("prompt_preview") or "" for c in self.chats]
         repeats = Counter(c.get("prompt_hash") for c in self.chats if c.get("prompt_hash"))
         tool_names = [t.get("tool_name") or "" for t in self.tools]
+        recent = prompts[-12:]
+        injection_score, injection_hits = self._injection_scores(recent)
         return Snapshot(
             agent_id=self.agent_id,
             tokens_per_min=int(tokens * 60 / RATE_WINDOW),
@@ -109,13 +126,44 @@ class AgentWindow:
             spend_usd=round(self.spend_usd, 5),
             budget_usd=budget_usd,
             exact_repeats=max(repeats.values(), default=0),
-            loop_score=loops.semantic_loop_score(prompts),
+            # A11: incremental — only the prompts that are new are clustered.
+            loop_score=self.loop_score.score(prompts),
             tool_cycle=loops.tool_cycle(tool_names),
-            injection_hits=loops.injection_hits(prompts[-12:]),
+            injection_hits=injection_hits,
+            injection_score=injection_score,
             memory_mb=self.memory_mb,
             memory_pct=self.memory_pct,
             calls_in_window=len(self.chats),
         )
+
+    def _injection_scores(self, prompts: list[str]) -> tuple[float, int]:
+        """The worst injection score among the recent prompts, and how many fired.
+
+        A11: the score of a prompt never changes, so it is cached by the text. The
+        window slides by one prompt at a time, so without the cache every tick
+        re-scored the same 12 prompts — twice, because the count and the maximum
+        were computed separately.
+        """
+        from brain.injection import FINDING_SCORE, score_text
+
+        worst = 0.0
+        hits = 0
+        for prompt in prompts:
+            if not prompt:
+                continue
+            score = self._injection.get(prompt)
+            if score is None:
+                score = score_text(prompt).score
+                self._injection[prompt] = score
+                # The cache must not grow without bound: an agent that talks for hours
+                # would otherwise leave a score behind for every prompt it ever sent.
+                if len(self._injection) > _INJECTION_CACHE_SIZE:
+                    self._injection.clear()
+            if score > worst:
+                worst = score
+            if score >= FINDING_SCORE:
+                hits += 1
+        return worst, hits
 
     def recent_prompts(self, n: int = 12) -> list[dict]:
         return [{"t": round(float(c["start_ts"]), 1), "tokens": int(c.get("input_tokens") or 0)

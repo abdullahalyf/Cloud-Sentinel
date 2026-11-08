@@ -19,12 +19,15 @@ import asyncio
 import math
 import random
 import time
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
-from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, ROGUE_KINDS, ROI_FORMULA, TOOL_DECISIONS, ActionRow,
-                              AlertRow, MetricRow, ToolCallRow, VerdictRow, agent_view, utc_now_iso)
+from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
+                              ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
+                              ToolCallRow, VerdictRow, agent_view, explain_event, explain_report, load_json,
+                              tool_risk_from_history, tool_risk_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
@@ -73,6 +76,7 @@ def _verdict() -> dict:
 
 MEMORY: dict[str, list[dict]] = {}
 TOOL_CALLS: dict[int, dict] = {}
+HEAL_PROPOSALS: dict[int, dict] = {}
 COMMANDS: list[dict] = []
 ACTIONS: list[dict] = []
 ALERTS: list[dict] = []
@@ -80,7 +84,7 @@ ALERTS: list[dict] = []
 
 def seed() -> None:
     """(Re)fill the fake data in place. Called at import and by POST /v1/mock/reset (and tests)."""
-    for coll in (MEMORY, TOOL_CALLS, COMMANDS, ACTIONS, ALERTS, OVERRIDES):
+    for coll in (MEMORY, TOOL_CALLS, HEAL_PROPOSALS, COMMANDS, ACTIONS, ALERTS, OVERRIDES):
         coll.clear()
     BUDGETS.update({"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2})
     MEMORY["beta"] = [{"id": 1, "agent_id": "beta", "version": 1, "edited_by": "agent", "reason": "",
@@ -89,6 +93,29 @@ def seed() -> None:
     TOOL_CALLS[1] = ToolCallRow("delta", "issue_refund", {"order_id": 4471, "amount": 50000}, "pending", {}, "",
                                 "refunds over 5,000 BDT need a human", 410.0).to_row() | {
         "id": 1, "args": {"order_id": 4471, "amount": 50000}, "final_args": {}}
+    # A14: a human has approved the *same* small refund five times, so the sixth one
+    # would be auto-approved. The mock shows both sides of the line: this call is past
+    # the threshold, the one below it is not.
+    for i in range(2, 7):
+        TOOL_CALLS[i] = ToolCallRow("delta", "issue_refund", {"order_id": 9001, "amount": 1000}, "allow",
+                                    {"order_id": 9001, "amount": 1000}, "human",
+                                    "a small refund, the same one as last time", 12.0).to_row() | {
+            "id": i, "args": {"order_id": 9001, "amount": 1000},
+            "final_args": {"order_id": 9001, "amount": 1000}}
+    TOOL_CALLS[7] = ToolCallRow("delta", "issue_refund", {"order_id": 9100, "amount": 2000}, "allow",
+                                {"order_id": 9100, "amount": 2000}, "human",
+                                "another small refund", 24.0).to_row() | {
+        "id": 7, "args": {"order_id": 9100, "amount": 2000},
+        "final_args": {"order_id": 9100, "amount": 2000}}
+    # one pending heal proposal for beta, so the approvals inbox has something in it
+    # the real API decodes the JSON `patch` column, so the mock serves a decoded patch too
+    _proposal = HealProposalRow(
+        "beta", "memory_patch",
+        {"memory": [{"op": "set", "key": "order_4471", "value": "cancelled - skip it and move on"}]},
+        0.71, "pending", 1, 1,
+        "The belief 'retry until success' keeps the agent looping on a failing order",
+    ).to_row()
+    HEAL_PROPOSALS[1] = _proposal | {"id": 1, "patch": load_json(_proposal["patch"])}
     ACTIONS.extend([
         ActionRow("beta", "PAUSE", "claude", "semantic loop on order 4471", 2.52, 210000).to_row() | {"id": 2},
         ActionRow("gamma", "KILL", "rules", "Hard limit: 80,816 tokens/min", 129.6, 4800000).to_row() | {"id": 1}])
@@ -98,13 +125,24 @@ def seed() -> None:
 seed()
 
 
+def _baseline(agent: str) -> dict:
+    """A learned baseline per agent (A4): {metric: {median, limit, samples}}."""
+    base = {"alpha": 4000, "beta": 3500, "gamma": 5000, "delta": 2500}[agent]
+    return {
+        "tokens_per_min": {"median": base, "limit": int(base * 1.6), "samples": 120},
+        "usd_per_min": {"median": round(base * 4e-6, 5), "limit": round(base * 6.4e-6, 5), "samples": 120},
+        "calls_per_sec": {"median": 0.2, "limit": 0.8, "samples": 120},
+    }
+
+
 def _fleet() -> list[dict]:
     now = time.time()
     out = []
     for a in AGENTS:
         m = _metric(a, now)
         row = {"agent_id": a, "display_name": a, "runtime": "mock", "state": _state(a), "budget_usd": BUDGETS[a],
-               "spend_usd": m["spend_usd"], "total_tokens": m["total_tokens"], "updated_at": utc_now_iso()}
+               "spend_usd": m["spend_usd"], "total_tokens": m["total_tokens"], "baseline": _baseline(a),
+               "updated_at": utc_now_iso()}
         out.append(agent_view(row, m, _verdict() if a == "beta" and _state(a) != "healthy" else None))
     return out
 
@@ -114,7 +152,11 @@ app = FastAPI(title="CloudSentinel MOCK C2 API", version=f"contract-{CONTRACT_VE
 
 @app.get("/v1/health")
 def health() -> dict:
-    return {"ok": True, "mode": "mock", "judge": "claude", "contract": CONTRACT_VERSION}
+    # A8: the workers the fleet is shared between. The mock has none — it serves one
+    # brain — but the shape must be the same, so a client written against the mock
+    # works against the real API.
+    return {"ok": True, "mode": "mock", "judge": "claude", "contract": CONTRACT_VERSION,
+            "workers": [], "agents_total": len(_fleet())}
 
 
 @app.get("/v1/fleet")
@@ -170,6 +212,38 @@ def nodes(agent_id: str, minutes: float = 10, limit: int = 100) -> dict:
     return {"items": items[-max(1, limit):],
             "edges": [{"source": a, "target": b, "count": n} for (a, b), n in sorted(edges.items())],
             "last_node": last["node"] if last else None, "next_node": last["next"] if last else None}
+
+
+@app.get("/v1/agents/{agent_id}/explain")
+def explain(agent_id: str, minutes: float = 10) -> dict:
+    """What happened to this agent, and why (A13).
+
+    The story is built from the same fake events the mock already serves: the alert,
+    the verdict, the action and the heal proposal. The *text* comes from
+    `shared.contracts.explain_report`, so the mock and the real API say exactly the
+    same thing — that is what the golden-text test compares.
+    """
+    view = next((a for a in _fleet() if a["agent_id"] == agent_id), None)
+    if view is None:
+        _bad(404, f"agent {agent_id} not found")
+    now = time.time()
+    events: list[dict] = []
+    for a in ALERTS:
+        if a.get("agent_id") == agent_id:
+            events.append(explain_event("alert", now - 30, "rules flagged it", a.get("message", "")))
+    verdict = _verdict()
+    if agent_id == verdict["agent_id"]:
+        events.append(explain_event("verdict", now - 20, verdict["action"], verdict["reason"]))
+    for act in ACTIONS:
+        if act.get("agent_id") == agent_id:
+            events.append(explain_event("action", now - 10, act["action"], act.get("reason", "")))
+    for p in HEAL_PROPOSALS.values():
+        if p.get("agent_id") == agent_id:
+            events.append(explain_event("heal", now - 5, p.get("kind", "patch"), p.get("reason", "")))
+    events.sort(key=lambda e: e["ts"])
+    saved = sum(float(a.get("saved_usd") or 0) for a in ACTIONS if a.get("agent_id") == agent_id)
+    return explain_report(agent_id, view["state"], events, minutes=minutes,
+                           spend_usd=view["spend_usd"], budget_usd=view["budget_usd"], saved_usd=saved)
 
 
 @app.get("/v1/metrics")
@@ -288,6 +362,62 @@ def _policy(tool_name: str, args: dict) -> tuple[str, str]:
         return "allow", "mock allows everything"
 
 
+# ── policy (CONTRACTS §6, added 8 Nov) ──
+POLICY_SOURCE = "brain/policies.yaml"
+
+
+def _policy_view() -> dict:
+    """
+    The mock serves the real policy file, so the dashboard shows the same rules.
+
+    The mock must work on its own (dashboard development, no brain), so it falls back to
+    reading the YAML directly when the brain is not importable.
+    """
+    try:
+        from brain.policy import Policy
+
+        p = Policy.load(POLICY_SOURCE)
+        return p.to_dict() | {"source": POLICY_SOURCE, "last_error": ""}
+    except Exception:
+        pass
+    try:
+        import yaml
+
+        data = yaml.safe_load(Path(POLICY_SOURCE).read_text(encoding="utf-8")) or {}
+        defaults = data.get("defaults") or {}
+        return {"version": "mock", "loaded_at": utc_now_iso(), "source": POLICY_SOURCE,
+                "defaults": {"budget_usd": defaults.get("budget_usd", 0.5),
+                             "on_trip": defaults.get("on_trip", "pause"),
+                             "on_hard_limit": defaults.get("on_hard_limit", "kill")},
+                "agents": data.get("agents") or {}, "tools": data.get("tools") or [], "last_error": ""}
+    except Exception as exc:
+        return {"version": "unknown", "loaded_at": utc_now_iso(), "source": POLICY_SOURCE,
+                "defaults": {}, "agents": {}, "tools": [], "last_error": str(exc)}
+
+
+@app.get("/v1/policy")
+def policy() -> dict:
+    return _policy_view()
+
+
+@app.post("/v1/policy/reload")
+def policy_reload() -> dict:
+    """The mock has no engine to reload: it just re-reads the file."""
+    return {"ok": True, "policy": _policy_view()}
+
+
+@app.post("/v1/policy/validate")
+def policy_validate(body: dict[str, Any]) -> dict:
+    """Validate a YAML policy without touching the running one."""
+    try:
+        from brain.policy_schema import validate_yaml
+
+        errors = validate_yaml(str(body.get("yaml") or ""))
+    except Exception as exc:
+        errors = [f"policy: {exc}"]
+    return {"ok": not errors, "errors": errors}
+
+
 @app.post("/v1/agents/{agent_id}/tool-calls")
 def tool_call(agent_id: str, body: dict[str, Any]) -> dict:
     name, args = str(body.get("tool_name") or "").strip(), body.get("args") or {}
@@ -320,6 +450,22 @@ def get_tool_call(call_id: int) -> dict:
     return TOOL_CALLS[call_id]
 
 
+@app.get("/v1/tool-risk")
+def tool_risk(agent_id: Optional[str] = None) -> dict:
+    """
+    The learned tool risk (A14): what a human has approved, per (agent, tool, args).
+
+    The mock leads the real API here — the contract lands the mock first, and the brain
+    branch follows. The counting is done by `shared.contracts.tool_risk_from_history`, the
+    same function the real API uses, so the two cannot drift on what counts as an approval.
+    """
+    calls = list(TOOL_CALLS.values())
+    if agent_id:
+        calls = [c for c in calls if c.get("agent_id") == agent_id]
+    entries = tool_risk_from_history(calls)
+    return tool_risk_view(entries)
+
+
 @app.post("/v1/tool-calls/{call_id}/decision")
 def decide(call_id: int, body: dict[str, Any]) -> dict:
     decision, final_args = str(body.get("decision", "")).lower(), body.get("final_args")
@@ -347,6 +493,59 @@ def mock_reset() -> dict:
     """Mock only (not in the contract): back to the seeded data (pending refund, beta's bad memory)."""
     seed()
     return {"ok": True}
+
+
+# ── auto-heal proposals (CONTRACTS §7) ──
+@app.get("/v1/heal-proposals")
+def heal_proposals(status: Optional[str] = None, agent_id: Optional[str] = None, limit: int = 50) -> dict:
+    if status is not None and status not in HEAL_STATUSES:
+        _bad(400, f"status must be one of {', '.join(HEAL_STATUSES)}")
+    rows = sorted(HEAL_PROPOSALS.values(), key=lambda p: -p["id"])
+    rows = [p for p in rows if status is None or p["status"] == status]
+    rows = [p for p in rows if agent_id is None or p["agent_id"] == agent_id]
+    return {"items": rows[:max(1, limit)]}
+
+
+@app.get("/v1/heal-proposals/{proposal_id}")
+def get_heal_proposal(proposal_id: int) -> dict:
+    if proposal_id not in HEAL_PROPOSALS:
+        _bad(404, f"heal proposal {proposal_id} not found")
+    return HEAL_PROPOSALS[proposal_id]
+
+
+@app.post("/v1/heal-proposals/{proposal_id}/decision")
+def decide_heal_proposal(proposal_id: int, body: dict[str, Any]) -> dict:
+    decision = str(body.get("decision", "")).lower()
+    if decision not in HEAL_DECISIONS:
+        _bad(400, f"decision must be one of {', '.join(HEAL_DECISIONS)}")
+    requested_by = body.get("requested_by", "human")
+    if requested_by not in ("human", "mcp"):
+        _bad(400, "requested_by must be one of human, mcp")
+    proposal = HEAL_PROPOSALS.get(proposal_id)
+    if proposal is None:
+        _bad(404, f"heal proposal {proposal_id} not found")
+    if proposal["status"] != "pending":
+        _bad(409, f"heal proposal {proposal_id} already decided: {proposal['status']}")
+    if decision == "apply":
+        # the mock applies the memory patch to beta's memory, like the real brain does
+        versions = MEMORY.setdefault(proposal["agent_id"], [])
+        content = dict(versions[-1]["content"]) if versions else {}
+        for op in load_json(proposal.get("patch") or {}).get("memory", []):
+            if op.get("op") == "remove":
+                content.pop(op.get("key", ""), None)
+            else:
+                content[op.get("key", "")] = op.get("value")
+        versions.append({"id": sum(len(v) for v in MEMORY.values()) + 1, "agent_id": proposal["agent_id"],
+                         "version": (versions[-1]["version"] + 1) if versions else 1, "content": content,
+                         "edited_by": "mcp" if requested_by == "mcp" else "human",
+                         "reason": body.get("reason") or "heal applied", "created_at": utc_now_iso()})
+        status, actor = "applied", "brain:autoheal" if requested_by == "mcp" else "human"
+    else:
+        status, actor = "rejected", "brain:autoheal" if requested_by == "mcp" else "human"
+    proposal.update(status=status, decided_by=actor, reason=body.get("reason", ""), decided_at=utc_now_iso())
+    _action(proposal["agent_id"], "AUTO_HEAL" if decision == "apply" else "WARN", actor,
+            body.get("reason") or f"heal proposal {decision}")
+    return proposal
 
 
 @app.websocket("/v1/stream")

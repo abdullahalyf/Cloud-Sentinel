@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, MemoryConflict, MetricRow, SpanRow,
-                              ToolCallRow, VerdictRow)
+from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealProposalRow, MemoryConflict,
+                              MetricRow, SpanRow, ToolCallRow, VerdictRow)
 from shared.store import LocalStore
 
 STORES = ["local"] + (["supabase"] if os.getenv("CS_TEST_SUPABASE") == "1" else [])
@@ -29,6 +29,20 @@ def test_agents_upsert(store):
     rows = store.list_agents()
     assert len(rows) == 1 and rows[0]["state"] == "paused" and store.get_agent("beta")["spend_usd"] == pytest.approx(0.2)
     assert store.get_agent("nobody") is None
+
+
+def test_the_agent_baseline_survives_a_round_trip(store):
+    """A4: the baseline is JSON, so it comes back as a dict — not as the text it was written as."""
+    baseline = {"tokens_per_min": {"median": 4000, "limit": 6400, "samples": 120}}
+    store.upsert_agent(AgentRow("beta", baseline=baseline))
+    got = store.get_agent("beta")["baseline"]
+    assert got == baseline
+    # a later upsert keeps the baseline it already had
+    store.upsert_agent(AgentRow("beta", state="healthy"))
+    assert store.get_agent("beta")["baseline"] == baseline
+    # and a row without one is an empty baseline, never a crash
+    store.upsert_agent(AgentRow("gamma"))
+    assert store.get_agent("gamma")["baseline"] == {}
 
 
 def test_spans_cursor_and_recent(store):
@@ -84,3 +98,20 @@ def test_reset(store):
     store.insert_alert(AlertRow("a", "info", "r", "m"))
     store.reset()
     assert store.recent_alerts() == []
+
+
+def test_heal_proposals(store):
+    pid = store.insert_heal_proposal(HealProposalRow(
+        "beta", "memory_patch", {"memory": [{"op": "set", "key": "order_4471", "value": "cancelled"}]},
+        0.71, "pending", 1, 3, "the belief keeps it looping"))
+    row = store.get_heal_proposal(pid)
+    assert row["agent_id"] == "beta" and row["status"] == "pending"
+    assert row["patch"]["memory"][0]["key"] == "order_4471"      # the patch column is decoded to a dict
+    assert store.list_heal_proposals(status="pending")[0]["id"] == pid
+    assert store.list_heal_proposals(status="applied") == []
+    assert store.list_heal_proposals(agent_id="beta")[0]["id"] == pid
+    assert store.list_heal_proposals(agent_id="gamma") == []
+    store.decide_heal_proposal(pid, "applied", "brain:autoheal", "confident and valid")
+    done = store.get_heal_proposal(pid)
+    assert done["status"] == "applied" and done["decided_by"] == "brain:autoheal" and done["decided_at"]
+    assert store.get_heal_proposal(9999) is None

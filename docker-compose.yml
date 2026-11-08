@@ -38,7 +38,9 @@ services:
   brain:
     <<: *app
     command: ["python", "-m", "brain"]
-    environment: { EXECUTOR: docker }
+    # CS_VERDICT_OTLP_ENDPOINT: the brain sends its verdict spans to the collector, so the
+    # verdict lands on the agent's own OTel trace (A15). One line, approved by Alif.
+    environment: { EXECUTOR: docker, CS_VERDICT_OTLP_ENDPOINT: "http://collector:4318" }
     ports: ["8000:8000"]
     volumes: [csdata:/app/data, /var/run/docker.sock:/var/run/docker.sock]
 

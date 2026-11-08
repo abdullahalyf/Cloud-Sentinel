@@ -240,3 +240,89 @@ Take the deck and README screenshots (1920×1080, from `npm run shots`) and send
 
 ## Contract requests
 (Write here if a panel needs data the API doesn't give. Alif's agent adds it to the API and the mock: task A0.)
+
+---
+
+## A3 note from Alif's agent — heal proposals in the approvals inbox (task A3, DONE)
+
+The API now serves heal proposals. They belong in the **same** `/approvals` inbox as the pending
+tool calls, with their own card type.
+
+**Where they come from**
+- `GET /v1/heal-proposals?status=pending&agent_id=` → `{"items": [...]}`. Same envelope as the
+  tool calls, so one poll loop can fetch both.
+- `GET /v1/heal-proposals/{id}` → one proposal.
+- `POST /v1/heal-proposals/{id}/decision` body `{"decision": "apply"|"reject", "reason": str,
+  "requested_by": "human"}` → the updated proposal.
+- The mock seeds **one pending proposal for `beta`**, so the inbox is never empty in mock mode.
+  `POST /v1/mock/reset` brings it back.
+
+**One proposal object** (this is what a card renders)
+```json
+{
+  "id": 1,
+  "agent_id": "beta",
+  "kind": "memory_patch",
+  "patch": {"memory": [{"op": "set", "key": "order_4471", "value": "cancelled - skip it and move on"}]},
+  "confidence": 0.71,
+  "status": "pending",
+  "verdict_id": 1,
+  "base_version": 1,
+  "reason": "The belief 'retry until success' keeps the agent looping on a failing order",
+  "decided_by": "",
+  "decided_at": "",
+  "created_at": "2026-11-08T02:58:28.225694+00:00"
+}
+```
+`patch` is an **object**, not a JSON string — the real API and the mock both decode it.
+
+**The card**
+- Title: `heal · <agent_id>` (so it is visually distinct from a tool-call card).
+- `kind` is `memory_patch` or `tool_policy`. For `memory_patch` show the ops as
+  `key: old → new` (the old value is in the agent's memory: `GET /v1/agents/{id}/memory`).
+  For `tool_policy` show `tool → deny|approval`.
+- Show `confidence` as a percentage and the `reason` from the judge.
+- Two actions: **Apply** and **Reject** — the same two buttons as the tool-call card, so
+  `A` / `D` do the same thing on both card types.
+- `apply` writes the patch into the agent's memory and the agent goes back to work on probation.
+  `reject` changes nothing and the agent stays paused.
+
+**Status values** — `pending`, `applied`, `rejected`, `expired`. A proposal goes `expired` when
+the agent's memory moved on since the judge looked at it (`base_version` is stale); the newer
+memory wins and a human decides. Show an expired card greyed out, with the reason.
+
+**Errors** — the same as everywhere else: a 400 has a plain `detail` string, show it as-is.
+`404` = the proposal id does not exist. `409` = already decided.
+
+The MCP server has the same two tools (`list_heal_proposals`, `decide_heal`), so the demo works
+from Claude Desktop too.
+
+---
+
+## A4 note from Alif's agent — "normal for this agent" on the dashboard (task A4, DONE)
+
+The brain no longer uses one fixed limit for everybody. Each agent learns its own normal from its
+**healthy** behaviour, and the dashboard can show that.
+
+**The new field** — every agent in `GET /v1/fleet` now carries a `baseline`:
+
+```json
+"baseline": {
+  "tokens_per_min": {"median": 5366.0, "limit": 16100.0, "samples": 30},
+  "usd_per_min":    {"median": 0.0251, "limit": 0.0624, "samples": 30},
+  "calls_per_sec":  {"median": 0.2,    "limit": 1.386,  "samples": 30}
+}
+```
+
+- `median` — what this agent normally does.
+- `limit` — the soft limit the brain now uses for it (`median + 4 × 1.4826 × MAD`, clamped).
+- `samples` — how many healthy windows it was learned from.
+
+**How to show it.** The useful line on an agent card is the ratio of the current value to the
+agent's own median: "16.1k tokens/min — 3.0× its normal". When `baseline` is `{}` the agent is
+still warming up (the first 60 s) and the fixed limits apply — show nothing rather than a zero.
+
+**No breakage.** `baseline` is a new key; the dashboard ignores it until it is used, and an agent
+without one always has `"baseline": {}` — never a missing key.
+
+**The contract** is `docs/CONTRACTS.md` §6 (`AgentView`) and §5 (`agents.baseline`).

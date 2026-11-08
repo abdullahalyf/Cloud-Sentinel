@@ -18,12 +18,12 @@ from pathlib import Path
 from typing import Optional, Protocol
 
 from shared.config import settings
-from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, MemoryConflict, MemoryRow,
-                              MetricRow, SpanRow, ToolCallRow, VerdictRow, load_json, utc_now_iso)
+from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealProposalRow, MemoryConflict,
+                              MemoryRow, MetricRow, SpanRow, ToolCallRow, VerdictRow, load_json, utc_now_iso)
 
 TABLES = ("agents", "spans", "agent_metrics", "alerts", "verdicts", "actions", "commands",
-          "agent_memory", "tool_calls")
-JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail")
+          "agent_memory", "tool_calls", "heal_proposals")
+JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail", "patch", "baseline")
 
 
 def _since_iso(minutes: float) -> str:
@@ -44,7 +44,7 @@ class Store(Protocol):
     def insert_spans(self, rows: list[SpanRow]) -> None: ...
     def insert_metric(self, row: MetricRow) -> None: ...
     def insert_alert(self, row: AlertRow) -> None: ...
-    def insert_verdict(self, row: VerdictRow) -> None: ...
+    def insert_verdict(self, row: VerdictRow) -> int: ...
     def insert_action(self, row: ActionRow) -> None: ...
     def insert_command(self, row: CommandRow) -> int: ...
     def finish_command(self, command_id: int, status: str, result: str) -> None: ...
@@ -53,6 +53,14 @@ class Store(Protocol):
     def insert_tool_call(self, row: ToolCallRow) -> int: ...
     def decide_tool_call(self, call_id: int, decision: str, final_args: Optional[dict],
                          decided_by: str, reason: str) -> None: ...
+    def insert_heal_proposal(self, row: HealProposalRow) -> int: ...
+    def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
+                             reason: str = "") -> None: ...
+    # brain workers (A8): the heartbeat that says "I am alive and here is what I own"
+    def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
+                         agents_owned: int, pid: int = 0) -> None: ...
+    def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]: ...
+    def remove_worker(self, worker_id: str) -> None: ...
     # reads
     def list_agents(self) -> list[dict]: ...
     def get_agent(self, agent_id: str) -> Optional[dict]: ...
@@ -67,6 +75,9 @@ class Store(Protocol):
     def memory_history(self, agent_id: str, limit: int = 10) -> list[dict]: ...
     def get_tool_call(self, call_id: int) -> Optional[dict]: ...
     def list_tool_calls(self, status: Optional[str] = None, limit: int = 50) -> list[dict]: ...
+    def get_heal_proposal(self, proposal_id: int) -> Optional[dict]: ...
+    def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
+                            limit: int = 50) -> list[dict]: ...
     # admin
     def reset(self) -> None: ...
 
@@ -85,7 +96,8 @@ class LocalStore:
     _SCHEMA = """
     create table if not exists agents (
         agent_id text primary key, display_name text, runtime text, runtime_id text, state text,
-        budget_usd real, spend_usd real, total_tokens integer, last_seen_ts real, updated_at text);
+        budget_usd real, spend_usd real, total_tokens integer, last_seen_ts real, baseline text,
+        updated_at text);
     create table if not exists spans (
         id integer primary key autoincrement, trace_id text, span_id text, parent_span_id text,
         agent_id text, operation text, name text, provider text, model text, input_tokens integer,
@@ -118,8 +130,17 @@ class LocalStore:
         id integer primary key autoincrement, agent_id text, tool_name text, args text,
         decision text, final_args text, decided_by text, reason text, value_usd real,
         created_at text, decided_at text);
+    create table if not exists heal_proposals (
+        id integer primary key autoincrement, agent_id text, kind text, patch text,
+        confidence real, status text, verdict_id integer, base_version integer, reason text,
+        decided_by text, decided_at text, created_at text);
     create table if not exists schema_migrations (
         version text primary key, applied_at text);
+    -- Brain workers (A8): every worker process heartbeats here. A worker that stops
+    -- heartbeating is dead, and the others take its agents.
+    create table if not exists workers (
+        worker_id text primary key, started_at real, last_seen real,
+        agents_owned integer not null default 0, pid integer not null default 0);
     """
 
     def __init__(self, path: str):
@@ -128,6 +149,10 @@ class LocalStore:
         self._conn = sqlite3.connect(path, check_same_thread=False, timeout=10)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("pragma journal_mode=wal")  # brain + dashboard + collector at once
+        # A8: several brain worker processes share this one file, so a write can collide
+        # with another's. The busy timeout makes the loser wait instead of failing —
+        # without it, "database is locked" is a normal error and the tick dies.
+        self._conn.execute("pragma busy_timeout=5000")
         self._conn.executescript(self._SCHEMA)
         self._migrate()
         self._lock = threading.RLock()
@@ -155,7 +180,12 @@ class LocalStore:
         d = row.to_row()
         cols = ", ".join(d)
         marks = ", ".join("?" for _ in d)
-        updates = ", ".join(f"{c}=excluded.{c}" for c in d if c != "agent_id")
+        update_cols = [c for c in d if c != "agent_id"]
+        # An empty baseline means "the caller has no new baseline" (the brain writes the agent row every
+        # tick), so the learned baseline already in the row must survive. Writing "{}" would wipe it.
+        if not (d.get("baseline") or "{}").strip("{}").strip():
+            update_cols = [c for c in update_cols if c != "baseline"]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in update_cols)
         self._exec(f"insert into agents ({cols}) values ({marks}) "
                    f"on conflict(agent_id) do update set {updates}", tuple(d.values()))
 
@@ -164,6 +194,10 @@ class LocalStore:
         cols = {r[1] for r in self._conn.execute("pragma table_info(spans)")}
         if "detail" not in cols:
             self._conn.execute("alter table spans add column detail text")
+            self._conn.commit()
+        agent_cols = {r[1] for r in self._conn.execute("pragma table_info(agents)")}
+        if "baseline" not in agent_cols:
+            self._conn.execute("alter table agents add column baseline text not null default '{}'")
             self._conn.commit()
 
     def insert_spans(self, rows: list[SpanRow]) -> None:
@@ -183,8 +217,8 @@ class LocalStore:
     def insert_alert(self, row: AlertRow) -> None:
         self._insert("alerts", row.to_row())
 
-    def insert_verdict(self, row: VerdictRow) -> None:
-        self._insert("verdicts", row.to_row())
+    def insert_verdict(self, row: VerdictRow) -> int:
+        return self._insert("verdicts", row.to_row())
 
     def insert_action(self, row: ActionRow) -> None:
         self._insert("actions", row.to_row())
@@ -213,6 +247,41 @@ class LocalStore:
         from shared.contracts import _dump
         self._exec("update tool_calls set decision=?, final_args=?, decided_by=?, reason=?, decided_at=? "
                    "where id=?", (decision, _dump(final_args or {}), decided_by, reason, utc_now_iso(), call_id))
+
+    def insert_heal_proposal(self, row: HealProposalRow) -> int:
+        return self._insert("heal_proposals", row.to_row())
+
+    def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
+                             reason: str = "") -> None:
+        self._exec("update heal_proposals set status=?, decided_by=?, reason=?, decided_at=? where id=?",
+                   (status, decided_by, reason, utc_now_iso(), proposal_id))
+
+    # ── brain workers (A8) ───────────────────────────────────────────────────
+    def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
+                         agents_owned: int, pid: int = 0) -> None:
+        """Say "I am alive and here is what I own".
+
+        `started_at` is kept across heartbeats (it is when the worker came up, not now), so a
+        heartbeat must not overwrite it with the current time — a worker's uptime would reset
+        every two seconds and nobody could tell a fresh worker from a long-running one.
+        """
+        self._exec("insert into workers (worker_id, started_at, last_seen, agents_owned, pid) "
+                   "values (?, ?, ?, ?, ?) "
+                   "on conflict(worker_id) do update set last_seen=excluded.last_seen, "
+                   "agents_owned=excluded.agents_owned, pid=excluded.pid",
+                   (worker_id, started_at, last_seen, int(agents_owned), int(pid)))
+
+    def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]:
+        """Every worker, newest heartbeat first. With `seen_within_seconds`, only the ones that
+        heartbeated recently — a worker that stopped is dead and must not own anything."""
+        if seen_within_seconds is None:
+            return self._select("select * from workers order by worker_id")
+        cutoff = time.time() - float(seen_within_seconds)
+        return self._select("select * from workers where last_seen >= ? order by worker_id", (cutoff,))
+
+    def remove_worker(self, worker_id: str) -> None:
+        """Forget a worker — used when it shuts down cleanly, so it does not linger as a ghost."""
+        self._exec("delete from workers where worker_id=?", (worker_id,))
 
     # ── reads ──
     def list_agents(self) -> list[dict]:
@@ -272,6 +341,26 @@ class LocalStore:
                                 (status, limit))
         return self._select("select * from tool_calls order by id desc limit ?", (limit,))
 
+    def get_heal_proposal(self, proposal_id: int) -> Optional[dict]:
+        rows = self._select("select * from heal_proposals where id=?", (proposal_id,))
+        return rows[0] if rows else None
+
+    def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
+                            limit: int = 50) -> list[dict]:
+        where, params = [], []
+        if status:
+            where.append("status=?")
+            params.append(status)
+        if agent_id:
+            where.append("agent_id=?")
+            params.append(agent_id)
+        sql = "select * from heal_proposals"
+        if where:
+            sql += " where " + " and ".join(where)
+        sql += " order by id desc limit ?"
+        params.append(limit)
+        return self._select(sql, tuple(params))
+
     # ── admin ──
     def reset(self) -> None:
         with self._lock:
@@ -317,141 +406,105 @@ class SupabaseStore:
         res = self._db.table("alerts").select("*").order("id", desc=True).limit(limit).execute()
         return res.data or []
 
-    # ── writes (Day 2) ──
+    # ── TODO(Fojle) Day 2: writes ──
     def upsert_agent(self, row: AgentRow) -> None:
-        """Insert the agent, or update it when the agent_id already exists (like LocalStore)."""
-        self._db.table("agents").upsert(row.to_row(), on_conflict="agent_id").execute()
+        raise NotImplementedError("Fojle Day 2")
 
     def insert_spans(self, rows: list[SpanRow]) -> None:
-        """One request for the whole list. An empty list does nothing."""
-        if not rows:
-            return
-        self._db.table("spans").insert([r.to_row() for r in rows]).execute()
+        raise NotImplementedError("Fojle Day 2")
 
     def insert_metric(self, row: MetricRow) -> None:
-        self._insert("agent_metrics", row.to_row())
+        raise NotImplementedError("Fojle Day 2")
 
-    def insert_verdict(self, row: VerdictRow) -> None:
-        self._insert("verdicts", row.to_row())
+    def insert_verdict(self, row: VerdictRow) -> int:
+        raise NotImplementedError("Fojle Day 2")
 
     def insert_action(self, row: ActionRow) -> None:
-        self._insert("actions", row.to_row())
+        raise NotImplementedError("Fojle Day 2")
 
-    # ── the rest (F3): same behaviour as LocalStore, method by method ──
-    @staticmethod
-    def _row(r: dict) -> dict:
-        """Decode the JSON text columns like LocalStore does (a value that already is an object stays)."""
-        for col in JSON_COLUMNS:
-            if col in r and (r[col] is None or isinstance(r[col], str)):
-                r[col] = load_json(r[col])
-        return r
-
-    def _read(self, build, limit: Optional[int] = None) -> list[dict]:
-        """Run a select page by page: Supabase returns at most 1000 rows per request.
-        `build()` must return a fresh query WITH an order. limit=None means all the rows."""
-        rows: list[dict] = []
-        while limit is None or len(rows) < limit:
-            want = 1000 if limit is None else min(1000, limit - len(rows))
-            page = build().range(len(rows), len(rows) + want - 1).execute().data or []
-            rows.extend(page)
-            if len(page) < want:
-                break
-        return [self._row(r) for r in rows]
-
-    _memory_lock = threading.Lock()  # one memory writer at a time inside this process
-
+    # ── TODO(Fojle) Day 4: the rest ──
     def write_memory(self, agent_id: str, content: dict, edited_by: str, reason: str = "",
                      base_version: Optional[int] = None) -> dict:
-        with self._memory_lock:
-            history = self.memory_history(agent_id, limit=50)
-            if _conflicts(history, base_version, edited_by):
-                raise MemoryConflict(f"memory of {agent_id} was changed by a human; reload it first")
-            version = (history[0]["version"] if history else 0) + 1
-            self._insert("agent_memory", MemoryRow(agent_id, version, content, edited_by, reason).to_row())
-            return self.get_memory(agent_id)  # type: ignore[return-value]
+        raise NotImplementedError("Fojle Day 4")
 
     def insert_tool_call(self, row: ToolCallRow) -> int:
-        return self._insert("tool_calls", row.to_row())
+        raise NotImplementedError("Fojle Day 4")
 
     def decide_tool_call(self, call_id: int, decision: str, final_args: Optional[dict],
                          decided_by: str, reason: str) -> None:
-        from shared.contracts import _dump
-        self._db.table("tool_calls").update(
-            {"decision": decision, "final_args": _dump(final_args or {}), "decided_by": decided_by,
-             "reason": reason, "decided_at": utc_now_iso()}).eq("id", call_id).execute()
+        raise NotImplementedError("Fojle Day 4")
+
+    def insert_heal_proposal(self, row: HealProposalRow) -> int:
+        raise NotImplementedError("Fojle Day 4")
+
+    def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
+                             reason: str = "") -> None:
+        raise NotImplementedError("Fojle Day 4")
 
     def list_agents(self) -> list[dict]:
-        return self._read(lambda: self._db.table("agents").select("*").order("agent_id"))
+        raise NotImplementedError("Fojle Day 4")
 
     def get_agent(self, agent_id: str) -> Optional[dict]:
-        res = self._db.table("agents").select("*").eq("agent_id", agent_id).limit(1).execute()
-        return self._row(res.data[0]) if res.data else None
+        raise NotImplementedError("Fojle Day 4")
 
     def spans_after(self, last_id: int, limit: int = 2000) -> list[dict]:
-        return self._read(lambda: self._db.table("spans").select("*").gt("id", last_id).order("id"), limit)
+        raise NotImplementedError("Fojle Day 4")
 
     def recent_spans(self, minutes: float = 5, agent_id: Optional[str] = None) -> list[dict]:
-        since = time.time() - minutes * 60
-
-        def build():
-            q = self._db.table("spans").select("*").gte("start_ts", since)
-            if agent_id:
-                q = q.eq("agent_id", agent_id)
-            return q.order("start_ts").order("id")
-
-        return self._read(build)
+        raise NotImplementedError("Fojle Day 4")
 
     def recent_metrics(self, minutes: float = 5, agent_id: Optional[str] = None) -> list[dict]:
-        since = _since_iso(minutes)
-
-        def build():
-            q = self._db.table("agent_metrics").select("*").gte("created_at", since)
-            if agent_id:
-                q = q.eq("agent_id", agent_id)
-            return q.order("created_at").order("id")
-
-        return self._read(build)
+        raise NotImplementedError("Fojle Day 4")
 
     def recent_verdicts(self, limit: int = 20, agent_id: Optional[str] = None) -> list[dict]:
-        def build():
-            q = self._db.table("verdicts").select("*")
-            if agent_id:
-                q = q.eq("agent_id", agent_id)
-            return q.order("id", desc=True)
-
-        return self._read(build, limit)
+        raise NotImplementedError("Fojle Day 4")
 
     def recent_actions(self, limit: int = 50) -> list[dict]:
-        return self._read(lambda: self._db.table("actions").select("*").order("id", desc=True), limit)
+        raise NotImplementedError("Fojle Day 4")
 
     def get_memory(self, agent_id: str) -> Optional[dict]:
-        rows = self.memory_history(agent_id, limit=1)
-        return rows[0] if rows else None
+        raise NotImplementedError("Fojle Day 4")
 
     def memory_history(self, agent_id: str, limit: int = 10) -> list[dict]:
-        return self._read(lambda: self._db.table("agent_memory").select("*").eq("agent_id", agent_id)
-                          .order("version", desc=True), limit)
+        raise NotImplementedError("Fojle Day 4")
 
     def get_tool_call(self, call_id: int) -> Optional[dict]:
-        res = self._db.table("tool_calls").select("*").eq("id", call_id).limit(1).execute()
-        return self._row(res.data[0]) if res.data else None
+        raise NotImplementedError("Fojle Day 4")
 
     def list_tool_calls(self, status: Optional[str] = None, limit: int = 50) -> list[dict]:
-        def build():
-            q = self._db.table("tool_calls").select("*")
-            if status:
-                q = q.eq("decision", status)
-            return q.order("id", desc=True)
+        raise NotImplementedError("Fojle Day 4")
 
-        return self._read(build, limit)
+    def get_heal_proposal(self, proposal_id: int) -> Optional[dict]:
+        raise NotImplementedError("Fojle Day 4")
+
+    def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
+                            limit: int = 50) -> list[dict]:
+        raise NotImplementedError("Fojle Day 4")
+
+    # ── brain workers (A8): implemented here, not left as a stub ──
+    # The sharding tests run against SQLite, but a store that raises on heartbeat_worker
+    # would break the brain the moment someone sets SUPABASE_URL. These three are small and
+    # have no dependency on the parts Fojle has not written yet.
+    def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
+                         agents_owned: int, pid: int = 0) -> None:
+        self._db.table("workers").upsert(
+            {"worker_id": worker_id, "started_at": started_at, "last_seen": last_seen,
+             "agents_owned": int(agents_owned), "pid": int(pid)},
+            on_conflict="worker_id").execute()
+
+    def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]:
+        query = self._db.table("workers").select("*").order("worker_id")
+        if seen_within_seconds is not None:
+            cutoff = time.time() - float(seen_within_seconds)
+            query = query.gte("last_seen", cutoff)
+        res = query.execute()
+        return [decode(r) for r in (res.data or [])]
+
+    def remove_worker(self, worker_id: str) -> None:
+        self._db.table("workers").delete().eq("worker_id", worker_id).execute()
 
     def reset(self) -> None:
-        for table in TABLES:
-            delete = self._db.table(table).delete()
-            if table == "agents":
-                delete.neq("agent_id", "").execute()  # the agents table has no id column
-            else:
-                delete.gte("id", 0).execute()
+        raise NotImplementedError("Fojle Day 4")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

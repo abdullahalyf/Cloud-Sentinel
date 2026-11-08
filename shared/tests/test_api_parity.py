@@ -27,6 +27,30 @@ def keys(obj):
     return set()
 
 
+# The mock and the real API must have the same shape.
+#
+# They live in **different folders**, so a change to one cannot land in the same PR as
+# the other: the contract lands the mock first, and the brain branch that implements the
+# same shape on the real API follows it. In between, the mock leads — it has fields the
+# real API does not have yet.
+#
+# So the rule is one-sided: **the real API's fields must be a subset of the mock's.** The
+# mock may lead; the mock may never lag. A field the real API has and the mock does not
+# is a bug, because a client written against the mock would break on the real thing.
+#
+# The gaps are recorded in docs/CONTRACTS.md ("the mock may lead the real API"), not here.
+# A test that pinned the exact gap list would have to be edited by whichever side closed
+# it — and the side that closes it is usually the one that is not allowed to edit
+# shared/. That is how a parity test ends up blocking the very change it was written to
+# check.
+#
+# This list is the machine-readable half of that record: the fields the mock has and the
+# real API does not (yet). It is empty when the two have caught up.
+MOCK_AHEAD_OF_REAL: dict[str, set[str]] = {
+    # A8's gap — /v1/health gained "workers" and "agents_total" — closed when b22d509 merged.
+}
+
+
 def test_mock_and_real_api_have_the_same_shapes(sim, cfg):
     sim.fleet.go_rogue("beta", "paraphrase_loop", sim.now)
     sim.fleet.go_rogue("delta", "bad_tool_call", sim.now)
@@ -34,10 +58,94 @@ def test_mock_and_real_api_have_the_same_shapes(sim, cfg):
     real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
     for path in GETS:
         r, m = real.get(path).json(), mock.get(path).json()
-        assert keys(r) == keys(m), path
+        # The real API's fields must all be in the mock. The mock may have more: it leads.
+        missing = keys(r) - keys(m)
+        assert not missing, f"{path}: the mock is missing {sorted(missing)} that the real API has"
         for k in r:
             if isinstance(r[k], list) and r[k] and m.get(k):
                 assert keys(r[k]) == keys(m[k]), f"{path} → {k}"
+
+
+def test_the_mock_is_not_behind_the_real_api(sim, cfg):
+    """The mock must never be missing a field the real API has — a client written against
+    the mock would break on the real thing."""
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    for path in GETS:
+        r, m = keys(real.get(path).json()), keys(mock.get(path).json())
+        missing = r - m
+        assert not missing, f"{path}: the mock is missing {sorted(missing)} that the real API has"
+
+
+def test_the_recorded_gaps_are_real_gaps(sim, cfg):
+    """Every gap recorded in docs/CONTRACTS.md must be one the mock really leads on.
+
+    This is the "the record is not fantasy" check. It does not insist the gap still
+    exists — the brain side closes it — only that the mock really has the fields, so
+    the record cannot drift into naming fields nobody ever added.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    for path, fields in MOCK_AHEAD_OF_REAL.items():
+        m = keys(mock.get(path).json())
+        assert fields <= m, f"{path}: the mock should have {sorted(fields)}"
+
+
+def test_the_shapes_are_the_same_now(sim, cfg):
+    """The mock and the real API should have caught up: the same fields, not just the
+    same rule. A8 was the last gap — the workers on /v1/health.
+
+    This is the check that the two-sided parity is back. While a gap is open the shapes
+    differ, and this test says so by name, so the next person knows what is left.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    for path in GETS:
+        r, m = keys(real.get(path).json()), keys(mock.get(path).json())
+        assert r == m, (
+            f"{path}: the real API has {sorted(r - m)} that the mock does not, and the mock has "
+            f"{sorted(m - r)} that the real API does not. If the mock leads, record it in "
+            f"docs/CONTRACTS.md and in MOCK_AHEAD_OF_REAL")
+
+
+def test_the_explain_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
+    """`/explain` needs an agent id, so it cannot go in the static GETS list.
+
+    The mock leads here (the contract lands the mock first, the brain branch follows),
+    so the real API's fields must be a subset of the mock's until the brain lands.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    r = real.get("/v1/agents/beta/explain")
+    m = mock.get("/v1/agents/beta/explain")
+    if r.status_code == 404:
+        # the brain side has not landed yet — the mock leads, which is allowed
+        assert m.status_code == 200, "the mock must serve /explain once the contract lands"
+        return
+    assert r.status_code == 200 and m.status_code == 200
+    rb, mb = r.json(), m.json()
+    missing = keys(rb) - keys(mb)
+    assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+
+
+def test_the_tool_risk_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
+    """`/tool-risk` (A14) — the mock leads here, the brain branch follows.
+
+    The real API's fields must be a subset of the mock's until the brain lands.
+    """
+    sim.run(3)
+    real, mock = TestClient(create_app(sim.store, sim.policy, cfg, "fake", "fallback")), TestClient(mock_app)
+    r = real.get("/v1/tool-risk")
+    m = mock.get("/v1/tool-risk")
+    if r.status_code == 404:
+        # the brain side has not landed yet — the mock leads, which is allowed
+        assert m.status_code == 200, "the mock must serve /tool-risk once the contract lands"
+        return
+    assert r.status_code == 200 and m.status_code == 200
+    rb, mb = r.json(), m.json()
+    missing = keys(rb) - keys(mb)
+    assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+    assert keys(rb["counts"]) == keys(mb["counts"])
 
 
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
