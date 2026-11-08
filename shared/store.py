@@ -19,11 +19,11 @@ from typing import Optional, Protocol
 
 from shared.config import settings
 from shared.contracts import (ActionRow, AgentRow, AlertRow, AuditRow, CommandRow, HealProposalRow,
-                              MemoryConflict, MemoryRow, MetricRow, SpanRow, ToolCallRow, VerdictRow,
-                              load_json, utc_now_iso)
+                              MemoryConflict, MemoryRow, MetricRow, SpanRow, ToolCallRow,
+                              ToolRegistryRow, VerdictRow, load_json, utc_now_iso)
 
 TABLES = ("agents", "spans", "agent_metrics", "alerts", "verdicts", "actions", "commands",
-          "agent_memory", "tool_calls", "heal_proposals", "audit_log")
+          "agent_memory", "tool_calls", "heal_proposals", "audit_log", "tool_registry")
 JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail", "patch", "baseline")
 
 
@@ -66,6 +66,11 @@ class Store(Protocol):
                          agents_owned: int, pid: int = 0) -> None: ...
     def list_workers(self, seen_within_seconds: Optional[float] = None) -> list[dict]: ...
     def remove_worker(self, worker_id: str) -> None: ...
+    # the tool registry (B8): the tools a registry serves, and what the brain found
+    def upsert_tool(self, row: ToolRegistryRow) -> None: ...
+    def list_tools(self, registry: Optional[str] = None, status: Optional[str] = None,
+                   limit: int = 200) -> list[dict]: ...
+    def get_tool(self, registry: str, tool_name: str) -> Optional[dict]: ...
     # reads
     def list_agents(self) -> list[dict]: ...
     def get_agent(self, agent_id: str) -> Optional[dict]: ...
@@ -152,6 +157,12 @@ class LocalStore:
     create table if not exists audit_log (
         id integer primary key autoincrement, seq integer, agent_id text, kind text,
         actor text, action text, reason text, prev_hash text, hash text, created_at text);
+    -- The tool registry (B8): the tools a registry serves, with the descriptions the
+    -- brain checked. A poisoned description is one that tried to steer the agent.
+    create table if not exists tool_registry (
+        id integer primary key autoincrement, registry text, tool_name text, description text,
+        reported_by text, status text, reasons text, score real, created_at text, updated_at text,
+        unique (registry, tool_name));
     """
 
     def __init__(self, path: str):
@@ -308,6 +319,49 @@ class LocalStore:
     def remove_worker(self, worker_id: str) -> None:
         """Forget a worker — used when it shuts down cleanly, so it does not linger as a ghost."""
         self._exec("delete from workers where worker_id=?", (worker_id,))
+
+    # ── the tool registry (B8) ───────────────────────────────────────────────
+    def upsert_tool(self, row: ToolRegistryRow) -> None:
+        """
+        Record what a registry serves, and what the brain found about it.
+
+        The same tool reported twice replaces the old row rather than making a
+        second one: a registry that re-reports a tool with a *new* description is
+        telling the brain that the description changed, and the old verdict no
+        longer describes what the agent would read.
+        """
+        self._exec("insert into tool_registry (registry, tool_name, description, reported_by, "
+                   "status, reasons, score, created_at, updated_at) "
+                   "values (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                   "on conflict(registry, tool_name) do update set "
+                   "description=excluded.description, reported_by=excluded.reported_by, "
+                   "status=excluded.status, reasons=excluded.reasons, score=excluded.score, "
+                   "updated_at=excluded.updated_at",
+                   (row.registry, row.tool_name, row.description, row.reported_by,
+                    row.status, row.reasons, float(row.score), row.created_at, row.updated_at))
+
+    def list_tools(self, registry: Optional[str] = None, status: Optional[str] = None,
+                   limit: int = 200) -> list[dict]:
+        """The tools the brain knows about, newest first."""
+        sql = "select * from tool_registry"
+        where: list[str] = []
+        params: list = []
+        if registry:
+            where.append("registry=?")
+            params.append(registry)
+        if status:
+            where.append("status=?")
+            params.append(status)
+        if where:
+            sql += " where " + " and ".join(where)
+        sql += " order by updated_at desc, tool_name limit ?"
+        params.append(int(limit))
+        return self._select(sql, tuple(params))
+
+    def get_tool(self, registry: str, tool_name: str) -> Optional[dict]:
+        rows = self._select("select * from tool_registry where registry=? and tool_name=?",
+                            (registry, tool_name))
+        return rows[0] if rows else None
 
     # ── reads ──
     def list_agents(self) -> list[dict]:
@@ -519,6 +573,31 @@ class SupabaseStore:
     def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
                             limit: int = 50) -> list[dict]:
         raise NotImplementedError("Fojle Day 4")
+
+    # ── the tool registry (B8): implemented here, like the workers ──
+    # The registry is small and self-contained, and a store that raised on it would
+    # take the security gate down the moment someone set SUPABASE_URL.
+    def upsert_tool(self, row: ToolRegistryRow) -> None:
+        self._db.table("tool_registry").upsert(
+            {"registry": row.registry, "tool_name": row.tool_name, "description": row.description,
+             "reported_by": row.reported_by, "status": row.status, "reasons": row.reasons,
+             "score": float(row.score), "created_at": row.created_at, "updated_at": row.updated_at},
+            on_conflict="registry,tool_name").execute()
+
+    def list_tools(self, registry: Optional[str] = None, status: Optional[str] = None,
+                   limit: int = 200) -> list[dict]:
+        query = self._db.table("tool_registry").select("*").order("updated_at", desc=True)
+        if registry:
+            query = query.eq("registry", registry)
+        if status:
+            query = query.eq("status", status)
+        res = query.limit(int(limit)).execute()
+        return res.data or []
+
+    def get_tool(self, registry: str, tool_name: str) -> Optional[dict]:
+        res = (self._db.table("tool_registry").select("*")
+               .eq("registry", registry).eq("tool_name", tool_name).limit(1).execute())
+        return (res.data or [None])[0]
 
     # ── brain workers (A8): implemented here, not left as a stub ──
     # The sharding tests run against SQLite, but a store that raises on heartbeat_worker

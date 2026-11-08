@@ -182,6 +182,15 @@ class Settings:
     audit_enabled: bool = False
     # How many entries the chain reader shows at a time.
     audit_page_size: int = 200
+    # ── Security detectors (B8): three ways a fleet gets hurt ──
+    # Off = the detectors do not run AT ALL: a poisoned tool is served as it is, a
+    # secret in a tool output is stored as it is, and the old behaviour stands.
+    security_enabled: bool = False
+    # Off = the tool outputs are stored as they are. The detection still runs and
+    # still reports; only the taking-out of the secret is skipped.
+    security_redact_enabled: bool = True
+    # The score a poisoned tool description must reach before the call is denied.
+    security_deny_threshold: float = 0.5
 
     @property
     def use_supabase(self) -> bool:
@@ -245,6 +254,9 @@ def load_settings() -> Settings:
         cascade_fanout_calls=max(1, _int("CS_CASCADE_FANOUT_CALLS", 20)),
         audit_enabled=_bool("CS_AUDIT_ENABLED", False),
         audit_page_size=max(1, _int("CS_AUDIT_PAGE_SIZE", 200)),
+        security_enabled=_bool("CS_SECURITY_ENABLED", False),
+        security_redact_enabled=_bool("CS_SECURITY_REDACT_ENABLED", True),
+        security_deny_threshold=max(0.0, _float("CS_SECURITY_DENY_THRESHOLD", 0.5)),
         baseline_enabled=_bool("CS_BASELINE_ENABLED", True),
         baseline_warmup_seconds=_float("CS_BASELINE_WARMUP_SECONDS", 60.0),
         baseline_k=_float("CS_BASELINE_K", 4.0),
