@@ -61,7 +61,8 @@ class Engine:
         self.pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="judge")
         # A5: the policy manager watches the policy file and swaps the policy in when it changes.
         self.policy_manager = PolicyManager(policy, policy_path or cfg.policy_file, store=store,
-                                            default_budget=cfg.default_budget_usd)
+                                            default_budget=cfg.default_budget_usd,
+                                            audit_enabled=cfg.audit_enabled)
         self.policy = self.policy_manager.policy
         # A4: per-agent baselines. Loaded from the store, so a restart keeps them.
         self.baselines: dict[str, AgentBaseline] = {}
@@ -419,8 +420,7 @@ class Engine:
                          reason=f"the patch could not be written: {exc}")
             return
         self.last_autoheal[agent_id] = now
-        self.store.insert_action(ActionRow(agent_id, "AUTO_HEAL", "brain:autoheal",
-                                           f"auto-heal: {v.reason or 'patch applied'}"))
+        self._audit(agent_id, "AUTO_HEAL", "brain:autoheal", f"auto-heal: {v.reason or 'patch applied'}")
         # a second trip from now on pauses instead of killing — the patch gets one chance
         br.pause_on_trip = True
         log.warning("auto-healed %s: %s", agent_id, patch.to_json())
@@ -491,7 +491,7 @@ class Engine:
             saved_usd = round(snap.usd_per_min * self.cfg.roi_horizon_minutes, 4)
             saved_tok = int(snap.tokens_per_min * self.cfg.roi_horizon_minutes)
         if e.action == "WARN":
-            self.store.insert_action(ActionRow(agent_id, "WARN", e.actor, e.reason))
+            self._audit(agent_id, "WARN", e.actor, e.reason)
             return
         result = "dry run"
         no_container = self.runtime_ids is not None and agent_id not in self.runtime_ids
@@ -525,7 +525,30 @@ class Engine:
             self.pending.pop(agent_id, None)
             self.last_rules.pop(agent_id, None)
         log.critical("%s %s by %s — %s (%s)", e.action, agent_id, e.actor, e.reason, result)
-        self.store.insert_action(ActionRow(agent_id, e.action, e.actor, e.reason, saved_usd, saved_tok))
+        self._audit(agent_id, e.action, e.actor, e.reason, usd_saved=saved_usd, tokens_saved=saved_tok)
+
+    # ── the audit chain (B7) ─────────────────────────────────────────────────
+    def _audit(self, agent_id: str, action: str, actor: str, reason: str,
+               usd_saved: float = 0.0, tokens_saved: int = 0, kind: str = "") -> None:
+        """
+        Write the action to the audit log **and** to the tamper-evident chain.
+
+        Every decision and every human action goes through here, which is what
+        makes the chain *complete* rather than "the decisions somebody
+        remembered to chain". With the flag off only the audit row is written —
+        the behaviour is exactly what it was before the chain existed.
+        """
+        from brain import audit as brain_audit
+
+        try:
+            brain_audit.record_action(self.store, agent_id=agent_id, action=action, actor=actor,
+                                      reason=reason, kind=kind, enabled=self.cfg.audit_enabled,
+                                      usd_saved=usd_saved, tokens_saved=tokens_saved)
+        except Exception:
+            # A chain that cannot be written must not take the tick with it: the
+            # decision has already happened, and losing the record of a pause
+            # because the record could not be written would be a bug in the brain.
+            log.exception("could not chain the action %s for %s", action, agent_id)
 
     # ── the degradation ladder (B4) ──────────────────────────────────────────
     def _step_down(self, agent_id: str, e: Effect, snap: Optional[Snapshot]) -> None:
@@ -575,7 +598,7 @@ class Engine:
             ok, message = True, f"dry run: {detail}"
         else:
             ok, message = True, detail
-        self.store.insert_action(ActionRow(agent_id, rung, "rules", reason))
+        self._audit(agent_id, rung, "rules", reason)
         return ok, message
 
     def _alert(self, agent_id: str, f: Finding, critical: bool) -> None:
@@ -684,8 +707,8 @@ class Engine:
             return ("done" if res.ok else "failed"), res.message
         if command == "SET_BUDGET":
             self.budgets[agent_id] = float(params["budget_usd"])
-            self.store.insert_action(ActionRow(agent_id, "SET_BUDGET", actor,
-                                               cmd.get("reason") or f"budget set to ${self.budgets[agent_id]:.2f}"))
+            self._audit(agent_id, "SET_BUDGET", actor,
+                        cmd.get("reason") or f"budget set to ${self.budgets[agent_id]:.2f}")
             return "done", f"budget ${self.budgets[agent_id]:.2f}"
         if not self._known(agent_id):
             # a typo must not create a ghost agent on the dashboard
@@ -763,9 +786,9 @@ class Engine:
                 continue
             if time.time() - created > self.cfg.tool_approval_timeout_seconds:
                 self.store.decide_tool_call(call["id"], "timeout", {}, "timeout", "no human decision in time")
-                self.store.insert_action(ActionRow(call["agent_id"], "TOOL_DENY", "policy",
-                                                   f"{call['tool_name']}: approval timed out",
-                                                   float(call.get("value_usd") or 0)))
+                self._audit(call["agent_id"], "TOOL_DENY", "policy",
+                            f"{call['tool_name']}: approval timed out",
+                            usd_saved=float(call.get("value_usd") or 0))
 
 
 __all__ = ["Engine", "json"]
