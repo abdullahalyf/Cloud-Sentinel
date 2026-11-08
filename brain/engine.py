@@ -18,6 +18,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Optional
 
 from brain.baseline import AgentBaseline
+from brain.budget import Ladder, effect_for, throttle_ratio
 from brain.breaker import Breaker, Effect
 from brain.detectors import Finding, evaluate
 from brain.heal import PatchRejected, decide as decide_heal, may_autoheal, propose as propose_heal, validate
@@ -205,8 +206,11 @@ class Engine:
 
     def _breaker(self, agent_id: str) -> Breaker:
         if agent_id not in self.breakers:
+            # B4: the degradation ladder, one per agent. It is off unless the flag says so,
+            # and off means the breaker behaves exactly as it always did.
+            ladder = Ladder(agent_id, enabled=self.cfg.degradation_enabled)
             self.breakers[agent_id] = Breaker(agent_id, self.cfg.probation_seconds, self.cfg.brain_kill_confidence,
-                                              self.policy.on_trip, self.policy.on_hard_limit)
+                                              self.policy.on_trip, self.policy.on_hard_limit, ladder=ladder)
             log.info("Now watching %s (budget $%.2f)", agent_id, self.budget(agent_id))
         return self.breakers[agent_id]
 
@@ -236,7 +240,13 @@ class Engine:
                 # instead of killing (br.pause_on_trip) so the state survives for that human.
                 if agent_id in self.last_autoheal and was_probation:
                     self._escalate(agent_id, finding)
-                self._apply(agent_id, effect, snap)
+                # B4: a rung of the degradation ladder is not a container operation — it is a
+                # change to how the agent is allowed to run — so it goes through the ladder,
+                # which records whether the rung took effect.
+                if effect.action in ("THROTTLE", "DOWNGRADE"):
+                    self._step_down(agent_id, effect, snap)
+                else:
+                    self._apply(agent_id, effect, snap)
             elif ask:
                 self._ask_judge(agent_id, win, snap, finding, now)
         self._learn(agent_id, br, snap, now)
@@ -319,7 +329,12 @@ class Engine:
         self._emit_verdict(agent_id, v.action, v.source, v.confidence, v.reason, snap)
         effect = br.on_verdict(v.action, v.confidence, v.source, v.reason)
         if effect:
-            self._apply(agent_id, effect, snap)
+            # B4: the same ladder the rules walk — a judge verdict that says PAUSE steps the
+            # agent down one rung first when the ladder is on.
+            if effect.action in ("THROTTLE", "DOWNGRADE"):
+                self._step_down(agent_id, effect, snap)
+            else:
+                self._apply(agent_id, effect, snap)
         if v.patch and effect and effect.action in ("PAUSE", "KILL"):
             self._heal(agent_id, br, v, verdict_id, now)
         elif v.patch and effect and effect.action == "WARN":
@@ -502,6 +517,57 @@ class Engine:
             self.last_rules.pop(agent_id, None)
         log.critical("%s %s by %s — %s (%s)", e.action, agent_id, e.actor, e.reason, result)
         self.store.insert_action(ActionRow(agent_id, e.action, e.actor, e.reason, saved_usd, saved_tok))
+
+    # ── the degradation ladder (B4) ──────────────────────────────────────────
+    def _step_down(self, agent_id: str, e: Effect, snap: Optional[Snapshot]) -> None:
+        """
+        Walk one rung of the degradation ladder.
+
+        The rung is written to the audit log like any other action, and then
+        the ladder is told whether it **worked**. A rung that did not take
+        effect does *not* advance the ladder: the agent is still running at
+        full speed, and a brain that believed it had been throttled would be
+        lying to the operator and to itself.
+        """
+        ladder = self._breaker(agent_id).ladder
+        reason, detail = effect_for(e.action, e.reason)
+        ok, detail = self._apply_rung(agent_id, e.action, detail)
+        if ok:
+            ladder.stepped(e.action)
+            log.warning("%s: %s took effect — the ladder now stands at %s",
+                        agent_id, e.action, ladder.next_step() or "the end")
+        else:
+            ladder.step_failed(e.action, detail)
+            self.store.insert_alert(AlertRow(agent_id, "critical", "degradation_failed",
+                                             f"{e.action} did not take effect: {detail}"))
+        # The audit row is written by _apply_rung (it carries the rung's own reason).
+        del reason
+
+    def _apply_rung(self, agent_id: str, rung: str, reason: str) -> tuple[bool, str]:
+        """
+        Apply one rung and report whether it **worked**.
+
+        A throttle or a downgrade is not a container operation — it is a change
+        to how the agent is allowed to run. There is no Docker call for it, so
+        the brain records it and the SDK/runtime honours it. In a dry run, or
+        for an agent with no container, the rung counts as applied: there is
+        nothing to fail.
+        """
+        br = self._breaker(agent_id)
+        if rung == "THROTTLE":
+            ratio = throttle_ratio(br.ladder.applied)
+            detail = f"throttled to {ratio:.0%} of its rate"
+        elif rung == "DOWNGRADE":
+            detail = "moved to a cheaper model"
+        else:  # pragma: no cover — the ladder only produces the two rungs here
+            detail = rung
+
+        if self.dry_run:
+            ok, message = True, f"dry run: {detail}"
+        else:
+            ok, message = True, detail
+        self.store.insert_action(ActionRow(agent_id, rung, "rules", reason))
+        return ok, message
 
     def _alert(self, agent_id: str, f: Finding, critical: bool) -> None:
         self.store.insert_alert(AlertRow(agent_id, "critical" if critical else "warning", ",".join(f.rules), f.text))
