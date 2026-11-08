@@ -816,8 +816,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
-### B7 · [ ] 🟡 SHOULD · The tamper-evident audit log
-> 🚧 IN PROGRESS · 2026-11-08 · contract PR [#79](https://github.com/abdullahalyf/Cloud-Sentinel/pull/79) (the shapes) · brain PR (the chain)
+### B7 · [x] 🟡 SHOULD · The tamper-evident audit log
+> ✅ 2026-11-08 · contract PR [#79](https://github.com/abdullahalyf/Cloud-Sentinel/pull/79) (the shapes) · brain PR [#80](https://github.com/abdullahalyf/Cloud-Sentinel/pull/80) · gap PR [#81](https://github.com/abdullahalyf/Cloud-Sentinel/pull/81) · 25 brain tests + 14 contract tests
 >
 > Prompt:
 > *Every decision and every human action goes into a **hash-chained** log, with a verify command
@@ -841,6 +841,8 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
 
 ### B8 · [ ] 🟡 SHOULD · The security detectors
+> 🚧 IN PROGRESS · 2026-11-08 · branch `alif/b8-security`
+>
 > Prompt:
 > *Three detectors: **MCP tool-description poisoning** (a tool whose description tries to steer the
 > agent), **PII / secret leakage in tool outputs**, and **prompt injection in retrieved content**.
