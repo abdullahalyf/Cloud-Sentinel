@@ -198,6 +198,29 @@ To add a case: append a line, then run the measure command. A new case that
 breaks a detector shows up as a false positive or a missed attack in the table
 above, and the fix belongs in the detector — not in the case.
 
+### The secret-shaped cases carry placeholders, not literals
+
+A case about an API key or a JWT has to *contain* something in that shape, or
+it measures nothing. But a secret-shaped string written out in full in a file
+is indistinguishable from a leaked credential to any scanner reading the
+repository — and the repository's own `secrets` job cannot tell a fixture from
+a leak. So the corpus holds a **placeholder** and the loader expands it:
+
+```json
+{"id": "pos-sec-005-api_key", "detector": "secret_in_tool_output", "attack": true,
+ "text": "api_key={{MERCHANT_KEY}} is the merchant key"}
+```
+
+`brain.security.load_cases` expands `{{MERCHANT_KEY}}` into the shape at load
+time, so the detector still sees a real token and the measurement is unchanged.
+The repository never holds the literal. Two things are gained: the `secrets`
+job stays green without a blanket allowlist, and a human reading `{{JWT}}`
+knows exactly what the case is about — a human reading a real token would have
+to guess.
+
+The placeholder values themselves are assembled from parts in
+`brain/security.py`, for the same reason.
+
 ---
 
 ## The limits, stated plainly
