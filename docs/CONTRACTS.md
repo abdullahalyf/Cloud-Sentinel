@@ -101,6 +101,7 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_EXPORT_CLOUDWATCH` *(added 5 Nov)* | `false` | collector | also write every stored span as a CloudWatch EMF JSON line |
 | `CS_CLOUDWATCH_FILE` *(added 5 Nov)* | `data/cloudwatch.jsonl` | collector | where the EMF lines go |
 | `CS_JUDGE_MAX_USD_PER_HOUR` *(added 8 Nov)* | `0` | brain | what the LLM judge may cost in one hour; above it the brain uses the deterministic fallback and writes a `judge_cost_capped` alert. `0` = no cap |
+| `CS_VERDICT_OTLP_ENDPOINT` *(added 8 Nov, A15)* | `` (empty) | brain | the collector the brain sends its verdict spans to, so the verdict lands on the agent's own OTel trace (see §4, `cs_verdict`). Empty = off; the brain keeps working either way |
 
 **Tuned defaults.** `SOFT_MEMORY_PCT`, `LOOP_REPEAT_THRESHOLD`, `LOOP_SCORE_THRESHOLD` and
 `BRAIN_KILL_CONFIDENCE` are not guesses: `python -m brain.tuning` grid-searches them against the
@@ -134,11 +135,34 @@ Transport: **OTLP/HTTP** `POST {OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`, body
 | `chat {model}` | `chat` | `gen_ai.provider.name` (`anthropic`·`openai`·`gemini`·`sim`), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | `cloudsentinel.prompt.preview` (≤200 chars), `cloudsentinel.prompt.hash` |
 | `execute_tool {tool}` | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id` | `cloudsentinel.tool.args` (JSON ≤500 chars), `cloudsentinel.tool.decision` (`allow`·`deny`·`rewrite`·`timeout`), `cloudsentinel.tool.value_usd` |
 | `graph_node {node}` *(added 4 Nov, additive)* | `graph_node` | `cloudsentinel.node.name` | `cloudsentinel.node.step` (int), `cloudsentinel.node.framework` (`langgraph`·`crewai`·`custom`), `cloudsentinel.node.state_delta` (JSON `{key: preview ≤60 chars}`, ≤8 keys), `cloudsentinel.node.next` (where the graph routed) |
+| `cs_verdict {agent}` *(added 8 Nov, A15, additive)* | `cs_verdict` | `cloudsentinel.agent.id` | `cloudsentinel.verdict.action` (`PAUSE`·`KILL`·`WARN`·…), `cloudsentinel.verdict.source` (`claude`·`gemini`·`fallback`·`rules`), `cloudsentinel.verdict.confidence` (0–1), `cloudsentinel.verdict.reason` (≤300 chars), `cloudsentinel.loop.score` (0–1), `cloudsentinel.loop.exact_repeats` (int) |
 
 Errors: span status `ERROR` + attribute `error.type`. `chat`/`execute_tool` spans are children of `invoke_agent`,
 or of the `graph_node` they ran in. `graph_node` is a CloudSentinel extension (OTel GenAI has no "graph node" yet):
 one span per LangGraph node run or CrewAI task, emitted by `cloudsentinel.adapters.langgraph` / `.crewai` or `cs.node()`.
 Agent id resolution in the collector: `cloudsentinel.agent.id` → `gen_ai.agent.id` → `service.name` → `"unknown"`.
+
+**`cs_verdict` — the brain's verdict, on the agent's own trace (A15).** The brain watches an agent's
+spans and decides what to do with it. That decision used to live only in CloudSentinel's tables,
+while the *behaviour* that caused it lived on the agent's OpenTelemetry trace — so the cause and
+the effect were on two different screens, and somebody had to join them by hand.
+
+A `cs_verdict` span is emitted **by the brain**, over OTLP/HTTP to the collector, carrying:
+
+- the **agent's own `trace_id`**, with the judged span as its `parent_span_id` — so the verdict is
+  a child of the behaviour that caused it, on the same trace;
+- a **span event named `semantic_loop`**, carrying the same attributes as the span. The event is
+  what makes it read as *"something happened at this point in the trace"* rather than *"this span
+  was described this way"*;
+- the **numbers** — the loop score, the repeat count, the confidence. A verdict without its
+  evidence is an opinion.
+
+The collector forwards the **raw OTLP body** to Phoenix (`phoenix.submit(body, ctype)`), not the
+rows it normalized out of it — and the span event only exists in the raw body. So the event
+survives all the way to Phoenix without a line changing in `telemetry/`.
+
+An agent that is not instrumented has no trace to attach to; the verdict is still emitted, just
+without a parent.
 
 **Normalized row** `SpanRow` (collector → `spans` table): see §5.
 

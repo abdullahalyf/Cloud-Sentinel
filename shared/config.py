@@ -139,6 +139,11 @@ class Settings:
     # ── Optional CloudWatch EMF export (collector writes JSON lines to a file; added 5 Nov, Fojle F10) ──
     export_cloudwatch: bool = False
     cloudwatch_file: str = "data/cloudwatch.jsonl"
+    # ── The brain's verdict spans (A15): the brain puts its verdict on the agent's own
+    # OTel trace, through the collector, so Phoenix shows the verdict next to the
+    # behaviour that caused it. Empty = off (the brain keeps working, the verdict is
+    # just not on the trace).
+    verdict_otlp_endpoint: str = ""
     # ── Judge spend cap (A12): what the LLM judge may cost in an hour ──
     # The brain falls back to the deterministic judge above this, and writes an alert.
     # 0 = no cap.
@@ -218,6 +223,7 @@ def load_settings() -> Settings:
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),
         phoenix_project=_str("PHOENIX_PROJECT_NAME", "cloudsentinel"),
+        verdict_otlp_endpoint=_str("CS_VERDICT_OTLP_ENDPOINT", "").rstrip("/"),
         export_cloudwatch=_bool("CS_EXPORT_CLOUDWATCH", False),
         cloudwatch_file=_str("CS_CLOUDWATCH_FILE", "data/cloudwatch.jsonl"),
         judge_max_usd_per_hour=max(0.0, _float("CS_JUDGE_MAX_USD_PER_HOUR", 0.0)),
