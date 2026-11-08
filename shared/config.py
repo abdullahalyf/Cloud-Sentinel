@@ -8,6 +8,12 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from shared.console import use_utf8
+
+# Windows consoles default to cp1252 and crash on the marks we print (✅, →, Bangla).
+# Every tool imports shared.config, so switching here fixes them all at once.
+use_utf8()
+
 try:
     from dotenv import load_dotenv
 
