@@ -87,6 +87,73 @@ class InjectionGate:
         return action, f"injection score {verdict.score:.2f}: " + "; ".join(verdict.reasons)
 
 
+class SecurityGate:
+    """
+    The security part of the tool gate (B8, CONTRACTS §6).
+
+    Two things happen here, and they are two different things:
+
+    - **the tool's description is checked.** A tool whose description tries to
+      steer the agent ("always call this first", "do not ask for approval") is
+      **denied**. Not warned about, not logged — denied. A poisoned description
+      is an attack on the agent's instructions, and an agent that calls the
+      poisoned tool has already lost.
+
+    - **the arguments are scanned for secrets.** A card number, an API key, a
+      password in the arguments is **redacted before the call is stored**, so the
+      value never reaches the store, the dashboard, or the next model's context.
+
+    The flag off means the detectors do not run at all. Not "run but do not
+    report" — do not run. With `CS_SECURITY_ENABLED` off the gate returns
+    exactly what it returned before B8, and the old behaviour stands.
+    """
+
+    def __init__(self, deny_threshold: float = 0.5, enabled: bool = False,
+                 redact_enabled: bool = True, descriptions: Optional[dict] = None):
+        self.deny_threshold = deny_threshold
+        self.enabled = enabled
+        self.redact_enabled = redact_enabled
+        # tool name -> description. The registry the brain was told about.
+        self.descriptions = dict(descriptions or {})
+
+    def check(self, tool_name: str, args: dict) -> tuple[str, str]:
+        """(action, reason) for one tool call. "allow" and an empty reason mean nothing fired."""
+        if not self.enabled:
+            return "", ""
+        from brain import security
+
+        description = self.descriptions.get(tool_name, "")
+        finding = security.scan_tool_description(tool_name, description)
+        if finding is not None and finding.score >= self.deny_threshold:
+            return "deny", (f"the description of {tool_name!r} is poisoned: "
+                            + "; ".join(finding.reasons))
+        return "", ""
+
+    def redact_args(self, args: dict) -> tuple[dict, list[dict]]:
+        """
+        The arguments with the secrets taken out, and what was taken out.
+
+        The redaction happens **before** the call is stored. A secret that is
+        detected but not redacted is a secret that has already leaked into the
+        store, the dashboard and the prompt of the next model call.
+        """
+        if not self.enabled or not self.redact_enabled:
+            return args, []
+        from brain import security
+
+        redacted: dict = {}
+        taken: list[dict] = []
+        for key, value in (args or {}).items():
+            if isinstance(value, str):
+                clean, secrets = security.redact_secrets(value)
+                if secrets:
+                    taken.extend({"kind": s["kind"], "field": key} for s in secrets)
+                redacted[key] = clean
+            else:
+                redacted[key] = value
+        return redacted, taken
+
+
 # Allowed actor values (CONTRACTS §5). Anything else is a caller bug → 400, not a silent bad audit row.
 REQUESTERS = ("dashboard", "mcp", "terminal", "eval")
 EDITORS = ("agent", "human", "mcp")
@@ -204,13 +271,15 @@ def saved_by_tool_decision(decision: str, args: dict, final_args: dict, value_us
 
 def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args: dict,
                       value_usd: Optional[float], injection: Optional[InjectionGate] = None,
-                      audit_enabled: bool = False) -> dict:
+                      audit_enabled: bool = False,
+                      security: Optional[SecurityGate] = None) -> dict:
     """
     Called by the SDK before running a tool. Policy decides now, or leaves it pending for a human.
 
-    Two gates, in this order:
+    Three gates, in this order:
       1. the injection scorer (A6) — an argument that carries an attack is denied or escalated
       2. the policy — budgets and the tool rules
+      3. the security gate (B8) — a poisoned tool description is denied
 
     The injection gate runs FIRST on purpose: a policy rule that allows `run_sql` should not let
     a `; DROP TABLE` through just because the policy had no rule for it.
@@ -218,6 +287,11 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
     A third thing happens last (A14): a call the policy would have *held for approval* is let
     through when a human has already approved that exact call enough times. It never touches a
     deny — the injection gate and the policy's deny rules still win.
+
+    **The redaction happens before the row is written** (B8). The secrets in the arguments
+    are taken out, and what was taken out is recorded — but the *value* never reaches the
+    store, the dashboard, or the next model's context. A secret that is detected but not
+    redacted is a secret that has already leaked.
     """
     agent_id = check_agent_id(agent_id)
     tool_name = (tool_name or "").strip()
@@ -227,6 +301,11 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
     action, reason = "", ""
     if injection is not None:
         action, reason = injection.check(tool_name, args)
+    # B8: the security gate. A poisoned tool description denies the call outright.
+    if security is not None:
+        security_action, security_reason = security.check(tool_name, args)
+        if _severity(security_action) >= _severity(action):
+            action, reason = security_action, security_reason
     try:
         policy_action, policy_reason = policy.decide_tool(tool_name, args)
     except Exception as exc:  # a broken rule must fail SAFE: a human decides
@@ -250,10 +329,14 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
         if learned_entry is not None:
             action = "allow"
             reason = tool_risk.auto_approve_reason(learned_entry)
+    # B8: the secrets are taken out of the arguments *before* anything is stored.
+    stored_args, redacted = (args, [])
+    if security is not None:
+        stored_args, redacted = security.redact_args(args)
     value = money(value_usd)
     decision = {"allow": "allow", "deny": "deny"}.get(action, "pending")
-    call_id = store.insert_tool_call(ToolCallRow(agent_id, tool_name, args or {}, decision,
-                                                 args if decision == "allow" else {},
+    call_id = store.insert_tool_call(ToolCallRow(agent_id, tool_name, stored_args or {}, decision,
+                                                 stored_args if decision == "allow" else {},
                                                  "policy" if decision != "pending" else "", reason, value))
     if decision == "deny":
         _record(store, agent_id, "TOOL_DENY", "policy", f"{tool_name}: {reason}",
@@ -263,6 +346,12 @@ def request_tool_call(store, policy: Policy, agent_id: str, tool_name: str, args
         # their own, and on what evidence.
         _record(store, agent_id, "TOOL_AUTO_ALLOW", "brain:toolrisk",
                 f"{tool_name}: {reason}", enabled=audit_enabled, usd_saved=value)
+    if redacted:
+        # B8: the *kinds* are recorded, never the values. "a card_number was in the
+        # arguments and was redacted" is the whole story; the number itself is the secret.
+        _record(store, agent_id, "TOOL_REDACTED", "brain:security",
+                f"{tool_name}: redacted " + ", ".join(sorted({r["kind"] for r in redacted})),
+                enabled=audit_enabled)
     return store.get_tool_call(call_id)
 
 
