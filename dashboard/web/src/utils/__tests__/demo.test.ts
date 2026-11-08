@@ -63,6 +63,22 @@ describe('demo runner', () => {
     expect(log[2]).toBeUndefined();
   });
 
+  it('explains it when beta is killed instead of paused', async () => {
+    const api = makeApi(['killed']);
+    const log: Record<number, { s: StepStatus; d?: string }> = {};
+    const ok = await runDemo({
+      api: api as never,
+      onStatus: (i, s, d) => (log[i] = { s, d }),
+      navigate: vi.fn(),
+      signal: new AbortController().signal,
+      pollMs: 1,
+      waitMs: 50,
+    });
+    expect(ok).toBe(false);
+    expect(log[1].s).toBe('failed');
+    expect(log[1].d).toMatch(/killed instead of paused/);
+  });
+
   it('reset restarts killed, resumes paused, and clears memory like demo.py', async () => {
     const api = {
       getFleet: vi.fn().mockResolvedValue({ agents: [agent('beta', 'paused'), agent('gamma', 'killed'), agent('alpha', 'healthy')] }),

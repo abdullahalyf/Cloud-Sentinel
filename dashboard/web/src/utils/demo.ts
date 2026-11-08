@@ -68,7 +68,14 @@ export async function runDemo(deps: RunDeps): Promise<boolean> {
     },
     async () => {
       await waitUntil(
-        async () => (await deps.api.getFleet()).agents.some((a) => a.agent_id === 'beta' && a.state === 'paused'),
+        async () => {
+          const beta = (await deps.api.getFleet()).agents.find((a) => a.agent_id === 'beta');
+          if (beta?.state === 'killed') {
+            // e.g. beta misbehaved again while still on probation after a recent reset
+            throw new Error('beta was killed instead of paused. Press "Reset demo", wait for beta to be healthy, and run again.');
+          }
+          return beta?.state === 'paused';
+        },
         deps,
         wait,
         'beta to be paused'
