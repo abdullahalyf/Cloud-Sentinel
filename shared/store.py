@@ -44,7 +44,7 @@ class Store(Protocol):
     def insert_spans(self, rows: list[SpanRow]) -> None: ...
     def insert_metric(self, row: MetricRow) -> None: ...
     def insert_alert(self, row: AlertRow) -> None: ...
-    def insert_verdict(self, row: VerdictRow) -> None: ...
+    def insert_verdict(self, row: VerdictRow) -> int: ...
     def insert_action(self, row: ActionRow) -> None: ...
     def insert_command(self, row: CommandRow) -> int: ...
     def finish_command(self, command_id: int, status: str, result: str) -> None: ...
@@ -193,8 +193,8 @@ class LocalStore:
     def insert_alert(self, row: AlertRow) -> None:
         self._insert("alerts", row.to_row())
 
-    def insert_verdict(self, row: VerdictRow) -> None:
-        self._insert("verdicts", row.to_row())
+    def insert_verdict(self, row: VerdictRow) -> int:
+        return self._insert("verdicts", row.to_row())
 
     def insert_action(self, row: ActionRow) -> None:
         self._insert("actions", row.to_row())
@@ -365,7 +365,7 @@ class SupabaseStore:
     def insert_metric(self, row: MetricRow) -> None:
         raise NotImplementedError("Fojle Day 2")
 
-    def insert_verdict(self, row: VerdictRow) -> None:
+    def insert_verdict(self, row: VerdictRow) -> int:
         raise NotImplementedError("Fojle Day 2")
 
     def insert_action(self, row: ActionRow) -> None:

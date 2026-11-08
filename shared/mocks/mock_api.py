@@ -25,7 +25,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 
 from shared.contracts import (COMMAND_TYPES, CONTRACT_VERSION, HEAL_DECISIONS, HEAL_KINDS, HEAL_STATUSES, ROGUE_KINDS,
                               ROI_FORMULA, TOOL_DECISIONS, ActionRow, AlertRow, HealProposalRow, MetricRow,
-                              ToolCallRow, VerdictRow, agent_view, utc_now_iso)
+                              ToolCallRow, VerdictRow, agent_view, load_json, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
 BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
@@ -92,12 +92,14 @@ def seed() -> None:
                                 "refunds over 5,000 BDT need a human", 410.0).to_row() | {
         "id": 1, "args": {"order_id": 4471, "amount": 50000}, "final_args": {}}
     # one pending heal proposal for beta, so the approvals inbox has something in it
-    HEAL_PROPOSALS[1] = HealProposalRow(
+    # the real API decodes the JSON `patch` column, so the mock serves a decoded patch too
+    _proposal = HealProposalRow(
         "beta", "memory_patch",
         {"memory": [{"op": "set", "key": "order_4471", "value": "cancelled - skip it and move on"}]},
         0.71, "pending", 1, 1,
         "The belief 'retry until success' keeps the agent looping on a failing order",
-    ).to_row() | {"id": 1}
+    ).to_row()
+    HEAL_PROPOSALS[1] = _proposal | {"id": 1, "patch": load_json(_proposal["patch"])}
     ACTIONS.extend([
         ActionRow("beta", "PAUSE", "claude", "semantic loop on order 4471", 2.52, 210000).to_row() | {"id": 2},
         ActionRow("gamma", "KILL", "rules", "Hard limit: 80,816 tokens/min", 129.6, 4800000).to_row() | {"id": 1}])
@@ -393,7 +395,7 @@ def decide_heal_proposal(proposal_id: int, body: dict[str, Any]) -> dict:
         # the mock applies the memory patch to beta's memory, like the real brain does
         versions = MEMORY.setdefault(proposal["agent_id"], [])
         content = dict(versions[-1]["content"]) if versions else {}
-        for op in (proposal.get("patch") or {}).get("memory", []):
+        for op in load_json(proposal.get("patch") or {}).get("memory", []):
             if op.get("op") == "remove":
                 content.pop(op.get("key", ""), None)
             else:
