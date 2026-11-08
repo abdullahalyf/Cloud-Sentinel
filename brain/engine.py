@@ -27,6 +27,7 @@ from brain.policy import Policy
 from brain.policy_reload import PolicyManager
 from brain.sharding import Shard
 from brain.state import AgentWindow, Snapshot
+from brain import verdict_span
 from brain.write_batch import WriteBatch
 from shared.config import Settings
 from shared.contracts import (ActionRow, AgentRow, AlertRow, Executor, MetricRow, RuntimeInfo, VerdictRow,
@@ -68,6 +69,9 @@ class Engine:
         # A11: the tick's writes, held until the tick is over so they cost one commit
         # instead of two per agent.
         self.batch = WriteBatch(store)
+        # A15: the emitter that puts the verdict on the agent's own OTel trace. It is
+        # off unless something configured an endpoint, and it never raises into the tick.
+        self.verdict_emitter = verdict_span.emitter()
 
     def owns(self, agent_id: str) -> bool:
         """Does this worker act on this agent?
@@ -226,6 +230,7 @@ class Engine:
             effect, ask = br.on_finding(finding, now)
             if effect:
                 self._alert(agent_id, finding, critical=True)
+                self._emit_rule_verdict(agent_id, finding, snap, effect)
                 # An agent that trips again while on probation after an auto-heal is NOT healed
                 # again: the first patch did not work, so a human has to look. The breaker pauses
                 # instead of killing (br.pause_on_trip) so the state survives for that human.
@@ -311,6 +316,7 @@ class Engine:
                     v.reason, v.source)
         verdict_id = self.store.insert_verdict(VerdictRow(agent_id, v.source, v.action, v.confidence, v.pattern,
                                                           v.reason, v.suggested_fix, v.latency_ms))
+        self._emit_verdict(agent_id, v.action, v.source, v.confidence, v.reason, snap)
         effect = br.on_verdict(v.action, v.confidence, v.source, v.reason)
         if effect:
             self._apply(agent_id, effect, snap)
@@ -438,6 +444,49 @@ class Engine:
 
     def _alert(self, agent_id: str, f: Finding, critical: bool) -> None:
         self.store.insert_alert(AlertRow(agent_id, "critical" if critical else "warning", ",".join(f.rules), f.text))
+
+    # ── the verdict on the agent's trace (A15) ────────────────────────────────
+    def _emit_verdict(self, agent_id: str, action: str, source: str, confidence: float,
+                      reason: str, snap: Snapshot) -> None:
+        """Put the judge's verdict on the agent's own OpenTelemetry trace.
+
+        The verdict lives in CloudSentinel's tables; the behaviour that caused it lives
+        on the agent's trace, in Phoenix. A15 puts the two on the same trace, so the
+        person looking at the agent sees *why* it was stopped next to *what it did*.
+
+        This is best-effort by construction: the emitter swallows every failure, so a
+        collector that is down cannot take the tick with it.
+        """
+        self._emit_span(agent_id, action, source, confidence, reason, snap)
+
+    def _emit_rule_verdict(self, agent_id: str, f: Finding, snap: Snapshot, effect: Effect) -> None:
+        """The same, for a verdict the *rules* reached without asking the judge.
+
+        A hard limit tripping is a decision too, and it is the one an operator is most
+        likely to want explained on the trace.
+
+        The confidence is 1.0 because a rule that broke a hard limit did not *guess* —
+        it measured. The judge, on the other hand, is asked how sure it is.
+        """
+        self._emit_span(agent_id, effect.action, effect.actor or "rules", 1.0, f.text, snap)
+
+    def _emit_span(self, agent_id: str, action: str, source: str, confidence: float,
+                   reason: str, snap: Snapshot) -> None:
+        """Find the agent's trace and send the verdict onto it."""
+        sender = getattr(self, "verdict_emitter", None)
+        if sender is None:
+            return
+        try:
+            win = self.windows.get(agent_id)
+            spans = list(win.chats) + list(win.tools) if win is not None else []
+            trace_id, span_id = verdict_span.trace_of(spans)
+            verdict_span.emit(sender, agent_id=agent_id, trace_id=trace_id, parent_span_id=span_id,
+                              action=action, source=source, confidence=confidence, reason=reason,
+                              loop_score=snap.loop_score, exact_repeats=snap.exact_repeats)
+        except Exception as exc:
+            # The emitter already swallows its own failures; this is the belt to that
+            # braces. A tick must not die because a verdict could not be exported.
+            log.warning("could not put the verdict for %s on the agent's trace: %s", agent_id, exc)
 
     # ── the judge's spend cap (A12) ──────────────────────────────────────────
     def _capped_now(self) -> bool:
