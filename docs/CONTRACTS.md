@@ -85,6 +85,10 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `CS_INJECTION_APPROVAL_THRESHOLD` *(added 8 Nov)* | `0.5` | brain | injection score at or above which the tool gate asks a **human** (below the deny threshold) |
 | `CS_INJECTION_MEMORY_THRESHOLD` *(added 8 Nov)* | `0.5` | brain | injection score at or above which an agent memory write raises an alert |
 | `CS_INJECTION_ALLOWED_HOSTS` *(added 8 Nov)* | `api.shopbd.com,localhost,127.0.0.1,example.com` | brain | comma-separated hosts a tool argument may point at; any other host is a finding |
+| `CS_MCP_READONLY` *(added 8 Nov)* | `false` | mcp | expose only the MCP tools that change nothing; a read-only client cannot pause anything |
+| `CS_MCP_RATE_LIMIT` *(added 8 Nov)* | `30` | mcp | destructive MCP calls per minute, per session; reads are never throttled |
+| `CS_MCP_HTTP_HOST` *(added 8 Nov)* | `127.0.0.1` | mcp | the address the MCP HTTP transport binds; a non-localhost bind needs `CS_API_TOKEN` or the server refuses to start |
+| `CS_MCP_HTTP_PORT` *(added 8 Nov)* | `8765` | mcp | the port the MCP HTTP transport binds |
 | `TOOL_APPROVAL_TIMEOUT_SECONDS` | 120 | sdk, api | pending tool call → auto-deny after this |
 | `ROI_HORIZON_MINUTES` | 60 | eval | how far ahead "saved" burn is projected |
 | `CS_EXPORT_PHOENIX` *(added 4 Nov)* | `false` | collector | also forward every OTLP batch to Arize Phoenix (background, never blocks) |
@@ -239,10 +243,16 @@ the adapters before every node / LLM call) blocks while paused and raises `Agent
 
 ---
 
-## 7. MCP server (`brain/mcp_server.py`) — tools exposed to Claude Desktop / Claude Code
+## 7. MCP server (`brain/mcp_pkg/`, installed as `cloudsentinel-mcp`) — tools exposed to Claude Desktop / Claude Code
 
 Server name `cloudsentinel`. Transports: stdio (default) and Streamable HTTP `:8765/mcp`.
 Every tool calls the C2 API (§6) — so it works against the mock API.
+
+**One implementation.** The server lives in `brain/mcp_pkg/cloudsentinel_mcp/` and is packaged as
+`cloudsentinel-mcp`. It needs only `httpx` and `mcp` at runtime and does **not** import `shared/`,
+so it installs on its own (a laptop, Claude Desktop, a container that has never seen this repo).
+`brain/mcp_server.py` is a thin wrapper over it, so `python -m brain.mcp_server` and the installed
+`cloudsentinel-mcp` command behave identically. See `brain/MCP.md`.
 
 | Tool | Args | Returns | Destructive? |
 |---|---|---|---|
@@ -261,6 +271,24 @@ Every tool calls the C2 API (§6) — so it works against the mock API.
 | `validate_policy` *(added 8 Nov)* | `yaml: str` | `{"ok": bool, "errors": [...]}` | no |
 
 `requested_by` / `decided_by` / `edited_by` = `"mcp"` for everything sent through MCP (audit trail).
+
+**Safety rules.** These are part of the contract, not implementation detail:
+
+- **Input validation.** Every argument is checked before it reaches the API: the agent id must be a
+  short safe identifier (it goes into a URL), the reason must be present and under 500 characters,
+  the decision must be one of the allowed values, the budget must be a finite number in range. A bad
+  argument comes back as a readable message — *"reason is required — it is written to the audit log"* —
+  never a stack trace.
+- **Rate limit.** Destructive calls are capped per session (`CS_MCP_RATE_LIMIT`, 30/min by default).
+  Reads are never throttled — a dashboard should not be rate limited.
+- **Read-only mode.** `CS_MCP_READONLY=true` (or `--readonly`) hides every write tool, so a
+  read-only client cannot pause anything even by accident.
+- **The HTTP bind needs a token.** `--http` on a non-localhost bind refuses to start unless
+  `CS_API_TOKEN` is set: a public bind without a token is a remote-control surface for the fleet.
+  The server shuts down instead of serving it.
+- **Annotated tools.** Every tool declares `readOnlyHint` and `destructiveHint`, and a test checks
+  that the annotation agrees with what the tool actually does. A tool in neither set fails the test —
+  an un-audited tool cannot ship.
 
 ---
 
