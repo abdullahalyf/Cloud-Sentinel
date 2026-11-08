@@ -12,7 +12,7 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional, Protocol
 
@@ -162,8 +162,60 @@ OPERATIONS = ("invoke_agent", "chat", "execute_tool", "graph_node", "cs_verdict"
 # 2. Rows (CONTRACTS §5) — keep in sync with telemetry/db/schema.sql
 # ─────────────────────────────────────────────────────────────────────────────
 class _Row:
+    """
+    The base of every row. `to_row()` turns a row into the dict the store writes.
+
+    **`asdict()` is a deep copy, and these rows are flat.** Every field of every
+    row is a scalar — a string, a number, a bool — and the JSON columns are
+    held as **text** (`tool_args`, `detail`, `baseline` are strings holding
+    JSON), not as nested Python objects. So the deep copy buys nothing and
+    costs a lot: `dataclasses.asdict` calls `copy.deepcopy` on every value,
+    and the collector pays that per span.
+
+    The flat builder reads the fields straight off the object, so it is also
+    the shape the brain's batch reader already uses. The one thing it gives up
+    is the deep copy — and the rows are flat, so there is nothing to copy.
+
+    **A row declares its JSON columns** with `_JSON_COLUMNS`, and the builder
+    encodes those with `_dump` (a dict becomes JSON text; a string is left
+    alone). So there is **one** implementation of "turn a row into a row dict",
+    not one per row class — and a row that grows a nested field has to declare
+    it, or the flat builder would write the nested object straight into the row
+    dict where the store would not know how to serialise it.
+
+    **The fallback is not decoration.** A row that is not marked flat keeps the
+    old `asdict` behaviour, so adding a nested field to an unmarked row is safe:
+    it silently gets the old, slower, correct treatment.
+    """
+    __slots__ = ()
+
+    # The field names, when this row is known to be flat. `None` means "not
+    # known to be flat", which means `asdict`.
+    _FLAT_FIELDS: Optional[tuple[str, ...]] = None
+
+    # The fields that hold JSON and must go out as JSON **text**.
+    _JSON_COLUMNS: tuple[str, ...] = ()
+
     def to_row(self) -> dict:
-        return asdict(self)  # type: ignore[call-overload]
+        names = self._FLAT_FIELDS
+        if names is None:
+            return asdict(self)  # type: ignore[call-overload]
+        row = {name: getattr(self, name) for name in names}
+        for column in self._JSON_COLUMNS:
+            row[column] = _dump(row[column])
+        return row
+
+
+def _mark_flat(cls: type, json_columns: tuple[str, ...] = ()) -> type:
+    """
+    Say that this row's fields are all scalars, so `to_row()` can skip the deep copy.
+
+    `json_columns` are the fields that hold JSON and must be encoded to text on
+    the way out — the same list the old per-row `to_row()` overrides handled.
+    """
+    cls._FLAT_FIELDS = tuple(f.name for f in fields(cls))
+    cls._JSON_COLUMNS = tuple(json_columns)
+    return cls
 
 
 @dataclass
@@ -198,11 +250,8 @@ class SpanRow(_Row):
     def tokens(self) -> int:
         return self.input_tokens + self.output_tokens
 
-    def to_row(self) -> dict:
-        d = asdict(self)
-        d["tool_args"] = _dump(self.tool_args)
-        d["detail"] = _dump(self.detail)
-        return d
+
+_mark_flat(SpanRow, json_columns=("tool_args", "detail"))
 
 
 @dataclass
@@ -220,10 +269,8 @@ class AgentRow(_Row):
     baseline: str = "{}"            # JSON text; adaptive per-agent limits (A4)
     updated_at: str = field(default_factory=utc_now_iso)
 
-    def to_row(self) -> dict:
-        d = asdict(self)
-        d["baseline"] = _dump(self.baseline)
-        return d
+
+_mark_flat(AgentRow, json_columns=("baseline",))
 
 
 @dataclass
@@ -314,10 +361,8 @@ class CommandRow(_Row):
     result: str = ""
     created_at: str = field(default_factory=utc_now_iso)
 
-    def to_row(self) -> dict:
-        d = asdict(self)
-        d["params"] = _dump(self.params)
-        return d
+
+_mark_flat(CommandRow, json_columns=("params",))
 
 
 @dataclass
@@ -334,6 +379,9 @@ class AuditRow(_Row):
     created_at: str = field(default_factory=utc_now_iso)
 
 
+_mark_flat(AuditRow)
+
+
 @dataclass
 class MemoryRow(_Row):
     """One version of an agent's external memory. Table: agent_memory (append-only)"""
@@ -344,10 +392,8 @@ class MemoryRow(_Row):
     reason: str = ""
     created_at: str = field(default_factory=utc_now_iso)
 
-    def to_row(self) -> dict:
-        d = asdict(self)
-        d["content"] = _dump(self.content)
-        return d
+
+_mark_flat(MemoryRow, json_columns=("content",))
 
 
 @dataclass
@@ -364,11 +410,8 @@ class ToolCallRow(_Row):
     created_at: str = field(default_factory=utc_now_iso)
     decided_at: str = ""
 
-    def to_row(self) -> dict:
-        d = asdict(self)
-        d["args"] = _dump(self.args)
-        d["final_args"] = _dump(self.final_args)
-        return d
+
+_mark_flat(ToolCallRow, json_columns=("args", "final_args"))
 
 
 @dataclass
@@ -396,8 +439,8 @@ class ToolRegistryRow(_Row):
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
 
-    def to_row(self) -> dict:
-        return asdict(self)
+
+_mark_flat(ToolRegistryRow)
 
 
 class MemoryConflict(Exception):
@@ -434,10 +477,21 @@ class HealProposalRow(_Row):
     decided_at: str = ""
     created_at: str = field(default_factory=utc_now_iso)
 
-    def to_row(self) -> dict:
-        d = asdict(self)
-        d["patch"] = _dump(self.patch)
-        return d
+
+_mark_flat(HealProposalRow, json_columns=("patch",))
+
+# The rows that are **flat** — every field is a scalar, and the JSON columns
+# hold JSON *text* rather than nested Python objects. These get the fast
+# `to_row()`; a row that is not marked keeps `asdict`, so adding a nested
+# field to a row is safe (it just loses the speed-up).
+#
+# `AgentRow` and `HealProposalRow` are marked too: their JSON columns
+# (`baseline`, `patch`) can hold a real dict on the way in, and `_dump`
+# encodes a dict to JSON text exactly as their old `to_row()` overrides did.
+_mark_flat(MetricRow)
+_mark_flat(AlertRow)
+_mark_flat(VerdictRow)
+_mark_flat(ActionRow)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
