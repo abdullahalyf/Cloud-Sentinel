@@ -1055,7 +1055,7 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 > assumed. Verified against three checkout shapes — a full clone, a CI-faithful shallow detached
 > clone, and a clone with no `main` ref anywhere (36 pass, 32 + 4 skip).
 
-### B11 · [ ] 🟢 STRETCH · Packaging
+### B11 · [x] 🟢 STRETCH · Packaging
 > Prompt:
 > *Make the SDK and the MCP server pip-installable, with a 5-line quickstart that works from a
 > clean virtualenv. Test it — actually create the venv and run it.*
@@ -1071,6 +1071,28 @@ squash-merge, mark the box, three Bangla lines in `docs/SUMMARY_BN.md`).
 >
 > **Done when:** the tests are green, the full suite is green, the PR is merged, the box is `[x]`,
 > and `docs/SUMMARY_BN.md` has its three Bangla lines.
+>
+> **Done (8 Nov).** Both `pyproject.toml`s already existed and were complete — `cloudsentinel` 0.3.0
+> and `cloudsentinel-mcp` 0.7.0 — so there was nothing to write there, and **Fojle's folder was
+> never touched**. What was missing was the *proof* and the quickstart: `docs/research/quickstart.md`
+> and `brain/tests/test_packaging.py`.
+>
+> **The test builds a real virtualenv, really installs, and runs inside it.** A claim like "you can
+> install this" is worth nothing if it is only ever checked in the developer's own environment,
+> where the repo is on `sys.path` and every dependency is already there. So the test creates a
+> **real venv**, really `pip install`s both packages, and runs code **inside that venv** with the
+> repo *not* on the path. The MCP check drives the **installed** console script over **real MCP
+> stdio** — which is the check that catches the classic packaging bug: the package installs, the
+> command exists, and then it dies the moment a client connects.
+>
+> **The last check is the whole story in one test.** The installed server is pointed at a running
+> `python -m brain --fake` and returns a **real fleet**. Everything before it could pass with a
+> server that answers nothing at all. Five live checks pass; the offline ones (the quickstart's
+> shape and its claims) always run. The live tests are marked `live` and skip without a network.
+>
+> The quickstart is `docs/research/quickstart.md` — **not** `docs/evidence/quickstart.md`, because
+> `docs/evidence/` is still not a folder `alif/` may write (the same request as B10, already noted
+> in `docs/tasks/taseen.md`).
 
 ### B12 · [ ] 🟢 STRETCH · The evidence pack for the pitch
 > Prompt:
