@@ -577,6 +577,191 @@ def explain_report(agent_id: str, state: str, events: list[dict], minutes: float
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 5b. The incident postmortem (CONTRACTS §6, B2)
+# ─────────────────────────────────────────────────────────────────────────────
+# **What an incident is.** There is no incident table. An incident *is* an alert:
+# the moment the brain flagged an agent and said "something is wrong here". The
+# verdict that followed, the action that was taken and the heal that fixed it are
+# all part of *that* incident. So the incident id is the alert id, and
+# `GET /v1/incidents/{id}/postmortem` looks the alert up and tells its whole story.
+#
+# **The shape is the contract.** The builder is here, in the contract folder, for
+# the same reason the explain builder is: the mock API and the real API must say
+# the same thing, and a golden test compares them. Written twice, they would drift.
+#
+# **Deterministic.** No key, no network, no clock of its own. The same alert and
+# the same store always produce the same postmortem — which is what makes it
+# testable, and what makes it safe to attach to a ticket.
+
+# The kinds of event a timeline holds, in the order they can happen. The order is
+# the point: an alert cannot precede the verdict that caused it.
+POSTMORTEM_EVENT_KINDS = ("evidence", "alert", "verdict", "action", "heal")
+
+# The actions that stopped a runaway, and so saved money (CONTRACTS §8, ROI_FORMULA).
+POSTMORTEM_SAVING_ACTIONS = ("KILL", "PAUSE", "TOOL_DENY", "TOOL_REWRITE")
+
+
+def postmortem_event(kind: str, ts: float, title: str, detail: str = "",
+                     ref: Optional[str] = None) -> dict:
+    """One moment in an incident's timeline.
+
+    `ref` is the id of the row or span this moment came from — the evidence. A
+    timeline whose entries cannot be traced back to a row is a story, not a record.
+    """
+    return {"kind": str(kind), "ts": round(float(ts or 0), 1), "title": str(title),
+            "detail": str(detail), "ref": (str(ref) if ref else None)}
+
+
+def postmortem_root_cause(rule: str, pattern: str, reason: str, detector: str = "rules") -> dict:
+    """
+    Why it happened — in the words of the system that noticed.
+
+    The root cause names the rule that fired and the pattern the judge saw. It is
+    never "unknown": if the brain could not say why, it says *that* — but it always
+    says which rule fired, because the rule is what the detectors measured.
+    """
+    rule = str(rule or "").strip()
+    pattern = str(pattern or "").strip()
+    reason = str(reason or "").strip()
+    # A rule that fired is a root cause even when the judge said nothing: the rule
+    # *is* the pattern the detectors measured. So the pattern falls back to the rule,
+    # and only a postmortem with neither can honestly say "unknown".
+    if rule and pattern:
+        headline = f"{rule} — {pattern}"
+    elif rule:
+        pattern = rule
+        headline = rule
+    elif pattern:
+        headline = pattern
+    else:
+        headline = "unknown"
+    return {"rule": rule or "unknown", "pattern": pattern or "unknown",
+            "detector": str(detector or "rules"), "headline": headline, "reason": reason}
+
+
+def postmortem_report(incident_id: int, agent_id: str, root_cause: dict, timeline: list[dict],
+                      evidence: list[dict], money: dict, timings: dict,
+                      resolution: str = "") -> dict:
+    """
+    The whole `PostmortemReport` (CONTRACTS §6).
+
+    `timeline` is sorted by time, oldest first. `evidence` holds the real span ids
+    — not a summary of them — so a reader can pull the exact spans out of Phoenix.
+
+    `timings` holds the two numbers an operator asks for first:
+      - `time_to_detect_seconds`: from the first evidence to the alert
+      - `time_to_heal_seconds`: from the alert to the action that fixed it
+    A number that cannot be measured is `None`, never a made-up zero — "0.0" and
+    "we do not know" are different facts and only one of them is true.
+    """
+    timeline = sorted(list(timeline or []), key=lambda e: float(e.get("ts") or 0))
+    evidence = list(evidence or [])
+    money = dict(money or {})
+    timings = dict(timings or {})
+    return {
+        "incident_id": int(incident_id),
+        "agent_id": str(agent_id or ""),
+        "root_cause": dict(root_cause or {}),
+        "timeline": timeline,
+        "evidence": evidence,
+        "money": {
+            "usd_saved": float(money.get("usd_saved") or 0.0),
+            "tokens_saved": int(money.get("tokens_saved") or 0),
+            "spend_usd": float(money.get("spend_usd") or 0.0),
+            "formula": str(money.get("formula") or ROI_FORMULA),
+        },
+        "timings": {
+            "time_to_detect_seconds": timings.get("time_to_detect_seconds"),
+            "time_to_heal_seconds": timings.get("time_to_heal_seconds"),
+            "detected_at": timings.get("detected_at"),
+            "healed_at": timings.get("healed_at"),
+        },
+        "resolution": str(resolution or ""),
+    }
+
+
+def postmortem_markdown(report: dict) -> str:
+    """
+    The same postmortem, as markdown.
+
+    The numbers must be the numbers in the JSON — a markdown that says "$0.12 saved"
+    when the JSON says 0.12 is a report nobody can trust. So this reads the JSON and
+    writes it out; it never recomputes anything.
+    """
+    if not report:
+        return "# No incident\n\nThere is no incident to report.\n"
+
+    root = report.get("root_cause") or {}
+    money = report.get("money") or {}
+    timings = report.get("timings") or {}
+
+    def _seconds(value) -> str:
+        if value is None:
+            return "not measured"
+        return f"{float(value):.1f}s"
+
+    lines = [
+        f"# Incident {report.get('incident_id')} — agent `{report.get('agent_id')}`",
+        "",
+        "## Root cause",
+        "",
+        f"- **Rule**: {root.get('rule', 'unknown')}",
+        f"- **Pattern**: {root.get('pattern', 'unknown')}",
+        f"- **Detected by**: {root.get('detector', 'rules')}",
+    ]
+    if root.get("reason"):
+        lines.append(f"- **Why**: {root['reason']}")
+
+    lines += [
+        "",
+        "## Timeline",
+        "",
+    ]
+    timeline = report.get("timeline") or []
+    if timeline:
+        for e in timeline:
+            ref = f" (`{e['ref']}`)" if e.get("ref") else ""
+            detail = f" — {e['detail']}" if e.get("detail") else ""
+            lines.append(f"- `{e.get('ts', 0):.1f}` **{e.get('kind', '?')}**: {e.get('title', '')}{ref}{detail}")
+    else:
+        lines.append("- _No events._")
+
+    lines += [
+        "",
+        "## Evidence",
+        "",
+    ]
+    evidence = report.get("evidence") or []
+    if evidence:
+        lines.append("| span_id | trace_id | operation | start_ts |")
+        lines.append("|---|---|---|---|")
+        for s in evidence:
+            lines.append(f"| `{s.get('span_id', '')}` | `{s.get('trace_id', '')}` | "
+                         f"{s.get('operation', '')} | {s.get('start_ts', 0)} |")
+    else:
+        lines.append("_No spans._")
+
+    lines += [
+        "",
+        "## Money",
+        "",
+        f"- **Saved**: ${float(money.get('usd_saved') or 0.0):.4f} "
+        f"({int(money.get('tokens_saved') or 0):,} tokens)",
+        f"- **Spent**: ${float(money.get('spend_usd') or 0.0):.4f}",
+        f"- **Formula**: {money.get('formula', '')}",
+        "",
+        "## Timings",
+        "",
+        f"- **Time to detect**: {_seconds(timings.get('time_to_detect_seconds'))}",
+        f"- **Time to heal**: {_seconds(timings.get('time_to_heal_seconds'))}",
+        "",
+    ]
+    if report.get("resolution"):
+        lines += ["## Resolution", "", report["resolution"], ""]
+    return "\n".join(lines) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 6. The learned tool risk (CONTRACTS §6, A14)
 # ─────────────────────────────────────────────────────────────────────────────
 # A human approves the same refund five times a day. The fifth time, asking again
