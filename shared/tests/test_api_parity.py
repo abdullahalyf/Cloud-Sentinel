@@ -206,6 +206,34 @@ def test_the_cascade_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
             assert set(rb["cascades"][0]["agents"][0]) == set(mb["cascades"][0]["agents"][0])
 
 
+def test_the_audit_endpoint_has_the_same_shape_on_both_sides(sim, cfg):
+    """`/v1/audit` (B7) — the mock and the real API must say the same thing.
+
+    The real API is behind `CS_AUDIT_ENABLED`, so it is off by default and the
+    endpoint does not exist until the flag is on — a 404, not an empty report.
+    """
+    from dataclasses import replace
+
+    sim.run(3)
+    on = replace(cfg, audit_enabled=True)
+    real = TestClient(create_app(sim.store, sim.policy, on, "fake", "fallback"))
+    mock = TestClient(mock_app)
+    r, m = real.get("/v1/audit"), mock.get("/v1/audit")
+    assert m.status_code == 200, "the mock must serve /v1/audit once the contract lands"
+    if r.status_code == 404:
+        # the brain side has not landed yet — the mock leads, which is allowed
+        return
+    assert r.status_code == 200
+    rb, mb = r.json(), m.json()
+    missing = keys(rb) - keys(mb)
+    assert not missing, f"the mock is missing {sorted(missing)} that the real API has"
+    assert keys(rb["counts"]) == keys(mb["counts"])
+    # The mock's chain is fixed and the real one is the store's own record, so
+    # only the *shape* can be compared — and the real chain may be empty.
+    if rb["entries"] and mb["entries"]:
+        assert set(rb["entries"][0]) == set(mb["entries"][0])
+
+
 # Same request → same status code on the real API and the mock (so code written against the mock works for real).
 BEHAVIOUR = [
     ("post", "/v1/agents/beta/commands", {"command": "NUKE"}),

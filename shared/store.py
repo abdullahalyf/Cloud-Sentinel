@@ -18,11 +18,12 @@ from pathlib import Path
 from typing import Optional, Protocol
 
 from shared.config import settings
-from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealProposalRow, MemoryConflict,
-                              MemoryRow, MetricRow, SpanRow, ToolCallRow, VerdictRow, load_json, utc_now_iso)
+from shared.contracts import (ActionRow, AgentRow, AlertRow, AuditRow, CommandRow, HealProposalRow,
+                              MemoryConflict, MemoryRow, MetricRow, SpanRow, ToolCallRow, VerdictRow,
+                              load_json, utc_now_iso)
 
 TABLES = ("agents", "spans", "agent_metrics", "alerts", "verdicts", "actions", "commands",
-          "agent_memory", "tool_calls", "heal_proposals")
+          "agent_memory", "tool_calls", "heal_proposals", "audit_log")
 JSON_COLUMNS = ("tool_args", "params", "content", "args", "final_args", "detail", "patch", "baseline")
 
 
@@ -56,6 +57,10 @@ class Store(Protocol):
     def insert_heal_proposal(self, row: HealProposalRow) -> int: ...
     def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
                              reason: str = "") -> None: ...
+    # the tamper-evident audit chain (B7)
+    def insert_audit(self, row: AuditRow) -> None: ...
+    def audit_entries(self, limit: int = 200, after_seq: int = 0) -> list[dict]: ...
+    def audit_head(self) -> Optional[dict]: ...
     # brain workers (A8): the heartbeat that says "I am alive and here is what I own"
     def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
                          agents_owned: int, pid: int = 0) -> None: ...
@@ -141,6 +146,12 @@ class LocalStore:
     create table if not exists workers (
         worker_id text primary key, started_at real, last_seen real,
         agents_owned integer not null default 0, pid integer not null default 0);
+    -- The tamper-evident audit log (B7). `seq` is the position in the chain and
+    -- `prev_hash` links each entry to the one before it, so an edit in the middle
+    -- breaks every link after it. Append-only: nothing here is ever updated.
+    create table if not exists audit_log (
+        id integer primary key autoincrement, seq integer, agent_id text, kind text,
+        actor text, action text, reason text, prev_hash text, hash text, created_at text);
     """
 
     def __init__(self, path: str):
@@ -255,6 +266,21 @@ class LocalStore:
                              reason: str = "") -> None:
         self._exec("update heal_proposals set status=?, decided_by=?, reason=?, decided_at=? where id=?",
                    (status, decided_by, reason, utc_now_iso(), proposal_id))
+
+    # ── the tamper-evident audit chain (B7) ──────────────────────────────────
+    def insert_audit(self, row: AuditRow) -> None:
+        """Append one link to the chain. Nothing here is ever updated."""
+        self._insert("audit_log", row.to_row())
+
+    def audit_entries(self, limit: int = 200, after_seq: int = 0) -> list[dict]:
+        """The chain, oldest first. `after_seq` reads only what comes after a position."""
+        return self._select("select * from audit_log where seq > ? order by seq limit ?",
+                            (int(after_seq or 0), int(limit)))
+
+    def audit_head(self) -> Optional[dict]:
+        """The last link in the chain — the one whose hash everything else points at."""
+        rows = self._select("select * from audit_log order by seq desc limit 1")
+        return rows[0] if rows else None
 
     # ── brain workers (A8) ───────────────────────────────────────────────────
     def heartbeat_worker(self, worker_id: str, started_at: float, last_seen: float,
@@ -439,6 +465,19 @@ class SupabaseStore:
 
     def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
                              reason: str = "") -> None:
+        raise NotImplementedError("Fojle Day 4")
+
+    # ── TODO(Fojle) Day 4: the tamper-evident audit chain (B7) ───────────────
+    # Copy the LocalStore method with the same name exactly. The chain is
+    # append-only: `insert_audit` only ever inserts, and `audit_entries` reads
+    # the chain in `seq` order.
+    def insert_audit(self, row: AuditRow) -> None:
+        raise NotImplementedError("Fojle Day 4")
+
+    def audit_entries(self, limit: int = 200, after_seq: int = 0) -> list[dict]:
+        raise NotImplementedError("Fojle Day 4")
+
+    def audit_head(self) -> Optional[dict]:
         raise NotImplementedError("Fojle Day 4")
 
     def list_agents(self) -> list[dict]:

@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from shared.contracts import (ActionRow, AgentRow, AlertRow, CommandRow, HealProposalRow, MemoryConflict,
-                              MetricRow, SpanRow, ToolCallRow, VerdictRow)
+from shared.contracts import (ActionRow, AgentRow, AlertRow, AuditRow, CommandRow, HealProposalRow,
+                              MemoryConflict, MetricRow, SpanRow, ToolCallRow, VerdictRow)
 from shared.store import LocalStore
 
 STORES = ["local"] + (["supabase"] if os.getenv("CS_TEST_SUPABASE") == "1" else [])
@@ -98,6 +98,23 @@ def test_reset(store):
     store.insert_alert(AlertRow("a", "info", "r", "m"))
     store.reset()
     assert store.recent_alerts() == []
+
+
+def test_the_audit_chain_is_append_only_and_ordered(store):
+    """B7: the chain is read in `seq` order, and the head is the last link."""
+    assert store.audit_head() is None
+    assert store.audit_entries() == []
+    store.insert_audit(AuditRow(1, "beta", "decision", "rules", "PAUSE", "why", "0" * 16, "h1"))
+    store.insert_audit(AuditRow(2, "gamma", "human", "dashboard", "PAUSE", "why", "h1", "h2"))
+    entries = store.audit_entries()
+    assert [e["seq"] for e in entries] == [1, 2]
+    assert entries[0]["prev_hash"] == "0" * 16
+    assert entries[1]["prev_hash"] == "h1"
+    head = store.audit_head()
+    assert head["seq"] == 2 and head["hash"] == "h2"
+    # reading after a position reads only what comes after it
+    assert [e["seq"] for e in store.audit_entries(after_seq=1)] == [2]
+    assert store.audit_entries(limit=1)[0]["seq"] == 1
 
 
 def test_heal_proposals(store):
