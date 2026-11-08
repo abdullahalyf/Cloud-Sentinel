@@ -59,3 +59,13 @@ Deadline: **১৫ নভেম্বর রাত ১১:৫৯ (BST)**। Draf
 - করা হয়েছে: ৬৪টা labeled incident (৩১টা সমস্যা, ৩৩টা সুস্থ) + scorer `brain/judge_eval.py` + ২৪টা test। Fallback judge: precision 0.929, recall 0.839, F1 0.881; busy-healthy agent-কে ভুল করে থামায় না (০ false positive)।
 - এরপর: A2 Judge tuning — slow budget leak ও token bomb এখনো WARN (recall 0.839 < 0.90), আর stable-high-memory-কে ভুল করে PAUSE হয় (memory trend signal নেই)।
 - কেউ আটকে আছে?: হ্যাঁ — Taseen, `ANTHROPIC_API_KEY` দরকার (H3)। Claude judge-এর live run (latency/cost/accuracy) ছাড়া A1-এর অর্ধেক অংশ বাকি; `.env`-এ key বসিয়ে `python -m brain.judge_eval --judge claude --runs 3 --write` চালাতে হবে।
+
+### 2026-11-08 · A2 Judge prompt + threshold tuning
+- করা হয়েছে: `brain/tuning.py` দিয়ে ৩৪টা combination grid-search করে সেরা threshold `brain/tuning.json`-এ লেখা হয়েছে (loop_score 0.6, kill_confidence 0.6)। ফলাফল: precision 1.000, recall 0.806, F1 0.893, **০টা false positive**। বাকি ৬টা miss (slow money leak, token bomb) `KNOWN_GAPS`-এ চিহ্নিত — test-এ আটকে রাখা হয়েছে যাতে ভুলে না যায়। PR #27 merge হয়েছে।
+- এরপর: A3 Auto-heal — judge patch প্রস্তাব করবে, confident হলে নিজে থেকে ঠিক করবে, নইলে human-এর কাছে পাঠাবে।
+- কেউ আটকে আছে?: না।
+
+### 2026-11-08 · A3 Auto-heal (judge নিজে patch করে)
+- করা হয়েছে: `brain/heal.py` — patch validate (শুধু memory-র key, budget key নয়, instruction-মতো লেখা নয়), confident patch সরাসরি memory-তে লেখা হয় আর agent probation-এ ফিরে যায়, অন্য সব proposal হয়ে human-এর approvals inbox-এ যায়। Re-trip হলে agent kill না করে pause হয় (human-এর জন্য state বাঁচে)। ৩৮টা acceptance test (`brain/tests/test_heal.py`)। Contract PR #28 merge হয়েছে। `tamjid.md` আর `orin.md`-তে note লেখা হয়েছে।
+- এরপর: A4 Adaptive per-agent baseline, তারপর A5 Policy-as-code hot reload।
+- কেউ আটকে আছে?: না — Tamjid ও Orin এখন heal proposal দেখতে/পরীক্ষা করতে পারে।

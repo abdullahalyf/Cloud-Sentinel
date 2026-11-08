@@ -106,7 +106,10 @@ and ask Taseen (H3).
 **Acceptance:** the tests above pass. With a key, Claude reaches recall ≥ 0.90, precision ≥ 0.90, p50 < 3 s and zero invalid outputs.
 If not, A2 tunes it, so write the gap down.
 
-### A2 · [~] (alif/puku-a2-tuning, 2026-11-08) Judge prompt + detector threshold tuning
+### A2 · [x] (alif/puku-a2-tuning, 2026-11-08, merged as #27) Judge prompt + detector threshold tuning
+**Result:** precision 1.000 / recall 0.806 / F1 0.893, zero false positives. The six remaining misses
+are the documented slow-money-leak and token-bomb gaps (one snapshot cannot separate them from
+legitimate work) — pinned in `KNOWN_GAPS` in `brain/tests/test_tuning.py` so the list cannot rot.
 **Owns:** `brain/judge.py` (prompt), `brain/tuning.py` + `brain/tuning.json` (new), `shared/config.py` defaults (contract branch),
 `.env.example`, CONTRACTS §3, `docs/research/judge-eval.md`.
 > Prompt:
@@ -121,7 +124,7 @@ If not, A2 tunes it, so write the gap down.
 
 **Acceptance:** `brain/tests/test_tuning.py` asserts that the defaults equal `tuning.json`'s winner, the regression tests pass, and the harness is all ✅.
 
-### A3 · [ ] Auto-heal: the judge proposes a patch, high confidence applies it, otherwise it goes to the approvals inbox
+### A3 · [x] (alif/puku-a3-autoheal, 2026-11-08) Auto-heal: the judge proposes a patch, high confidence applies it, otherwise it goes to the approvals inbox
 **Owns:** `brain/heal.py` (new), `brain/judge.py`, `brain/engine.py`, `brain/service.py`, `brain/api.py`, `brain/mcp_server.py`, plus a contract
 branch for the new table, endpoints and settings.
 > Prompt:
@@ -161,6 +164,16 @@ branch for the new table, endpoints and settings.
 - the MCP tool
 
 Write a note in `tamjid.md` (show proposals in the approvals inbox, kind "heal") and in `orin.md` (a harness scenario "auto-heal").
+
+**Result:** `brain/heal.py` validates a patch (only existing or finding-named keys, never the budget
+keys, never instruction-like text, ≤ 5 ops, values ≤ 500 chars) and applies it or files it as a
+proposal. A confident patch (≥ `CS_AUTOHEAL_MIN_CONFIDENCE`, default 0.85) is written to the
+memory, an `AUTO_HEAL` action is recorded and the agent is resumed on probation. Anything less
+becomes a pending proposal; the human path runs the same code. A re-trip during probation after
+an auto-heal pauses the agent (never kills it — the state the human needs survives) and files a
+proposal. A stale `base_version` expires. The contract (table, endpoints, settings, mock parity)
+landed as #28; the brain side is `alif/puku-a3-autoheal`. 38 acceptance tests in
+`brain/tests/test_heal.py`. Notes written in `tamjid.md` and `orin.md`.
 
 ### A4 · [ ] Adaptive per-agent baselines instead of fixed limits
 **Owns:** `brain/baseline.py` (new), `brain/detectors.py`, `brain/engine.py`, plus a contract branch for `AgentView.baseline` and the settings.

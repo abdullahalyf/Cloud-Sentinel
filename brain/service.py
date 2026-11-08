@@ -235,5 +235,34 @@ def dumps(obj) -> str:
     return json.dumps(obj, default=str)
 
 
+# ── auto-heal proposals (CONTRACTS §7) ──
+def list_heal_proposals(store, status: Optional[str], agent_id: Optional[str], limit: int) -> list[dict]:
+    return store.list_heal_proposals(status=status, agent_id=agent_id, limit=limit)
+
+
+def decide_heal_proposal(store, proposal_id: int, decision: str, requested_by: str, reason: str) -> dict:
+    """
+    Apply or reject a heal proposal.
+
+    The human path runs the SAME code as the auto path (brain/heal.py): the patch is written to
+    the agent's memory, the proposal becomes `applied` and an AUTO_HEAL action is recorded. A
+    proposal whose base version is stale becomes `expired` — the newer memory wins.
+    """
+    from brain.heal import PatchRejected, decide as decide_heal
+
+    if requested_by not in ("human", "mcp"):
+        raise ApiError(400, "requested_by must be one of human, mcp")
+    actor = "mcp" if requested_by == "mcp" else "human"
+    try:
+        return decide_heal(store, proposal_id, decision, actor, reason)
+    except LookupError as exc:
+        raise ApiError(404, str(exc))
+    except ValueError as exc:
+        raise ApiError(409, str(exc))
+    except PatchRejected as exc:
+        raise ApiError(400, str(exc))
+
+
 __all__ = ["ApiError", "post_command", "save_memory", "request_tool_call", "decide_tool_call",
-           "fleet_view", "graph", "node_feed", "roi", "load_json", "dumps"]
+           "fleet_view", "graph", "node_feed", "roi", "load_json", "dumps",
+           "list_heal_proposals", "decide_heal_proposal"]
