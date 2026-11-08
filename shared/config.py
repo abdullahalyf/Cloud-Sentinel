@@ -122,6 +122,11 @@ class Settings:
     injection_approval_threshold: float    # score ≥ this (and < deny) → the tool gate asks a human
     injection_memory_threshold: float      # score ≥ this on a memory write → alert
     injection_allowed_hosts: str           # comma-separated hosts a tool may call
+    # ── MCP server (A7): the server that lets Claude Desktop / Claude Code drive the fleet ──
+    mcp_readonly: bool                    # true → the MCP server exposes only the tools that change nothing
+    mcp_rate_limit_per_min: int           # destructive calls per minute, per session
+    mcp_http_host: str                    # the address the MCP HTTP transport binds
+    mcp_http_port: int                    # the port the MCP HTTP transport binds
     # ── Optional export to Arize Phoenix (collector forwards every OTLP batch) ──
     export_phoenix: bool = False
     phoenix_endpoint: str = "http://localhost:6006"
@@ -194,6 +199,10 @@ def load_settings() -> Settings:
         injection_memory_threshold=_float("CS_INJECTION_MEMORY_THRESHOLD", 0.5),
         injection_allowed_hosts=_str("CS_INJECTION_ALLOWED_HOSTS",
                                      "api.shopbd.com,localhost,127.0.0.1,example.com"),
+        mcp_readonly=_bool("CS_MCP_READONLY", False),
+        mcp_rate_limit_per_min=_int("CS_MCP_RATE_LIMIT", 30),
+        mcp_http_host=_str("CS_MCP_HTTP_HOST", "127.0.0.1"),
+        mcp_http_port=_int("CS_MCP_HTTP_PORT", 8765),
         export_phoenix=_bool("CS_EXPORT_PHOENIX", False),
         phoenix_endpoint=_str("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/"),
         phoenix_api_key=_str("PHOENIX_API_KEY"),
