@@ -46,7 +46,7 @@ setting or endpoint, and a LocalStore DB created before the change still opens (
 **Open requests right now:** none (Fojle's 3 done in A0 run 1).
 - [x] A0 run for 5 Nov (2026-11-04, https://github.com/abdullahalyf/Cloud-Sentinel/pull/22)
 
-### A10 · Nightly integration check · 🔴 MUST · recurring (every session if the last nightly run failed or the last check was > 24 h ago)
+### A10 · [x] (alif/puku-a9-e2e-chaos-v2, 2026-11-08) Nightly integration check · 🔴 MUST · recurring (every session if the last nightly run failed or the last check was > 24 h ago)
 > Prompt:
 > *First time only: create brain/nightly.py (`python -m brain.nightly`). It runs, in order, and reports pass/fail plus a 30-line error
 > tail for each step:
@@ -67,7 +67,7 @@ setting or endpoint, and a LocalStore DB created before the change still opens (
 > comment when everything is green.*
 
 **Acceptance:** `brain/tests/test_nightly.py` checks the owner mapping and the report format with fake step results (no subprocesses).
-- [ ] A10 first build (brain/nightly.py)
+- [x] A10 first build (brain/nightly.py)
 
 ---
 
@@ -396,6 +396,41 @@ the loop's health.
 
 **For Fojle:** the busy timeout in `shared/store.py` is still 5 s for everyone else. A `CS_STORE_BUSY_TIMEOUT_MS`
 knob would let the store's own users shorten it too. Noted in `docs/tasks/fojle.md`.
+
+---
+
+### A10 · [x] (alif/puku-a9-e2e-chaos-v2, 2026-11-08) Nightly integration check
+**Owns:** `brain/nightly.py` (new), `brain/tests/test_nightly.py` (new).
+
+**Done.** `python -m brain.nightly` runs the seven steps in order and writes `data/nightly-report.md`. The report is a
+checklist — a table of step, status, time, owner and detail — and each failure carries the last 30 lines of its output
+and the name of the person who owns the folder it broke in. The exit code is non-zero if anything failed.
+
+**The owner mapping is the point.** The repo is split into folders and each folder belongs to one person, so a failure
+in `telemetry/` is Fojle's and a failure in `dashboard/` is Tamjid's. The report says which, so the right person reads
+it and the nightly agent never edits somebody else's folder. `shared/store.py` is the one exception that breaks the
+rule — it is Fojle's even though it sits in `shared/`, which is the contract's — and the mapping says so.
+
+**Skips are not failures.** No Docker, no Node, no `dashboard/web/` — those steps are skipped and marked as such,
+because a machine without Docker is not a broken product, and a report full of skips nobody can fix trains people to
+ignore the report. A skipped step is *not run at all*; running it anyway would turn the skip into a failure and cry
+wolf about a machine that is fine.
+
+**Two things the Windows console taught us.** The default code page there is cp1252, which cannot encode `→` or a check
+mark, so the console output is plain ASCII (`[ok]`, `[FAIL]`, `[skip]`) while the markdown report keeps the Unicode
+marks. And `shutil.which("npm")` finds `npm.CMD`, which `CreateProcess` cannot exec, so a missing tool can be a
+`FileNotFoundError` even when it is installed — a step that cannot start is reported with the reason, not as a
+mystery.
+
+**The nightly already earned its keep.** On its first full run it caught the flaky wall-clock test
+(`test_the_tick_is_fast_at_fifty_agents`, 208 ms against a 200 ms budget) that passes in isolation — a loaded-machine
+artifact that the unit suite had been hiding, and that the nightly will now report every night until the perf work in
+A11 makes it honest.
+
+36 tests in `brain/tests/test_nightly.py`, no subprocesses: the owner mapping (over 13 paths, both separators), the
+suspect-file extraction (a pytest failure, a traceback, a path that does not exist, output that points at nothing),
+the report format (says what failed, shows the owner, shows the last 30 lines and not the head), and the steps
+themselves.
 
 ---
 
