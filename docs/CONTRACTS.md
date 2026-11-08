@@ -137,6 +137,7 @@ Transport: **OTLP/HTTP** `POST {OTEL_EXPORTER_OTLP_ENDPOINT}/v1/traces`, body
 | `execute_tool {tool}` | `execute_tool` | `gen_ai.tool.name`, `gen_ai.tool.call.id` | `cloudsentinel.tool.args` (JSON ≤500 chars), `cloudsentinel.tool.decision` (`allow`·`deny`·`rewrite`·`timeout`), `cloudsentinel.tool.value_usd` |
 | `graph_node {node}` *(added 4 Nov, additive)* | `graph_node` | `cloudsentinel.node.name` | `cloudsentinel.node.step` (int), `cloudsentinel.node.framework` (`langgraph`·`crewai`·`custom`), `cloudsentinel.node.state_delta` (JSON `{key: preview ≤60 chars}`, ≤8 keys), `cloudsentinel.node.next` (where the graph routed) |
 | `cs_verdict {agent}` *(added 8 Nov, A15, additive)* | `cs_verdict` | `cloudsentinel.agent.id` | `cloudsentinel.verdict.action` (`PAUSE`·`KILL`·`WARN`·…), `cloudsentinel.verdict.source` (`claude`·`gemini`·`fallback`·`rules`), `cloudsentinel.verdict.confidence` (0–1), `cloudsentinel.verdict.reason` (≤300 chars), `cloudsentinel.loop.score` (0–1), `cloudsentinel.loop.exact_repeats` (int) |
+| `cs_verdict {agent}` — `verified_heal` event *(added 8 Nov, B1, additive)* | `cs_verdict` | `cloudsentinel.agent.id` | `cloudsentinel.heal.shadow_verdict` (`healthy`·`still_bad`·`no_opinion`), `cloudsentinel.heal.applied` (bool), `cloudsentinel.heal.confidence` (0–1), `cloudsentinel.heal.loop_score_before` (0–1), `cloudsentinel.heal.loop_score_after` (0–1), `cloudsentinel.heal.reason` (≤300 chars) |
 
 Errors: span status `ERROR` + attribute `error.type`. `chat`/`execute_tool` spans are children of `invoke_agent`,
 or of the `graph_node` they ran in. `graph_node` is a CloudSentinel extension (OTel GenAI has no "graph node" yet):
@@ -164,6 +165,14 @@ survives all the way to Phoenix without a line changing in `telemetry/`.
 
 An agent that is not instrumented has no trace to attach to; the verdict is still emitted, just
 without a parent.
+
+**`cs_verdict` — the `verified_heal` event (B1).** When the judge proposes a patch, the brain may
+replay the agent's recent context against it in a **shadow dry-run** before touching the agent. The
+whole flow — the shadow's verdict, the loop score before and after, the confidence and whether the
+patch was applied — rides on the same `cs_verdict` span as a second span event named
+`verified_heal`. It is a separate event (not extra attributes on `semantic_loop`) because it is a
+different moment in time: the shadow ran *before* the agent was touched, and a reader must be able
+to see the proof and the decision side by side.
 
 **Normalized row** `SpanRow` (collector → `spans` table): see §5.
 
