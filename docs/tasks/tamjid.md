@@ -326,3 +326,33 @@ still warming up (the first 60 s) and the fixed limits apply — show nothing ra
 without one always has `"baseline": {}` — never a missing key.
 
 **The contract** is `docs/CONTRACTS.md` §6 (`AgentView`) and §5 (`agents.baseline`).
+
+## 2026-11-09 · Approve / Deny / Rewrite buttons were clipped and could not be clicked
+
+Found while running the demo end to end on Windows (`scripts/demo_local.ps1`). The Approvals Inbox rendered the
+decision buttons, but **clicking them did nothing** — no request left the browser and no error appeared in the
+console, so it looked like a dead API.
+
+**Why.** `Panel` sets `overflow: hidden`, and the action row was a single-line flex row. With three buttons
+(`Approve`, `Deny`, `Rewrite`) plus the `$ at stake` badge in the header, the row was wider than the card, so
+the flex children shrank and the buttons were pushed past the card's clipped edge. `elementFromPoint` at the
+button's centre returned the panel's `<main>`, not the button — the button was not merely invisible, it was
+**not on the page** as far as a click was concerned.
+
+**The fix** (in `dashboard/`, this PR): the action rows get `flexWrap: 'wrap'`, so the buttons move onto a
+second line instead of being squeezed out of the card, and the shared `btn()` helper gets `flexShrink: 0`, so a
+button keeps its natural width. The same row in `AgentDetailView.tsx` (the pending-action buttons) had the same
+bug and got the same treatment.
+
+**Regression tests** in `dashboard/web/src/views/__tests__/ApprovalsView.test.tsx` assert the two layout rules
+that keep the row inside the card, for both the tool-call card and the heal-proposal card:
+
+```tsx
+expect(getComputedStyle(row).flexWrap).toBe('wrap');
+expect(getComputedStyle(approve).flexShrink).toBe('0');
+```
+
+**Worth knowing:** this class of bug is invisible to a DOM-level test — the button is present, enabled, and has
+an accessible name, so `getByRole('button', { name: 'Approve tool call 1' })` finds it and `fireEvent.click`
+succeeds. Only the geometry was wrong. If a button in a clipped panel ever stops responding, check whether it
+is being squeezed out before you go looking at the API.
