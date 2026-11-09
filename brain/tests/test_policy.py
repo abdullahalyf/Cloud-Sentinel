@@ -6,7 +6,7 @@ def test_default_file_rules():
     assert p.decide_tool("issue_refund", {"amount": 50000})[0] == "approval"
     assert p.decide_tool("issue_refund", {"amount": 500})[0] == "allow"
     assert p.decide_tool("delete_customer", {})[0] == "deny"
-    assert p.budget_for("delta") == 0.2 and p.budget_for("alpha") == 0.5
+    assert p.budget_for("delta") == 0.5 and p.budget_for("alpha") == 0.5
 
 
 def test_first_match_wins_and_contains():

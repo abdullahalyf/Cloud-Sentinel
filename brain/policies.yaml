@@ -6,7 +6,11 @@ defaults:
 
 agents:
   gamma: { budget_usd: 1.00 }   # analyst gets a bigger budget
-  delta: { budget_usd: 0.20 }   # refund agent: small budget, money-moving tools
+  delta: { budget_usd: 0.50 }   # refund agent: small budget, money-moving tools.
+                                # It must outlive the approval window
+                                # (TOOL_APPROVAL_TIMEOUT_SECONDS, 120 s): a budget
+                                # smaller than the window kills the agent before the
+                                # 50,000 BDT refund can reach a human.
 
 tools:                      # first match wins; `match` is a glob on the tool name
   - { match: "delete_*",     action: deny,     reason: "destructive tools are never allowed" }

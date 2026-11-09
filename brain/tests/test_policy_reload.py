@@ -334,7 +334,7 @@ def test_the_api_serves_the_policy(sim, cfg):
     assert set(view) == {"version", "loaded_at", "source", "defaults", "agents", "tools", "last_error"}
     assert view["defaults"]["budget_usd"] == 0.5
     assert view["defaults"]["on_trip"] == "pause"
-    assert view["agents"]["delta"]["budget_usd"] == 0.2
+    assert view["agents"]["delta"]["budget_usd"] == 0.5
     assert [t["match"] for t in view["tools"]][0] == "delete_*"
 
 

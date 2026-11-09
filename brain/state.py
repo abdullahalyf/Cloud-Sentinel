@@ -97,9 +97,19 @@ class AgentWindow:
         self.memory_mb, self.memory_pct = mb, pct
 
     def reset_activity(self) -> None:
-        """After a resume/restart, judge the agent on fresh behaviour only."""
+        """After a resume/restart, judge the agent on fresh behaviour only.
+
+        The budget is a *session* budget (CONTRACTS §11), and a restart begins a new
+        session — so the spend of the old one must not count against the new one.
+        Without this, an agent killed for spending too much is killed again the
+        instant it is restarted, for money it had already spent, and can never be
+        revived. The token count goes with it for the same reason: it feeds the
+        token-rate hard limit, and a fresh session must not inherit the old one's.
+        """
         self.chats.clear()
         self.tools.clear()
+        self.spend_usd = 0.0
+        self.total_tokens = 0
 
     def _prune(self, now: float) -> None:
         for dq in (self.chats, self.tools):
