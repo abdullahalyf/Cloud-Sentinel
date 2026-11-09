@@ -4,6 +4,8 @@ import { startLiveStream, livePoll, keysFor, isStreamLive } from '../live';
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
+  readyState = 0;
+  closed = false;
   onopen: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((m: { data: string }) => void) | null = null;
@@ -12,6 +14,7 @@ class FakeSocket {
     FakeSocket.instances.push(this);
   }
   close() {
+    this.closed = true;
     this.onclose?.();
   }
 }
@@ -58,5 +61,16 @@ describe('live stream', () => {
     expect(spy).toHaveBeenCalledWith({ queryKey: ['alerts'] });
     s.onmessage?.({ data: 'not json' }); // must not throw
     stop();
+  });
+
+  it('does not close a socket that is still connecting (avoids the browser error); closes it once open', () => {
+    const qc = new QueryClient();
+    const stop = startLiveStream(qc, { url: 'ws://x', WebSocketImpl: FakeSocket as never });
+    const s = FakeSocket.instances[0];
+    s.readyState = 0; // CONNECTING
+    stop();
+    expect(s.closed).toBe(false);
+    s.onopen?.(); // connection completes -> now it is closed
+    expect(s.closed).toBe(true);
   });
 });

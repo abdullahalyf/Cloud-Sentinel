@@ -14,7 +14,8 @@ type CardKey = `tool-${number}` | `heal-${number}`;
 export function formatWaiting(createdAt: string, now: number): string {
   const secs = Math.max(0, Math.floor((now - new Date(createdAt).getTime()) / 1000));
   if (secs < 60) return `${secs}s`;
-  return `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s`;
+  return `${Math.floor(secs / 3600)}h ${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}m`;
 }
 
 /** Oldest first. Tool calls and heal proposals share one keyboard order: tool calls, then heals. */

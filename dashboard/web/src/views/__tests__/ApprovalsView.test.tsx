@@ -52,6 +52,8 @@ describe('ApprovalsView helpers', () => {
     const t = new Date('2026-11-08T02:00:00Z').getTime();
     expect(formatWaiting('2026-11-08T02:00:00Z', t + 12_000)).toBe('12s');
     expect(formatWaiting('2026-11-08T02:00:00Z', t + 185_000)).toBe('3m 05s');
+    expect(formatWaiting('2026-11-08T02:00:00Z', t + 65_000_000)).toBe('18h 03m');
+    expect(formatWaiting('2026-11-08T02:00:00Z', t + 65_000_000)).toBe('18h 03m');
   });
 });
 

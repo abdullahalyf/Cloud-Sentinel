@@ -5,10 +5,11 @@ import { DollarSign, RotateCcw, ChevronRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { RoiReport } from '../api/types';
 import { Panel } from '../components/Panel';
+import { LineAreaChart } from '../components/viz';
 import { BudgetBurnDown } from '../components/BudgetBurnDown';
 import { useCountUp } from '../utils/useCountUp';
 import { taskRowsByWasted } from '../utils/burndown';
-import { areaFromLine, hashString, mulberry32, smoothPath } from '../components/charts';
+import { hashString, mulberry32 } from '../components/charts';
 
 /* ───────── helpers ───────── */
 const money = (v: number, d = 4) => `$${v.toFixed(d)}`;
@@ -43,17 +44,14 @@ function makeAxis(max: number, floorRef: number): Axis {
   };
 }
 
-const INK = '#E6EDF6';
-const MUTED = '#8A97AB';
-const ROSE = '#FB7185';
-const CYAN = '#22D3EE';
-const MINT = '#34D399';
-const AMBER = '#FBBF24';
+const INK = 'var(--color-text-primary)';
+const MUTED = 'var(--color-text-muted)';
+const ROSE = 'var(--color-state-killed)';
+const CYAN = 'var(--color-state-probation)';
+const MINT = 'var(--color-state-healthy)';
+const AMBER = 'var(--color-state-suspicious)';
 
-/* ───────── Burn-down chart ───────── */
-const BD_W = 760;
-const BD_H = 400;
-const BD = { l: 54, r: 16, t: 16, b: 30 };
+/* ───────── Burn-down chart (area-line, shared with the Fleet page) ───────── */
 const N = 40;
 
 interface BurnModel {
@@ -89,136 +87,28 @@ function buildBurnModel(roi: RoiReport): BurnModel {
 
 const BurnDownChart = React.memo<{ roi: RoiReport }>(({ roi }) => {
   const model = useMemo(() => buildBurnModel(roi), [roi]);
-  const [hover, setHover] = useState<number | null>(null);
-  const innerW = BD_W - BD.l - BD.r;
-  const innerH = BD_H - BD.t - BD.b;
-  const baseY = BD.t + innerH;
   const protEnd = model.prot[N - 1] || 0;
   const axis = makeAxis(Math.max(model.unprot[N - 1], protEnd), protEnd);
-  const xAt = (i: number) => BD.l + (i / (N - 1)) * innerW;
-  const yAt = (v: number) => baseY - axis.norm(v) * innerH;
-  const protPts = model.prot.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
-  const unprotPts = model.unprot.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
-  const protLine = smoothPath(protPts);
-  const unprotLine = smoothPath(unprotPts);
-  const T = roi.horizon_minutes || 60;
-
-  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const vx = ((e.clientX - r.left) / r.width) * BD_W;
-    const i = Math.round(((vx - BD.l) / innerW) * (N - 1));
-    setHover(Math.max(0, Math.min(N - 1, i)));
-  };
-
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ value: axis.inv(f), label: moneyShort(axis.inv(f)) }));
+  const markers = model.marks.map((m) => ({ index: m.idx, label: m.label }));
   return (
-    <div style={{ position: 'relative' }}>
-      <svg
-        viewBox={`0 0 ${BD_W} ${BD_H}`}
-        role="img"
-        aria-label="Cumulative cost burn-down: unprotected runaway projection versus Cloud-Sentinel protected spend"
-        data-testid="burndown-chart"
-        style={{ width: '100%', height: 'auto', display: 'block' }}
-        onMouseMove={onMove}
-        onMouseLeave={() => setHover(null)}
-      >
-        <defs>
-          <linearGradient id="bdProt" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={CYAN} stopOpacity="0.28" />
-            <stop offset="100%" stopColor={CYAN} stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-          <g key={f}>
-            <line
-              x1={BD.l}
-              x2={BD_W - BD.r}
-              y1={baseY - f * innerH}
-              y2={baseY - f * innerH}
-              stroke="rgba(255,255,255,0.07)"
-            />
-            <text
-              x={BD.l - 8}
-              y={baseY - f * innerH + 3.5}
-              textAnchor="end"
-              fontSize="10.5"
-              fontFamily="var(--font-mono)"
-              fill={MUTED}
-            >
-              {moneyShort(axis.inv(f))}
-            </text>
-          </g>
-        ))}
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-          <text
-            key={f}
-            x={BD.l + f * innerW}
-            y={BD_H - 8}
-            textAnchor={f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}
-            fontSize="10.5"
-            fontFamily="var(--font-mono)"
-            fill={MUTED}
-          >
-            {f === 0 ? '0 min' : `${Math.round(f * T)} min`}
-          </text>
-        ))}
-
-        <path d={unprotLine} fill="none" stroke={ROSE} strokeWidth="2" strokeDasharray="6 5" />
-        <path d={areaFromLine(protLine, protPts[N - 1], protPts[0], baseY)} fill="url(#bdProt)" />
-        <path d={protLine} fill="none" stroke={CYAN} strokeWidth="2.4" strokeLinecap="round" />
-
-        {model.marks.map((m, k) => {
-          const x = xAt(m.idx);
-          const y = yAt(model.prot[m.idx]);
-          return (
-            <g key={k}>
-              <line x1={x} x2={x} y1={BD.t} y2={baseY} stroke="rgba(251,191,36,0.4)" strokeDasharray="2 4" />
-              <circle cx={x} cy={y} r="5" fill="#05070B" stroke={AMBER} strokeWidth="2" />
-              <text
-                x={x + 7}
-                y={BD.t + 12}
-                fontSize="10.5"
-                fontWeight="700"
-                fontFamily="var(--font-mono)"
-                fill={AMBER}
-              >
-                {m.label}
-              </text>
-            </g>
-          );
-        })}
-
-        {hover !== null && (
-          <g pointerEvents="none">
-            <line x1={xAt(hover)} x2={xAt(hover)} y1={BD.t} y2={baseY} stroke="rgba(255,255,255,0.3)" />
-            <circle cx={xAt(hover)} cy={unprotPts[hover].y} r="3.5" fill={ROSE} />
-            <circle cx={xAt(hover)} cy={protPts[hover].y} r="3.5" fill={CYAN} />
-          </g>
-        )}
-      </svg>
-
-      {hover !== null && (
-        <div
-          role="tooltip"
-          style={{
-            position: 'absolute',
-            top: 28,
-            left: `${(xAt(hover) / BD_W) * 100}%`,
-            transform: hover > N * 0.6 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
-            pointerEvents: 'none',
-            background: '#080C14',
-            border: '1px solid rgba(255,255,255,0.14)',
-            borderRadius: 4,
-            padding: '6px 9px',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            lineHeight: '17px',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <div style={{ color: MUTED }}>{model.minutes[hover].toFixed(1)} min</div>
-          <div style={{ color: ROSE }}>without {money(model.unprot[hover])}</div>
-          <div style={{ color: CYAN }}>protected {money(model.prot[hover])}</div>
-        </div>
+    <div>
+      <LineAreaChart
+        testId="burndown-chart"
+        series={[
+          { name: 'Without Cloud-Sentinel', color: 'var(--chart-indigo)', values: model.unprot },
+          { name: 'Protected spend', color: 'var(--chart-cyan)', values: model.prot },
+        ]}
+        xLabels={model.minutes.map((m) => `${m.toFixed(0)} min`)}
+        format={(v) => money(v)}
+        markers={markers}
+        scale={axis.norm}
+        ticks={ticks}
+        height={330}
+        knots={7}
+      />
+      {axis.log && (
+        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>Log scale: the two lines differ by more than 40x.</p>
       )}
     </div>
   );
@@ -234,8 +124,8 @@ const Formula: React.FC<{ text: string }> = ({ text }) => {
         fontSize: 12,
         padding: '4px 9px',
         borderRadius: 4,
-        background: 'rgba(0,0,0,0.45)',
-        border: '1px solid rgba(255,255,255,0.09)',
+        background: 'var(--color-fill)',
+        border: '1px solid var(--color-border)',
         whiteSpace: 'nowrap',
         justifySelf: 'start',
       }}
@@ -244,11 +134,11 @@ const Formula: React.FC<{ text: string }> = ({ text }) => {
         const color = /^saved$/.test(t)
           ? MINT
           : /^[A-Za-z_]+$/.test(t)
-          ? '#67E8F9'
+          ? 'var(--color-state-probation)'
           : /^\d/.test(t)
           ? AMBER
           : /^[=×−+()/]$/.test(t)
-          ? '#A5B4FC'
+          ? 'var(--color-state-paused)'
           : undefined;
         return (
           <span key={i} style={{ color }}>
@@ -272,7 +162,7 @@ interface MethodRowProps {
 const MethodRow: React.FC<MethodRowProps> = ({ title, formula, detail, usd, share, color }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+    <div style={{ borderTop: '1px solid var(--color-border)' }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -291,7 +181,7 @@ const MethodRow: React.FC<MethodRowProps> = ({ title, formula, detail, usd, shar
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, color }}>{title}</span>
         <Formula text={formula} />
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
+          <span style={{ flex: 1, height: 4, background: 'var(--color-border)', borderRadius: 2 }}>
             <span
               style={{
                 display: 'block',
@@ -451,10 +341,11 @@ export const CostView: React.FC = () => {
             display: 'inline-flex',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            padding: '6px 12px',
-            border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 4,
-            color: 'var(--color-text-primary)',
+            border: 'none',
+            borderRadius: 10,
+            color: '#fff',
+            background: 'var(--color-navy)',
+            padding: '8px 14px',
             fontWeight: 600,
           }}
         >
@@ -511,7 +402,7 @@ export const CostView: React.FC = () => {
 
             <div>
               <div
-                className="flat"
+                className="card"
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
@@ -519,14 +410,14 @@ export const CostView: React.FC = () => {
                 }}
               >
                 <Stat label="TOTAL FLEET SPEND" value={money(totalSpend)} note={`${agentRows.length} agents billed`} />
-                <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ borderLeft: '1px solid var(--color-border)' }}>
                   <Stat
                     label="COST PER SUCCESS"
                     value={money(data.cost_per_successful_task_usd)}
                     note="per resolved task"
                   />
                 </div>
-                <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+                <div style={{ borderLeft: '1px solid var(--color-border)' }}>
                   <Stat label="WASTED SPEND" value={money(data.wasted_usd)} note="burned in loops" color={AMBER} />
                 </div>
               </div>
@@ -551,7 +442,7 @@ export const CostView: React.FC = () => {
                     height: 6,
                     borderRadius: 3,
                     overflow: 'hidden',
-                    background: 'rgba(251,113,133,0.5)',
+                    background: 'var(--color-state-killed-bg)',
                   }}
                 >
                   <div className="meter-fill" style={{ width: `${successPct}%`, background: MINT }} />
@@ -563,15 +454,13 @@ export const CostView: React.FC = () => {
           {/* Burn-down + per-agent ledger */}
           <div className="bento" style={{ alignItems: 'start' }}>
             <section
-              className="col-span-8 flat"
+              className="col-span-8 card"
               aria-label="Cumulative Cost Burn-Down vs Prevented Runaway"
               style={{ padding: 'var(--space-4) var(--space-5)', minWidth: 0 }}
             >
               <h2 style={{ fontSize: 15, fontWeight: 600 }}>Cumulative Cost Burn-Down vs. Prevented Runaway</h2>
               <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
-                <span style={{ color: ROSE }}>- - -</span> without Cloud-Sentinel &nbsp;·&nbsp;
-                <span style={{ color: CYAN }}>━━</span> protected spend &nbsp;·&nbsp;
-                <span style={{ color: AMBER }}>●</span> intervention · {horizon} min horizon
+                {horizon} min horizon. Dashed amber lines mark circuit-breaker interventions.
               </p>
               <BurnDownChart roi={data} />
             </section>
@@ -585,7 +474,7 @@ export const CostView: React.FC = () => {
                     key={r.id}
                     style={{
                       padding: '12px 0',
-                      borderTop: '1px solid rgba(255,255,255,0.07)',
+                      borderTop: '1px solid var(--color-border)',
                       display: 'grid',
                       gridTemplateColumns: '1fr auto',
                       rowGap: 6,
@@ -606,7 +495,7 @@ export const CostView: React.FC = () => {
                     >
                       {r.saved > 0 ? `+${moneyShort(r.saved)} saved` : 'no saves'}
                     </span>
-                    <span style={{ gridColumn: '1 / -1', height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
+                    <span style={{ gridColumn: '1 / -1', height: 3, background: 'var(--color-border)', borderRadius: 2 }}>
                       <span
                         style={{
                           display: 'block',
@@ -633,7 +522,7 @@ export const CostView: React.FC = () => {
 
           {/* D7: budget burn-down per agent (ECharts) with projection and PAUSE/KILL markers */}
           <section
-            className="flat"
+            className="card"
             aria-label="Budget Burn-Down by Agent"
             style={{ padding: 'var(--space-4) var(--space-5)' }}
           >
@@ -659,7 +548,7 @@ export const CostView: React.FC = () => {
           <section aria-label="Task Economics by Agent">
             <h2 style={{ fontSize: 15, fontWeight: 600 }}>Task Economics by Agent</h2>
             <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-2)' }}>Sorted by wasted spend</p>
-            <div className="flat" style={{ overflowX: 'auto' }}>
+            <div className="card" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
                 <thead>
                   <tr style={{ color: MUTED, textAlign: 'right' }}>
@@ -673,7 +562,7 @@ export const CostView: React.FC = () => {
                     <tr><td colSpan={8} style={{ padding: 14, color: MUTED }}>No task data yet.</td></tr>
                   )}
                   {taskRows.map((r) => (
-                    <tr key={r.agent} style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+                    <tr key={r.agent} style={{ borderTop: '1px solid var(--color-border)' }}>
                       <td style={{ padding: '10px 14px', fontWeight: 700 }}>{r.agent}</td>
                       <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{r.tasks}</td>
                       <td className="tabular-nums" style={{ padding: '10px 14px', textAlign: 'right' }}>{r.succeeded}</td>
@@ -695,7 +584,7 @@ export const CostView: React.FC = () => {
             <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
               How each saved dollar is priced. Select a row for the reasoning.
             </p>
-            <div className="flat" style={{ padding: '0 var(--space-4)' }}>
+            <div className="card" style={{ padding: '0 var(--space-4)' }}>
               <MethodRow
                 title="KILL / PAUSE"
                 formula={`saved = usd_per_min × ${horizon}`}
@@ -710,7 +599,7 @@ export const CostView: React.FC = () => {
                 detail="A denied tool call is credited with the full value that was at stake, such as the amount of a blocked refund or purchase."
                 usd={deny}
                 share={share(deny)}
-                color="#A5B4FC"
+                color="var(--color-state-paused)"
               />
               <MethodRow
                 title="TOOL_REWRITE"

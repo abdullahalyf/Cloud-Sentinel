@@ -104,9 +104,9 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
             fontSize: 12,
             fontWeight: 600,
             color: 'var(--color-text-primary)',
-            background: isLast ? 'var(--color-state-probation-bg)' : 'var(--color-surface-elevated)',
-            border: `1px solid ${isLast ? 'var(--color-accent)' : 'var(--color-border)'}`,
-            borderRadius: 'var(--radius-sm)',
+            background: '#fff',
+            border: `2px solid ${isLast ? 'var(--chart-indigo)' : 'var(--color-border)'}`,
+            borderRadius: 12,
             padding: '6px 12px',
             width: 'auto',
             minWidth: 110,
@@ -119,21 +119,21 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
   const edges: Edge[] = useMemo(
     () =>
       model.edges.map((e) => {
-        const color = e.inCycle ? 'var(--color-state-suspicious)' : 'var(--color-text-muted)';
+        const color = e.inCycle ? 'var(--chart-red)' : '#9a96a8';
         return {
           id: `${e.source}->${e.target}`,
           source: e.source,
           target: e.target,
           label: e.count > 0 ? String(e.count) : undefined,
           animated: e.inCycle && !paused,
-          markerEnd: { type: MarkerType.ArrowClosed, color: e.inCycle ? '#f59e0b' : '#94a3b8' },
+          markerEnd: { type: MarkerType.ArrowClosed, color: e.inCycle ? '#f0402f' : '#9a96a8' },
           style: {
             stroke: color,
             strokeWidth: e.inCycle ? 3 : 1 + Math.min(3, e.count / 4),
             strokeDasharray: e.dashed ? '5 4' : undefined,
           },
           labelStyle: { fill: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11 },
-          labelBgStyle: { fill: 'var(--color-canvas)' },
+          labelBgStyle: { fill: '#fafaff' },
           type: 'default',
         } as Edge;
       }),
@@ -148,9 +148,8 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
         data-testid="graph-flow-canvas"
         style={{
           height: 260,
-          border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-md)',
-          background: 'var(--color-canvas)',
+          background: 'var(--color-fill)',
         }}
       >
         <ReactFlow
@@ -163,7 +162,6 @@ export const GraphFlow: React.FC<GraphFlowProps> = ({ feed, paused }) => {
           elementsSelectable={false}
           zoomOnScroll={false}
           panOnDrag={false}
-          proOptions={{ hideAttribution: true }}
         />
       </div>
 

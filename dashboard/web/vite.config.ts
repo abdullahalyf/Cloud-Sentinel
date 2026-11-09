@@ -15,6 +15,11 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
         headers: token ? { 'X-CS-Token': token } : {},
+        configure: (proxy) => {
+          // a closed tab aborts its socket; that is not an error worth printing
+          proxy.on('error', () => {});
+          proxy.on('proxyReqWs', (_proxyReq, _req, socket) => socket.on('error', () => {}));
+        },
       },
     },
   },

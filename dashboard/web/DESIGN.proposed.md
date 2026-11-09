@@ -1,5 +1,15 @@
 # CloudSentinel Web Control Tower: Design System (DESIGN.md)
 
+> **Update 2026-11-09: light redesign (v3). This block supersedes the dark-theme visual direction, tokens (section 2), background (2.9) and motion rules below. The component, state, data and review rules still apply.**
+>
+> - **Direction:** minimal and light, after the AgentOps product site (format, charts, motion, colour; not a copy). No glow, glass, light beams, neon or custom particle effects.
+> - **Colour:** canvas `#F4F5FF` with a faint static diagonal hatch, cards `#FAFAFF` with a soft shadow and no border, text `#191222` / `#4A4558` / `#5F5A6E`, one violet action colour `#7548E7`, navy `#222C4E` for secondary buttons. State colours are dark enough for AA text on tinted backgrounds (`#065F46`, `#92400E`, `#4338CA`, `#155E75`, `#9F1239`).
+> - **Type:** one family, Figtree, with tabular figures for numbers. JetBrains Mono only for code, JSON, diffs and formulas. No display or techno face.
+> - **Cursor:** navy arrow, violet arrow over anything clickable, text cursor in inputs (CSS only, no JS).
+> - **Charts (`components/viz.tsx`):** Gantt-style session replay (tool amber, error red, LLM cyan, action indigo) with scrubber, tooltip card and a colour strip; grouped bars with a hover highlight and card; area-line charts with open dots at the knots. Lines draw in once.
+> - **Motion:** a route fades in and its blocks rise in a short stagger (under 0.5 s); cards lift 2 px on hover; buttons press to 97%; lines and bars draw in once; the live dot is a calm ring; skeletons shimmer; the saved total counts up. All of it is off under `prefers-reduced-motion`, and automated browsers (screenshots) get the finished frame.
+> - **Accessibility:** `npm run e2e` runs axe on every route; the React Flow attribution is kept and darkened to pass contrast.
+
 This document defines the visual direction, design tokens, layout hierarchy, component anatomy, data formatting rules, motion constraints, and review criteria for CloudSentinel's web dashboard (`dashboard/web/`). It is the binding design contract for all dashboard implementation tasks.
 
 ---

@@ -27,7 +27,6 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ lines = 3, className
           width: '40%',
           backgroundColor: 'var(--color-surface-elevated)',
           borderRadius: 'var(--radius-sm)',
-          animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         }}
       />
       {/* Body lines */}
@@ -41,7 +40,6 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ lines = 3, className
             backgroundColor: 'var(--color-surface-elevated)',
             borderRadius: 'var(--radius-sm)',
             opacity: 0.8 - i * 0.15,
-            animation: 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
           }}
         />
       ))}

@@ -1,12 +1,10 @@
 import { livePoll, startLiveStream } from './utils/live';
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopBar } from './components/TopBar';
 import { LeftNav } from './components/LeftNav';
-import { CursorAura } from './components/CursorAura';
 import { ConnectionBanner } from './components/ConnectionBanner';
-import { TelemetryBackground } from './components/TelemetryBackground';
 import { ToastProvider } from './components/Toast';
 import { FleetView } from './views/FleetView';
 import { AgentDetailView } from './views/AgentDetailView';
@@ -27,6 +25,7 @@ const queryClient = new QueryClient({
 });
 
 const LayoutShell: React.FC = () => {
+  const location = useLocation();
   return (
     <div
       style={{
@@ -38,8 +37,6 @@ const LayoutShell: React.FC = () => {
         zIndex: 1,
       }}
     >
-      <CursorAura />
-      <TelemetryBackground />
 
       <TopBar />
       <ConnectionBanner />
@@ -59,7 +56,9 @@ const LayoutShell: React.FC = () => {
             zIndex: 2,
           }}
         >
-          <Outlet />
+          <div key={location.pathname} className="page-enter">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
@@ -68,10 +67,14 @@ const LayoutShell: React.FC = () => {
 
 export const App: React.FC = () => {
   useEffect(() => startLiveStream(queryClient), []);
+  useEffect(() => {
+    // automated browsers (screenshots) get the finished frame, not mid-animation
+    document.documentElement.dataset.static = navigator.webdriver === true ? 'true' : 'false';
+  }, []);
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <Routes>
             <Route path="/" element={<LayoutShell />}>
               <Route index element={<Navigate to="/fleet" replace />} />
