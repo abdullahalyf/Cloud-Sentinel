@@ -32,7 +32,7 @@ const STATE_CONFIG: Record<
   },
   paused: {
     label: 'PAUSED',
-    color: 'var(--color-state-paused)',
+    color: 'var(--color-state-paused-text)',
     bg: 'var(--color-state-paused-bg)',
     border: 'var(--color-state-paused-border)',
     pulseDot: false,
@@ -46,7 +46,7 @@ const STATE_CONFIG: Record<
   },
   killed: {
     label: 'KILLED',
-    color: 'var(--color-state-killed)',
+    color: 'var(--color-state-killed-text)',
     bg: 'var(--color-state-killed-bg)',
     border: 'var(--color-state-killed-border)',
     pulseDot: false,

@@ -1,10 +1,13 @@
+import { livePoll } from '../utils/live';
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, Play, Cpu, DollarSign } from 'lucide-react';
 import { api } from '../api/client';
+import { DemoPanel } from './DemoPanel';
 
 export const TopBar: React.FC = () => {
   const [timeStr, setTimeStr] = useState<string>('');
+  const [demoOpen, setDemoOpen] = useState(false);
 
   useEffect(() => {
     const updateTime = () => {
@@ -19,13 +22,13 @@ export const TopBar: React.FC = () => {
   const { data: health } = useQuery({
     queryKey: ['health'],
     queryFn: api.getHealth,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const { data: roi } = useQuery({
     queryKey: ['roi'],
     queryFn: api.getRoi,
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   const isDemo =
@@ -41,9 +44,7 @@ export const TopBar: React.FC = () => {
         height: '56px',
         width: '100%',
         backgroundColor: 'var(--color-header-glass)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        borderBottom: '1px solid var(--color-border)',
+                        borderBottom: '1px solid var(--color-border)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -166,6 +167,8 @@ export const TopBar: React.FC = () => {
           <button
             type="button"
             aria-label="Run 3 AM Demo Incident"
+            aria-expanded={demoOpen}
+            onClick={() => setDemoOpen((o) => !o)}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -201,6 +204,7 @@ export const TopBar: React.FC = () => {
           {timeStr || '00:00:00 UTC'}
         </div>
       </div>
+      {demoOpen && isDemo && <DemoPanel onClose={() => setDemoOpen(false)} />}
     </header>
   );
 };

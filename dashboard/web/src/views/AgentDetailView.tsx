@@ -1,3 +1,4 @@
+import { livePoll } from '../utils/live';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -28,6 +29,7 @@ import type { ToolCallRow } from '../api/types';
 import { Panel } from '../components/Panel';
 import { StateBadge } from '../components/StateBadge';
 import { JsonEditor } from '../components/JsonEditor';
+import { GraphFlow } from '../components/GraphFlow';
 import { DiffView } from '../components/DiffView';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
@@ -68,14 +70,14 @@ export const AgentDetailView: React.FC = () => {
   } = useQuery({
     queryKey: ['agent', id],
     queryFn: () => api.getAgent(id),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Query Execution Graph Nodes
   const { data: nodesData } = useQuery({
     queryKey: ['agent-nodes', id],
     queryFn: () => api.getAgentNodes(id),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Query Memory History
@@ -89,7 +91,7 @@ export const AgentDetailView: React.FC = () => {
   const { data: toolCallsData, refetch: refetchToolCalls } = useQuery({
     queryKey: ['tool-calls'],
     queryFn: () => api.getToolCalls(),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Initialize Memory Editor once agent memory is loaded
@@ -501,7 +503,7 @@ export const AgentDetailView: React.FC = () => {
             type="button"
             data-testid="command-pause-btn"
             onClick={handlePause}
-            disabled={agent?.state === 'paused' || agent?.state === 'killed'}
+            disabled={agent?.state === 'paused' || agentData?.agent?.state === 'killed'}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -513,8 +515,8 @@ export const AgentDetailView: React.FC = () => {
               border: '1px solid var(--color-state-suspicious-border)',
               fontSize: 'var(--type-body-sm-size)',
               fontWeight: 600,
-              cursor: agent?.state === 'paused' || agent?.state === 'killed' ? 'not-allowed' : 'pointer',
-              opacity: agent?.state === 'paused' || agent?.state === 'killed' ? 0.5 : 1,
+              cursor: agent?.state === 'paused' || agentData?.agent?.state === 'killed' ? 'not-allowed' : 'pointer',
+              opacity: agent?.state === 'paused' || agentData?.agent?.state === 'killed' ? 0.5 : 1,
             }}
           >
             <Pause size={14} /> Pause
@@ -578,7 +580,7 @@ export const AgentDetailView: React.FC = () => {
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-sm)',
               backgroundColor: 'var(--color-state-killed-bg)',
-              color: 'var(--color-state-killed)',
+              color: 'var(--color-state-killed-text)',
               border: '1px solid var(--color-state-killed-border)',
               fontSize: 'var(--type-body-sm-size)',
               fontWeight: 600,
@@ -833,7 +835,7 @@ export const AgentDetailView: React.FC = () => {
                           padding: '4px 10px',
                           borderRadius: 'var(--radius-sm)',
                           backgroundColor: 'var(--color-accent)',
-                          color: '#FFFFFF',
+                          color: 'var(--color-canvas)',
                           border: 'none',
                           fontSize: 'var(--type-micro-size)',
                           fontFamily: 'var(--font-mono)',
@@ -1162,39 +1164,16 @@ export const AgentDetailView: React.FC = () => {
             )}
           </Panel>
 
-          {/* LangGraph Node Transitions Panel */}
+          {/* Graph flow panel (D6) */}
           <Panel
-            title="LangGraph Transition Nodes"
+            title="Graph flow"
             icon={<Activity size={18} />}
             empty={!nodesData || nodesData.items.length === 0}
             emptyTitle="No Execution Graph Recorded"
             emptyMessage="Agent has not emitted graph_node spans yet. Connect the cloudsentinel SDK adapter."
           >
             {nodesData && nodesData.items.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                <div style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-muted)' }}>
-                  Recent Steps ({nodesData.items.length} transitions captured):
-                </div>
-                <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                  {nodesData.items.slice(-8).map((item, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        backgroundColor: 'var(--color-surface-elevated)',
-                        border: '1px solid var(--color-border)',
-                        padding: 'var(--space-2) var(--space-3)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--type-micro-size)',
-                      }}
-                    >
-                      <span style={{ color: 'var(--color-text-primary)' }}>{item.node}</span>
-                      <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--space-1)' }}>→</span>
-                      <span style={{ color: 'var(--color-accent)' }}>{item.next}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <GraphFlow feed={nodesData} paused={agentData?.agent?.state === 'paused' || agentData?.agent?.state === 'killed'} />
             )}
           </Panel>
         </div>

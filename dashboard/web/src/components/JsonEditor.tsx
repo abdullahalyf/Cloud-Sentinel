@@ -175,6 +175,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
         {/* Textarea */}
         <textarea
           data-testid="json-editor-textarea"
+          aria-label="JSON editor"
           value={text}
           onChange={handleChange}
           readOnly={readOnly}

@@ -1,21 +1,25 @@
-import React from 'react';
+import { livePoll, startLiveStream } from './utils/live';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { TopBar } from './components/TopBar';
 import { LeftNav } from './components/LeftNav';
 import { CursorAura } from './components/CursorAura';
+import { ConnectionBanner } from './components/ConnectionBanner';
+import { TelemetryBackground } from './components/TelemetryBackground';
 import { ToastProvider } from './components/Toast';
 import { FleetView } from './views/FleetView';
 import { AgentDetailView } from './views/AgentDetailView';
 import { ApprovalsView } from './views/ApprovalsView';
 import { IncidentsView } from './views/IncidentsView';
 import { CostView } from './views/CostView';
+import { GraphView } from './views/GraphView';
 import './styles/base.css';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      refetchInterval: 1000,
+      refetchInterval: livePoll,
       retry: 1,
       refetchOnWindowFocus: false,
     },
@@ -34,13 +38,11 @@ const LayoutShell: React.FC = () => {
         zIndex: 1,
       }}
     >
-      {/* Cybernetic Telemetry Design Overlays (from tamjid/dashboard-ui) */}
       <CursorAura />
-      <div className="aurora-glow" aria-hidden="true" />
-      <div className="cyber-grid" aria-hidden="true" />
-      <div className="cyber-scanner-laser" aria-hidden="true" />
+      <TelemetryBackground />
 
       <TopBar />
+      <ConnectionBanner />
       <div style={{ display: 'flex', flex: 1, width: '100%', position: 'relative', zIndex: 2 }}>
         <LeftNav />
         <main
@@ -49,7 +51,8 @@ const LayoutShell: React.FC = () => {
             flex: 1,
             padding: 'var(--space-6)',
             backgroundColor: 'transparent',
-            maxWidth: '100%',
+            maxWidth: '1640px',
+            minWidth: 0,
             margin: '0 auto',
             width: '100%',
             position: 'relative',
@@ -64,6 +67,7 @@ const LayoutShell: React.FC = () => {
 };
 
 export const App: React.FC = () => {
+  useEffect(() => startLiveStream(queryClient), []);
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
@@ -75,7 +79,9 @@ export const App: React.FC = () => {
               <Route path="agents/:id" element={<AgentDetailView />} />
               <Route path="approvals" element={<ApprovalsView />} />
               <Route path="incidents" element={<IncidentsView />} />
+              <Route path="incidents/:incidentId" element={<IncidentsView />} />
               <Route path="cost" element={<CostView />} />
+              <Route path="graph" element={<GraphView />} />
               <Route path="*" element={<Navigate to="/fleet" replace />} />
             </Route>
           </Routes>

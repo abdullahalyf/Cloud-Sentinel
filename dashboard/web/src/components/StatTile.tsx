@@ -23,11 +23,8 @@ export const StatTile: React.FC<StatTileProps> = ({
     <div
       role="region"
       aria-label={label}
-      className={`bento-stat-tile ${className}`}
+      className={`bento-stat-tile glass ${className}`}
       style={{
-        backgroundColor: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
         padding: 'var(--space-4)',
         display: 'flex',
         flexDirection: 'column',
