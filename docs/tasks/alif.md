@@ -1353,3 +1353,11 @@ submission draft) — if the token budget allows nothing else, do those two.
 ## Notes
 (Other people, or the nightly check, write here when something in `brain/` or `shared/` looks wrong.)
 - 2026-11-04 (lead): the flaky failure was the CrewAI adapter test (thread-pool event handlers). Fixed in telemetry/ (Fojle's folder) with `flush()` + early-completion handling; nothing to do in brain/. A10 should still watch the `adapters` job.
+
+- 2026-11-09 (lead): D0 — ran the whole stack locally on Windows (`scripts/demo_local.ps1`) and drove the
+  full incident path in the browser: rogue -> paused -> fix memory -> resume -> probation -> healthy, then the
+  50,000 BDT refund held for approval. Two bugs found on the way: **probation halved the learned limit** so a
+  correctly-healed agent was killed for behaving normally (fixed in `brain/` on this branch), and the
+  Approve/Deny/Rewrite buttons were **clipped out of the card and could not be clicked** (Tamjid's folder,
+  PR opened there). One thing for a human later: `TOOL_APPROVAL_TIMEOUT_SECONDS` defaults to 120 s, so a pending
+  tool call expires if nobody answers within two minutes.
