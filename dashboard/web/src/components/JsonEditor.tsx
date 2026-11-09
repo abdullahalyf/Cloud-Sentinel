@@ -76,7 +76,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
         flexDirection: 'column',
         borderRadius: 'var(--radius-sm)',
         border: `1px solid ${error ? 'var(--color-state-killed-border)' : 'var(--color-border)'}`,
-        backgroundColor: 'var(--color-canvas)',
+        backgroundColor: 'var(--color-surface-elevated)',
         overflow: 'hidden',
       }}
     >
@@ -90,7 +90,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
           backgroundColor: 'var(--color-surface-elevated)',
           borderBottom: '1px solid var(--color-border)',
           fontSize: 'var(--type-micro-size)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: 'var(--font-code)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -135,11 +135,11 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
               padding: '2px 8px',
               borderRadius: 'var(--radius-sm)',
               fontSize: 'var(--type-micro-size)',
-              fontFamily: 'var(--font-mono)',
+              fontFamily: 'var(--font-code)',
               backgroundColor: 'var(--color-surface)',
               color: error ? 'var(--color-text-muted)' : 'var(--color-telemetry-cyan)',
               border: '1px solid var(--color-border)',
-              cursor: error ? 'not-allowed' : 'pointer',
+              cursor: error ? 'not-allowed' : undefined,
               opacity: error ? 0.5 : 1,
             }}
           >
@@ -156,10 +156,10 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
           style={{
             userSelect: 'none',
             padding: 'var(--space-3) var(--space-2)',
-            backgroundColor: 'rgba(14, 19, 31, 0.65)',
+            backgroundColor: 'var(--color-fill)',
             borderRight: '1px solid var(--color-border)',
             color: 'var(--color-text-muted)',
-            fontFamily: 'var(--font-mono)',
+            fontFamily: 'var(--font-code)',
             fontSize: 'var(--type-micro-size)',
             lineHeight: '1.5',
             textAlign: 'right',
@@ -184,7 +184,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
             flex: 1,
             backgroundColor: 'transparent',
             color: 'var(--color-text-primary)',
-            fontFamily: 'var(--font-mono)',
+            fontFamily: 'var(--font-code)',
             fontSize: 'var(--type-body-sm-size)',
             lineHeight: '1.5',
             padding: 'var(--space-3)',
@@ -209,7 +209,7 @@ export const JsonEditor: React.FC<JsonEditorProps> = ({
             borderTop: '1px solid var(--color-state-killed-border)',
             color: 'var(--color-state-killed)',
             fontSize: 'var(--type-micro-size)',
-            fontFamily: 'var(--font-mono)',
+            fontFamily: 'var(--font-code)',
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-2)',

@@ -30,6 +30,8 @@ import { Panel } from '../components/Panel';
 import { StateBadge } from '../components/StateBadge';
 import { JsonEditor } from '../components/JsonEditor';
 import { GraphFlow } from '../components/GraphFlow';
+import { GanttReplay } from '../components/viz';
+import { nodesToBars, spansToBars } from '../utils/replay';
 import { DiffView } from '../components/DiffView';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
@@ -458,7 +460,6 @@ export const AgentDetailView: React.FC = () => {
               color: 'var(--color-text-secondary)',
               fontSize: 'var(--type-micro-size)',
               fontFamily: 'var(--font-mono)',
-              cursor: 'pointer',
             }}
           >
             <Clock size={12} /> Sync
@@ -481,7 +482,7 @@ export const AgentDetailView: React.FC = () => {
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-4) var(--space-6)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
+          boxShadow: 'var(--shadow-card)',
         }}
       >
         {/* Left: Execution Control Buttons */}
@@ -806,7 +807,7 @@ export const AgentDetailView: React.FC = () => {
                       gap: 'var(--space-2)',
                       padding: 'var(--space-3) var(--space-4)',
                       borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'rgba(6, 182, 212, 0.08)',
+                      backgroundColor: 'var(--color-state-probation-bg)',
                       border: '1px solid var(--color-border-accent)',
                     }}
                   >
@@ -840,7 +841,6 @@ export const AgentDetailView: React.FC = () => {
                           fontSize: 'var(--type-micro-size)',
                           fontFamily: 'var(--font-mono)',
                           fontWeight: 700,
-                          cursor: 'pointer',
                         }}
                       >
                         Apply suggestion
@@ -924,7 +924,7 @@ export const AgentDetailView: React.FC = () => {
                                   ? 'var(--color-state-killed-bg)'
                                   : call.decision === 'rewrite'
                                   ? 'var(--color-state-suspicious-bg)'
-                                  : 'rgba(6, 182, 212, 0.15)',
+                                  : 'var(--color-state-probation-bg)',
                               color:
                                 call.decision === 'allow'
                                   ? 'var(--color-state-healthy)'
@@ -1021,7 +1021,6 @@ export const AgentDetailView: React.FC = () => {
                               border: '1px solid var(--color-state-healthy-border)',
                               fontSize: 'var(--type-micro-size)',
                               fontWeight: 600,
-                              cursor: 'pointer',
                             }}
                           >
                             <Check size={12} /> Approve
@@ -1043,7 +1042,6 @@ export const AgentDetailView: React.FC = () => {
                               border: '1px solid var(--color-state-killed-border)',
                               fontSize: 'var(--type-micro-size)',
                               fontWeight: 600,
-                              cursor: 'pointer',
                             }}
                           >
                             <X size={12} /> Deny
@@ -1063,7 +1061,6 @@ export const AgentDetailView: React.FC = () => {
                               border: '1px solid var(--color-border-accent)',
                               fontSize: 'var(--type-micro-size)',
                               fontWeight: 600,
-                              cursor: 'pointer',
                             }}
                           >
                             <Edit3 size={12} /> Rewrite
@@ -1078,6 +1075,15 @@ export const AgentDetailView: React.FC = () => {
           </Panel>
 
           {/* Execution Spans DataTable (Last 20) */}
+          {(() => {
+            const bars = [...spansToBars(recentSpans), ...nodesToBars(nodesData?.items ?? [])];
+            return bars.length > 0 ? (
+              <section className="card" aria-label="Session replay" style={{ padding: 'var(--space-5) var(--space-6)' }}>
+                <GanttReplay bars={bars} title="Session replay" testId="session-replay" />
+              </section>
+            ) : null;
+          })()}
+
           <Panel
             title={`Execution Trace Spans (${recentSpans.length})`}
             icon={<Layers size={18} />}
@@ -1116,8 +1122,8 @@ export const AgentDetailView: React.FC = () => {
                       <tr
                         key={span.span_id || idx}
                         style={{
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                          backgroundColor: idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)',
+                          borderBottom: '1px solid var(--color-border)',
+                          backgroundColor: idx % 2 === 0 ? 'transparent' : 'var(--color-fill)',
                         }}
                       >
                         <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-primary)' }}>
@@ -1301,7 +1307,6 @@ export const AgentDetailView: React.FC = () => {
                         border: '1px solid var(--color-border)',
                         fontSize: 'var(--type-micro-size)',
                         fontFamily: 'var(--font-mono)',
-                        cursor: 'pointer',
                       }}
                     >
                       Reload
@@ -1314,12 +1319,11 @@ export const AgentDetailView: React.FC = () => {
                         padding: '4px 10px',
                         borderRadius: 'var(--radius-sm)',
                         backgroundColor: 'var(--color-state-killed)',
-                        color: '#FFFFFF',
+                        color: '#fff',
                         border: 'none',
                         fontSize: 'var(--type-micro-size)',
                         fontFamily: 'var(--font-mono)',
                         fontWeight: 600,
-                        cursor: 'pointer',
                       }}
                     >
                       Overwrite
@@ -1395,7 +1399,7 @@ export const AgentDetailView: React.FC = () => {
                   padding: 'var(--space-3) var(--space-4)',
                   borderRadius: 'var(--radius-sm)',
                   backgroundColor: 'var(--color-accent)',
-                  color: '#FFFFFF',
+                  color: '#fff',
                   border: 'none',
                   fontSize: 'var(--type-body-sm-size)',
                   fontWeight: 600,
@@ -1421,6 +1425,8 @@ export const AgentDetailView: React.FC = () => {
             {historyData && historyData.items.length > 0 && (
               <div
                 data-testid="memory-history-list"
+                tabIndex={0}
+                aria-label="Memory version history"
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -1491,8 +1497,7 @@ export const AgentDetailView: React.FC = () => {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(7, 9, 14, 0.78)',
-            backdropFilter: 'blur(8px)',
+            backgroundColor: 'rgba(25, 18, 34, 0.38)',
             zIndex: 99999,
             display: 'flex',
             alignItems: 'center',
@@ -1507,7 +1512,7 @@ export const AgentDetailView: React.FC = () => {
               backgroundColor: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-md)',
-              boxShadow: '0 20px 48px rgba(0, 0, 0, 0.8)',
+              boxShadow: 'var(--shadow-pop)',
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
@@ -1542,7 +1547,6 @@ export const AgentDetailView: React.FC = () => {
                 onClick={() => setRewritingCall(null)}
                 style={{
                   color: 'var(--color-text-muted)',
-                  cursor: 'pointer',
                   padding: '4px',
                   background: 'none',
                   border: 'none',
@@ -1639,7 +1643,6 @@ export const AgentDetailView: React.FC = () => {
                     backgroundColor: 'var(--color-surface-elevated)',
                     color: 'var(--color-text-secondary)',
                     border: '1px solid var(--color-border)',
-                    cursor: 'pointer',
                   }}
                 >
                   Cancel
@@ -1655,7 +1658,7 @@ export const AgentDetailView: React.FC = () => {
                     fontSize: 'var(--type-body-sm-size)',
                     fontWeight: 600,
                     backgroundColor: 'var(--color-accent)',
-                    color: '#FFFFFF',
+                    color: '#fff',
                     border: 'none',
                     cursor: isRewriteArgsValid && !isSubmittingRewrite ? 'pointer' : 'not-allowed',
                     opacity: isRewriteArgsValid && !isSubmittingRewrite ? 1 : 0.5,

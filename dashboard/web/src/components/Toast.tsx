@@ -100,8 +100,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 border: `1px solid ${border}`,
                 borderLeft: `4px solid ${color}`,
                 borderRadius: 'var(--radius-sm)',
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.6)',
-                backdropFilter: 'blur(8px)',
+                boxShadow: 'var(--shadow-pop)',
                 animation: 'toastIn 0.2s cubic-bezier(0, 0, 0.2, 1)',
               }}
             >
@@ -140,7 +139,6 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
                 onClick={() => removeToast(t.id)}
                 style={{
                   color: 'var(--color-text-muted)',
-                  cursor: 'pointer',
                   padding: '2px',
                   lineHeight: 1,
                   background: 'none',

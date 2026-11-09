@@ -8,7 +8,10 @@ import { actionMarkers, budgetLeftSeries, projectToZero } from '../utils/burndow
 
 echarts.use([LineChart, GridComponent, TooltipComponent, MarkLineComponent, LegendComponent, CanvasRenderer]);
 
-const PALETTE = ['#22D3EE', '#818CF8', '#34D399', '#FBBF24', '#FB7185'];
+// ECharts cannot read CSS variables, so these mirror the --chart-* tokens
+const PALETTE = ['#3b1fe8', '#12c8e8', '#b944db', '#f5b83d', '#f0402f'];
+const TEXT = '#6a6578';
+const INK = '#191222';
 
 interface Props {
   metrics: MetricRow[];
@@ -40,8 +43,8 @@ export const BudgetBurnDown: React.FC<Props> = ({ metrics, actions, agents }) =>
             ? {
                 symbol: 'none',
                 silent: true,
-                lineStyle: { color: '#FBBF24', type: 'dotted' },
-                label: { color: '#FBBF24', fontFamily: 'JetBrains Mono', fontSize: 11, formatter: (p: { name: string }) => p.name },
+                lineStyle: { color: '#b45309', type: 'dashed' },
+                label: { color: '#b45309', fontFamily: 'Figtree', fontWeight: 600, fontSize: 11, rotate: 90, position: 'insideEndTop', formatter: (p: { name: string }) => p.name },
                 data: markers.map((m) => ({ xAxis: m.ts, name: m.label })),
               }
             : undefined,
@@ -61,18 +64,18 @@ export const BudgetBurnDown: React.FC<Props> = ({ metrics, actions, agents }) =>
     return {
       animation: false,
       grid: { left: 56, right: 16, top: 16, bottom: 28 },
-      tooltip: { trigger: 'axis', backgroundColor: '#080C14', borderColor: 'rgba(255,255,255,0.14)', textStyle: { color: '#E6EDF6', fontFamily: 'JetBrains Mono', fontSize: 11 } },
+      tooltip: { trigger: 'axis', backgroundColor: '#fafaff', borderColor: 'rgba(25,18,34,0.09)', extraCssText: 'box-shadow:0 18px 44px -12px rgba(34,28,80,.35);border-radius:14px;', textStyle: { color: INK, fontFamily: 'Figtree', fontSize: 12 } },
       xAxis: {
         type: 'time',
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.15)' } },
-        axisLabel: { color: '#8A97AB', fontFamily: 'JetBrains Mono', fontSize: 10.5 },
+        axisLine: { lineStyle: { color: 'rgba(25,18,34,0.25)' } },
+        axisLabel: { color: TEXT, fontFamily: 'Figtree', fontSize: 10.5 },
         splitLine: { show: false },
       },
       yAxis: {
         type: 'value',
         min: 0,
-        axisLabel: { color: '#8A97AB', fontFamily: 'JetBrains Mono', fontSize: 10.5, formatter: (v: number) => `$${v.toFixed(2)}` },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.07)' } },
+        axisLabel: { color: TEXT, fontFamily: 'Figtree', fontSize: 10.5, formatter: (v: number) => `$${v.toFixed(2)}` },
+        splitLine: { lineStyle: { color: 'rgba(25,18,34,0.07)' } },
       },
       series,
     };

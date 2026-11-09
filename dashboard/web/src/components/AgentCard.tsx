@@ -76,17 +76,17 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
 
   // Rose/Amber only for anomalous or near-budget nodes; healthy nodes stay Emerald/Cyan
   const budgetFill = isCritical
-    ? 'linear-gradient(90deg, #be123c, #f43f5e)'
+    ? 'var(--color-state-killed)'
     : isWarning
-    ? 'linear-gradient(90deg, #d97706, #f59e0b)'
-    : 'linear-gradient(90deg, #06b6d4, #10b981)';
+    ? 'var(--color-state-suspicious)'
+    : 'var(--chart-violet)';
   const sparklineColor = isCritical
-    ? '#f43f5e'
+    ? 'var(--color-state-killed)'
     : isWarning
-    ? '#f59e0b'
+    ? 'var(--color-state-suspicious)'
     : agent.loop_score >= 0.4
-    ? '#f59e0b'
-    : '#06b6d4';
+    ? 'var(--color-state-suspicious)'
+    : 'var(--chart-indigo)';
 
   // Loop score
   const loopScore = Math.max(0, Math.min(1, agent.loop_score));
@@ -94,10 +94,10 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
   const isLoopAnomaly = loopScore >= 0.4;
   const loopFill =
     loopScore >= 0.6
-      ? 'linear-gradient(90deg, #be123c, #f43f5e)'
+      ? 'var(--color-state-killed)'
       : loopScore >= 0.4
-      ? 'linear-gradient(90deg, #d97706, #f59e0b)'
-      : 'linear-gradient(90deg, #059669, #10b981)';
+      ? 'var(--color-state-suspicious)'
+      : 'var(--color-state-healthy)';
 
   // Baseline ratio formatting (Task A4 note)
   let baselineText = '';
@@ -131,8 +131,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
   );
 
   const pulseClass = isCritical ? 'anomaly-rose' : isSuspicious ? 'anomaly-amber' : '';
-  const badgeColor = isCritical ? '#f43f5e' : '#f59e0b';
-  const idleBorder = '1px solid rgba(255, 255, 255, 0.08)';
+  const badgeColor = isCritical ? 'var(--color-state-killed)' : 'var(--color-state-suspicious)';
+  const idleBorder = 'none';
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -150,7 +150,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
   };
   const track: React.CSSProperties = {
     height: '5px',
-    backgroundColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'var(--color-fill)',
     borderRadius: '3px',
     overflow: 'hidden',
   };
@@ -163,14 +163,13 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
       data-testid={`agent-card-${agent.agent_id}`}
       onClick={onClick}
       onKeyDown={handleKeyDown}
-      className={`agent-card glass ${pulseClass} ${flash ? 'kill-flash' : ''} ${className}`}
+      className={`agent-card card ${pulseClass} ${flash ? 'kill-flash' : ''} ${className}`}
       style={{
-        border: isAnomalous ? `1px solid ${badgeColor}88` : idleBorder,
+        border: idleBorder,
         padding: 'var(--space-4)',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--space-3)',
-        cursor: 'pointer',
         outline: 'none',
         minWidth: 0,
       }}
@@ -191,7 +190,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
           <span
             style={{
               ...microLabel,
-              backgroundColor: 'rgba(255,255,255,0.06)',
+              backgroundColor: 'var(--color-fill)',
               padding: '1px 6px',
               borderRadius: 'var(--radius-sm)',
             }}
@@ -207,9 +206,9 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
         style={{
           display: 'flex',
           flexDirection: 'column',
-          backgroundColor: 'rgba(5, 7, 11, 0.6)',
-          borderRadius: '8px',
-          border: '1px solid rgba(255,255,255,0.06)',
+          backgroundColor: 'var(--color-fill)',
+          borderRadius: '12px',
+          border: 'none',
           padding: 'var(--space-2) var(--space-3)',
           gap: 'var(--space-2)',
         }}
@@ -395,7 +394,7 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
           justifyContent: 'space-between',
           gap: 'var(--space-2)',
           paddingTop: 'var(--space-2)',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
+          borderTop: '1px solid var(--color-border)',
           fontSize: 'var(--type-micro-size)',
           color: 'var(--color-text-secondary)',
           marginTop: 'auto',
@@ -415,8 +414,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
               fontSize: '11px',
               fontWeight: 600,
               color: badgeColor,
-              backgroundColor: `${badgeColor}1f`,
-              border: `1px solid ${badgeColor}66`,
+              backgroundColor: `color-mix(in srgb, ${badgeColor} 10%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${badgeColor} 35%, transparent)`,
               borderRadius: '4px',
               padding: '3px 8px',
             }}

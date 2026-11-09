@@ -7,14 +7,11 @@ import { api } from '../api/client';
 import type { AgentState } from '../api/types';
 import { Panel } from '../components/Panel';
 import { StateBadge } from '../components/StateBadge';
+import { GanttReplay, type GanttBar, type GanttKind } from '../components/viz';
 import { buildIncidents, stateAt, type EventKind, type Outcome } from '../utils/incidents';
 
-const KIND_COLOR: Record<EventKind, string> = {
-  alert: 'var(--color-state-suspicious)',
-  verdict: 'var(--color-state-paused)',
-  action: 'var(--color-state-killed)',
-  memory: 'var(--color-state-probation)',
-};
+// event kind -> the replay chart's colour vocabulary
+const KIND_TO_BAR: Record<EventKind, GanttKind> = { alert: 'error', verdict: 'llm', action: 'action', memory: 'tool' };
 
 const OUTCOME_COLOR: Record<Outcome, string> = {
   killed: 'var(--color-state-killed-text)',
@@ -96,7 +93,18 @@ export const IncidentsView: React.FC = () => {
   }, [playing, end]);
 
   const snap = incident ? stateAt(clamped, incident.agent_id, metrics, verdicts, memoryRows) : null;
-  const pct = (ts: number) => ((ts - start) / (end - start)) * 100;
+  const bars: GanttBar[] = (incident?.events ?? []).map((e, i, all) => {
+    const next = all[i + 1]?.ts ?? e.ts + 4000;
+    return {
+      id: `${e.kind}-${i}`,
+      start: e.ts,
+      end: Math.max(e.ts + 1200, Math.min(next, e.ts + 8000)),
+      kind: KIND_TO_BAR[e.kind],
+      label: e.title,
+      detail: e.detail,
+      who: e.agent_id,
+    };
+  });
 
   const copyLink = async () => {
     if (!incident) return;
@@ -169,9 +177,9 @@ export const IncidentsView: React.FC = () => {
                   style={{
                     textAlign: 'left',
                     padding: 'var(--space-3)',
-                    backgroundColor: sel ? 'var(--color-state-probation-bg)' : 'var(--color-surface-elevated)',
-                    border: `1px solid ${sel ? 'var(--color-accent)' : 'var(--color-border)'}`,
-                    borderRadius: 'var(--radius-sm)',
+                    backgroundColor: sel ? 'var(--color-surface-elevated)' : 'var(--color-fill)',
+                    boxShadow: sel ? 'inset 0 0 0 2px var(--color-accent)' : 'none',
+                    borderRadius: 'var(--radius-md)',
                     color: 'var(--color-text-primary)',
                   }}
                 >
@@ -195,22 +203,18 @@ export const IncidentsView: React.FC = () => {
           {/* Replay */}
           {incident && snap && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', minWidth: 0 }}>
-              <div
-                data-testid="incident-timeline"
-                style={{ position: 'relative', height: 64, borderBottom: '1px solid var(--color-border)', margin: '0 110px' }}
-              >
-                {incident.events.map((e, i) => (
-                  <div
-                    key={i}
-                    title={`${fmtTime(e.ts)} ${e.kind}: ${e.title}`}
-                    data-testid={`event-${e.kind}`}
-                    style={{ position: 'absolute', left: `${pct(e.ts)}%`, top: 8 + (i % 3) * 16, transform: 'translateX(-50%)', display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
-                  >
-                    <span style={{ width: 10, height: 10, borderRadius: '50%', backgroundColor: KIND_COLOR[e.kind], flexShrink: 0 }} />
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--color-text-secondary)' }}>{e.title}</span>
-                  </div>
-                ))}
-                <div style={{ position: 'absolute', left: `${pct(clamped)}%`, top: 0, bottom: 0, width: 2, backgroundColor: 'var(--color-accent)' }} />
+              <div data-testid="incident-timeline">
+                <GanttReplay
+                  title="Incident replay"
+                  bars={bars}
+                  domain={[start, end]}
+                  scrub={clamped}
+                  onScrub={(x) => {
+                    setPlaying(false);
+                    setT(Math.min(end, Math.max(start, x)));
+                  }}
+                  kinds={['error', 'llm', 'action', 'tool']}
+                />
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
@@ -221,7 +225,7 @@ export const IncidentsView: React.FC = () => {
                     if (!playing && clamped >= end) setT(start);
                     setPlaying((p) => !p);
                   }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-2) var(--space-3)', backgroundColor: 'var(--color-accent)', color: 'var(--color-canvas)', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: 'var(--type-micro-size)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-2) var(--space-3)', backgroundColor: 'var(--color-accent)', color: '#fff', borderRadius: 10, fontWeight: 600, fontSize: 'var(--type-body-sm-size)' }}
                 >
                   {playing ? <Pause size={13} /> : <Play size={13} fill="currentColor" />} {playing ? 'Pause' : 'Play 4×'}
                 </button>
@@ -246,7 +250,7 @@ export const IncidentsView: React.FC = () => {
                   type="button"
                   aria-label="Copy share link"
                   onClick={copyLink}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-2) var(--space-3)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-primary)', fontSize: 'var(--type-micro-size)', fontWeight: 600 }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-2) var(--space-3)', border: '1px solid var(--color-border)', borderRadius: 10, color: 'var(--color-text-primary)', fontSize: 'var(--type-body-sm-size)', fontWeight: 600 }}
                 >
                   <Link2 size={13} /> {copied ? 'Link copied' : 'Share'}
                 </button>
@@ -254,7 +258,7 @@ export const IncidentsView: React.FC = () => {
 
               <div
                 data-testid="incident-snapshot"
-                style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 'var(--space-3)', backgroundColor: 'var(--color-canvas)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3)' }}
+                style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 'var(--space-3)', backgroundColor: 'var(--color-fill)', borderRadius: 'var(--radius-md)', padding: 'var(--space-4)' }}
               >
                 <div>
                   <div className="kpi-label">STATE</div>
@@ -313,7 +317,7 @@ export const IncidentsView: React.FC = () => {
           {actions.slice(0, 20).map((act) => (
             <div
               key={act.id}
-              style={{ backgroundColor: 'var(--color-surface-elevated)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 'var(--space-3) var(--space-4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+              style={{ backgroundColor: 'var(--color-fill)', borderRadius: 'var(--radius-md)', padding: 'var(--space-3) var(--space-4)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
             >
               <div>
                 <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: act.action === 'KILL' ? 'var(--color-state-killed-text)' : 'var(--color-state-paused-text)', marginRight: 'var(--space-2)' }}>

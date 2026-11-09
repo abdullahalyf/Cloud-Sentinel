@@ -64,7 +64,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-sm)',
           border: '1px dashed var(--color-border)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: 'var(--font-code)',
           fontSize: 'var(--type-micro-size)',
           color: 'var(--color-text-muted)',
           textAlign: 'center',
@@ -81,10 +81,10 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
         data-testid="diff-view-clean"
         style={{
           padding: 'var(--space-3) var(--space-4)',
-          backgroundColor: 'rgba(16, 185, 129, 0.05)',
+          backgroundColor: 'var(--color-state-healthy-bg)',
           borderRadius: 'var(--radius-sm)',
           border: '1px solid var(--color-state-healthy-border)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: 'var(--font-code)',
           fontSize: 'var(--type-micro-size)',
           color: 'var(--color-state-healthy)',
           display: 'flex',
@@ -105,7 +105,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--space-2)',
-        backgroundColor: 'var(--color-canvas)',
+        backgroundColor: 'var(--color-surface-elevated)',
         border: '1px solid var(--color-border)',
         borderRadius: 'var(--radius-sm)',
         padding: 'var(--space-3)',
@@ -116,7 +116,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
       <div
         style={{
           fontSize: 'var(--type-micro-size)',
-          fontFamily: 'var(--font-mono)',
+          fontFamily: 'var(--font-code)',
           color: 'var(--color-text-muted)',
           display: 'flex',
           justifyContent: 'space-between',
@@ -142,7 +142,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
                 border: '1px solid var(--color-state-healthy-border)',
                 borderRadius: 'var(--radius-sm)',
                 padding: 'var(--space-2) var(--space-3)',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: 'var(--font-code)',
                 fontSize: 'var(--type-micro-size)',
               }}
             >
@@ -166,7 +166,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
                 border: '1px solid var(--color-state-killed-border)',
                 borderRadius: 'var(--radius-sm)',
                 padding: 'var(--space-2) var(--space-3)',
-                fontFamily: 'var(--font-mono)',
+                fontFamily: 'var(--font-code)',
                 fontSize: 'var(--type-micro-size)',
               }}
             >
@@ -189,7 +189,7 @@ export const DiffView: React.FC<DiffViewProps> = ({ saved, current, savedVersion
               border: '1px solid var(--color-state-suspicious-border)',
               borderRadius: 'var(--radius-sm)',
               padding: 'var(--space-2) var(--space-3)',
-              fontFamily: 'var(--font-mono)',
+              fontFamily: 'var(--font-code)',
               fontSize: 'var(--type-micro-size)',
             }}
           >

@@ -9,9 +9,9 @@ import { livePoll } from '../utils/live';
 import { cyclicEdges, edgeWidth, layoutGraph } from '../utils/fleetGraph';
 
 const KIND_BORDER: Record<string, string> = {
-  agent: 'var(--color-accent)',
-  tool: 'var(--color-state-paused)',
-  model: 'var(--color-state-healthy)',
+  agent: 'var(--chart-indigo)',
+  tool: 'var(--chart-amber)',
+  model: 'var(--chart-cyan)',
 };
 
 export const GraphView: React.FC = () => {
@@ -36,9 +36,9 @@ export const GraphView: React.FC = () => {
           fontSize: 12,
           fontWeight: 600,
           color: 'var(--color-text-primary)',
-          background: 'var(--color-surface-elevated)',
-          border: `1px solid ${KIND_BORDER[n.kind] ?? 'var(--color-border)'}`,
-          borderRadius: 'var(--radius-sm)',
+          background: '#fff',
+          border: `2px solid ${KIND_BORDER[n.kind] ?? 'var(--color-border)'}`,
+          borderRadius: 12,
           padding: '8px 14px',
           minWidth: 150,
         },
@@ -54,13 +54,13 @@ export const GraphView: React.FC = () => {
         target: e.target,
         label: String(e.count),
         animated: e.in_cycle,
-        markerEnd: { type: MarkerType.ArrowClosed, color: e.in_cycle ? '#f59e0b' : '#94a3b8' },
+        markerEnd: { type: MarkerType.ArrowClosed, color: e.in_cycle ? '#b45309' : '#9a96a8' },
         style: {
-          stroke: e.in_cycle ? 'var(--color-state-suspicious)' : 'var(--color-text-muted)',
+          stroke: e.in_cycle ? 'var(--chart-red)' : '#9a96a8',
           strokeWidth: edgeWidth(e),
         },
         labelStyle: { fill: 'var(--color-text-primary)', fontFamily: 'var(--font-mono)', fontSize: 11 },
-        labelBgStyle: { fill: 'var(--color-canvas)' },
+        labelBgStyle: { fill: '#fafaff' },
       })) as Edge[],
     [data]
   );
@@ -91,7 +91,7 @@ export const GraphView: React.FC = () => {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div
             data-testid="fleet-graph-canvas"
-            style={{ height: 460, border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-canvas)' }}
+            style={{ height: 460, borderRadius: 'var(--radius-md)', background: 'var(--color-fill)' }}
           >
             <ReactFlow
               nodes={nodes}
@@ -103,7 +103,6 @@ export const GraphView: React.FC = () => {
               elementsSelectable={false}
               zoomOnScroll={false}
               panOnDrag={false}
-              proOptions={{ hideAttribution: true }}
             />
           </div>
           <div style={{ display: 'flex', gap: 'var(--space-4)', flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)' }}>

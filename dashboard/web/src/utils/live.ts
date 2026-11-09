@@ -114,7 +114,13 @@ export function startLiveStream(qc: QueryClient, opts: Options = {}): () => void
     if (timer) clearTimeout(timer);
     if (socket) {
       socket.onclose = null;
-      socket.close();
+      // closing a CONNECTING socket makes the browser log an error; wait until it is open
+      if (socket.readyState === 0) {
+        const s = socket;
+        s.onopen = () => s.close();
+      } else {
+        socket.close();
+      }
     }
     setConnected(false);
   };
