@@ -1361,3 +1361,17 @@ submission draft) — if the token budget allows nothing else, do those two.
   Approve/Deny/Rewrite buttons were **clipped out of the card and could not be clicked** (Tamjid's folder,
   PR opened there). One thing for a human later: `TOOL_APPROVAL_TIMEOUT_SECONDS` defaults to 120 s, so a pending
   tool call expires if nobody answers within two minutes.
+
+- 2026-11-09 (lead): D0b — the demo ran end to end on Windows, but the **second** run failed: delta's
+  50,000 BDT refund step silently died. The audit log showed `delta | RESTART | restarted on probation` and
+  then, **2 ms later**, `delta | KILL | Hard limit: spent $0.202 of $0.20 budget` — the agent was re-killed for
+  the money it had *already* spent, so a killed agent could never be revived. Cause:
+  `AgentWindow.reset_activity()` (`brain/state.py`) cleared the chat/tool windows but **not `spend_usd`**, so
+  the budget was *lifetime*-cumulative while `docs/CONTRACTS.md` §11 calls it a **session** budget; the only
+  caller is `brain/engine.py` on RESUME/RESTART. Two fixes, both in `brain/`: `reset_activity()` now also
+  zeroes `spend_usd` and `total_tokens` (the token count feeds the token-rate hard limit, so a fresh session
+  must not inherit it), and delta's budget goes **$0.20 -> $0.50** so it outlives the 120 s approval window
+  (at the measured burn rate $0.50 buys ~14 min of work). Regression tests in
+  `brain/tests/test_budget_lifecycle.py` — with the fix stashed, 3 of the 7 fail and reproduce the live
+  failure verbatim. The mock API, the contract test and `docs/CONTRACTS.md` still carry the old $0.20; they
+  live in the contract folder, so they need a `contract/` branch — **not merged from here**.
