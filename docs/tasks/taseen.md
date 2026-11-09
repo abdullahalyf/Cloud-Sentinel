@@ -330,3 +330,18 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
   - **Acceptance:** `docs/research/pitch-numbers.md` section 4 shows a row per Claude model with precision, recall,
     F1, accuracy, latency p50/p95 and $ per verdict — and `python -m pytest brain/tests/test_evidence.py -q` still
     passes (it is the test that would catch a hand-typed number).
+
+- 2026-11-09 · **`scripts/demo_local.ps1` — the whole demo in one command** (new file, PR opened here because
+  `scripts/` is your folder). It starts the four things the demo needs, each in its own process: the telemetry
+  collector on :4318, the brain + C2 API on :8000 (`--fake`, so the simulated fleet is there without Docker), the
+  React dashboard on :5173, and the LangGraph refund agent (`--rogue-after 20`, so it goes rogue 20 s in). It
+  waits until each one actually answers before printing the URLs, and Ctrl+C stops everything it started and
+  leaves nothing behind.
+  - **Run it:** `powershell -ExecutionPolicy Bypass -File scripts/demo_local.ps1` from the repo root.
+  - **Flags:** `-Fresh` starts from an empty database (the old `data/cloudsentinel.db` is moved aside), so the
+    demo begins with a clean fleet; `-SkipInstall` skips the `pip install` / `npm ci` steps; `-RogueAfter N`
+    changes when the agent goes rogue.
+  - **Windows note:** it uses `Start-Process` with the venv's python directly, so it does not need the virtual
+    environment to be activated first. On Ctrl+C it kills the tracked PIDs, then anything still holding ports
+    5173 / 8000 / 4318 (npm spawns node as a child, so killing npm alone can leave the port held), then any
+    leftover python whose command line points at this folder.
