@@ -48,7 +48,27 @@ def test_the_mock_serves_the_policy_view():
     assert view["defaults"]["budget_usd"] == 0.5
     assert view["defaults"]["on_trip"] == "pause"
     assert view["defaults"]["on_hard_limit"] == "kill"
-    assert view["agents"]["delta"]["budget_usd"] == 0.2
+
+
+def test_the_mock_serves_the_real_policy_file():
+    """The mock shows the *real* rules, so the endpoint must agree with the file on disk.
+
+    Asserting a copied-out number here would be a second source of truth that drifts
+    the moment somebody edits `brain/policies.yaml` — which is exactly what happened
+    when delta's budget changed. So the test reads the file and compares.
+    """
+    from pathlib import Path
+
+    import yaml
+    from fastapi.testclient import TestClient
+
+    from shared.mocks.mock_api import app as mock_app
+
+    data = yaml.safe_load(Path("brain/policies.yaml").read_text(encoding="utf-8")) or {}
+    view = TestClient(mock_app).get("/v1/policy").json()
+    for agent, settings in (data.get("agents") or {}).items():
+        assert view["agents"][agent]["budget_usd"] == pytest.approx(settings["budget_usd"]), (
+            f"the mock's policy view disagrees with brain/policies.yaml about {agent}'s budget")
 
 
 def test_the_mock_has_the_policy_endpoints():
