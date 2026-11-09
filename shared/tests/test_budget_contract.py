@@ -155,6 +155,27 @@ def test_the_team_budget_is_the_sum_of_its_agent_budgets():
         assert team["budget_usd"] == round(sum(members), 4)
 
 
+def test_the_mock_budget_tree_matches_the_real_policy_file():
+    """The mock's budget tree must not disagree with `brain/policies.yaml`.
+
+    The mock used to keep its own hardcoded budget dict while its `/v1/policy`
+    endpoint served the real file — so when delta's budget changed, the fleet
+    view said $0.20 and the policy view said $0.50. Both now read the file.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    data = yaml.safe_load(Path("brain/policies.yaml").read_text(encoding="utf-8")) or {}
+    agents = data.get("agents") or {}
+    default_budget = (data.get("defaults") or {}).get("budget_usd")
+    body = TestClient(mock_app).get("/v1/budgets").json()
+    for agent in body["agents"]:
+        expected = (agents.get(agent["id"]) or {}).get("budget_usd", default_budget)
+        assert agent["budget_usd"] == pytest.approx(expected), (
+            f"the mock's budget tree disagrees with brain/policies.yaml about {agent['id']}'s budget")
+
+
 def test_every_level_has_a_forecast():
     body = TestClient(mock_app).get("/v1/budgets").json()
     for node in [body["org"], *body["teams"], *body["agents"]]:

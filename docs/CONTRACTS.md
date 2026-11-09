@@ -872,7 +872,7 @@ defaults:
   on_trip: pause            # what a confident judge PAUSE/KILL does: pause | kill
   on_hard_limit: kill       # pause | kill
 agents:
-  delta: { budget_usd: 0.20 }
+  delta: { budget_usd: 0.50 }  # must outlive TOOL_APPROVAL_TIMEOUT_SECONDS (120 s)
 tools:                      # first match wins; glob on tool name
   - { match: "delete_*",     action: deny,     reason: "destructive tools are never allowed" }
   - { match: "issue_refund", action: approval, when: { arg: amount, op: gt, value: 5000 },
