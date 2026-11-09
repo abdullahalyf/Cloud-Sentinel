@@ -417,3 +417,110 @@ def test_a_restart_keeps_the_configured_interval(cfg):
     _, _, restarted = make_sim(cfg, store=store, fleet=fleet)
     assert "alpha" in restarted.baselines
     assert restarted.baselines["alpha"].recompute_every == 20
+
+
+# ── probation must not make the agent's own normal unreachable ───────────────
+#
+# On probation the soft limits are HALVED (strict mode), so the agent has to
+# behave better than its own healthy normal to pass. That is fine as long as
+# "better than normal" is still possible. But the learned limit is floored at
+# fixed_soft * 0.25, and the halving was applied on top of that floor — so the
+# effective probation floor was fixed_soft * 0.125 (3 125 tokens/min with the
+# shipped settings). A quiet agent whose normal rate is above that could NEVER
+# pass probation: it was killed for doing exactly what it always does.
+#
+# The fix: the strict limit may not fall below the biggest rate the agent actually
+# reached while healthy. Strict mode tightens how far the agent may stray from its
+# normal; it does not redefine normal as unreachable.
+
+
+def test_probation_does_not_kill_an_agent_that_behaves_normally(cfg):
+    """A healthy agent on probation, at its own median, must NOT be a finding.
+
+    This is the demo path: rogue → paused → fix the memory → resume → healthy.
+    The agent comes back and does its normal work; it must pass probation.
+    """
+    b = AgentBaseline("beta")
+    feed(b, 6700.0, 30, cfg)          # a quiet agent: 6 700 tokens/min is its normal
+    baseline = b
+    assert baseline.limit("tokens_per_min") is not None
+
+    # exactly its own normal, on probation (strict=True)
+    finding = evaluate(snap(tokens=6700), cfg, strict=True, baseline=baseline)
+
+    assert finding.level != Level.SUSPICIOUS, (
+        f"an agent at its own normal ({6700} tokens/min) was flagged on probation: {finding.text}")
+
+
+def test_probation_still_catches_a_runaway(cfg):
+    """The fix must not make probation toothless: a real spike still trips."""
+    b = AgentBaseline("beta")
+    feed(b, 6700.0, 30, cfg)
+
+    # 3× its own normal — the runaway the demo wants stopped
+    finding = evaluate(snap(tokens=20000), cfg, strict=True, baseline=b)
+
+    assert finding.level == Level.SUSPICIOUS, "probation no longer catches a runaway"
+    assert "token_spike" in finding.rules
+
+
+def test_the_strict_limit_never_falls_below_the_healthy_peak(cfg):
+    """The strict limit is at least the biggest rate the agent reached while healthy."""
+    b = AgentBaseline("beta")
+    for value in (6700.0, 8400.0, 11000.0):
+        b.observe(1000.0, {"tokens_per_min": value})
+    b.recompute(cfg)
+
+    # a rate the agent already reached while healthy is not a finding
+    finding = evaluate(snap(tokens=11000), cfg, strict=True, baseline=b)
+    assert finding.level != Level.SUSPICIOUS, "a healthy peak is still normal for this agent"
+
+    # but well past that peak still trips
+    finding = evaluate(snap(tokens=40000), cfg, strict=True, baseline=b)
+    assert finding.level == Level.SUSPICIOUS
+
+
+def test_the_warmup_still_uses_the_fixed_soft_limits(cfg):
+    """Without a baseline (warmup) the fixed soft limit decides, halved on probation."""
+    # below half the fixed soft limit: fine
+    finding = evaluate(snap(tokens=int(cfg.soft_tokens_per_min * 0.4)), cfg, strict=True, baseline=None)
+    assert finding.level != Level.SUSPICIOUS
+
+    # above half the fixed soft limit: a finding (nothing changed here)
+    finding = evaluate(snap(tokens=int(cfg.soft_tokens_per_min * 0.6)), cfg, strict=True, baseline=None)
+    assert finding.level == Level.SUSPICIOUS
+
+
+def test_the_live_case_that_killed_a_healed_agent(cfg):
+    """The exact numbers from the local demo run.
+
+    beta's healthy windows (from the store) ran 912, 2812, 4728, 6736, 8476, 8900,
+    10176, 11676, 14744, 16380 tokens/min as it picked up work — its median was 6 736
+    and its learned limit came out at 18 644. On probation that limit halves to 9 322,
+    which is BELOW rates the agent had already reached while perfectly healthy. So beta
+    was killed for doing its ordinary work, and the heal path never completed.
+
+    The fix: the probation limit may not be below the biggest rate the agent actually
+    reached while healthy. A healed agent must not die for doing its job.
+    """
+    b = AgentBaseline("beta")
+    for value in (912.0, 2812.0, 4728.0, 6736.0, 8476.0, 8900.0, 10176.0, 11676.0,
+                   14744.0, 16380.0):
+        b.observe(1000.0, {"tokens_per_min": value})
+    b.recompute(cfg)
+    baseline = b
+    assert baseline.limit("tokens_per_min") > 9322, "the learned limit should cover the healthy peak"
+
+    # exactly what happened live: the rate beta reached right after the resume
+    finding = evaluate(snap(tokens=10204), cfg, strict=True, baseline=baseline)
+
+    assert finding.level != Level.SUSPICIOUS, (
+        f"the healed agent was killed for its normal rate: {finding.text}")
+
+    # and a rate beta reached while healthy is still fine
+    finding = evaluate(snap(tokens=16380), cfg, strict=True, baseline=baseline)
+    assert finding.level != Level.SUSPICIOUS, "a healthy peak is still normal for this agent"
+
+    # but a real runaway on the same agent still trips
+    runaway = evaluate(snap(tokens=25000), cfg, strict=True, baseline=baseline)
+    assert runaway.level == Level.SUSPICIOUS, "probation no longer stops a runaway"

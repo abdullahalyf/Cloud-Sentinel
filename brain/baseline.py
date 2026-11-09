@@ -205,6 +205,29 @@ class AgentBaseline:
             return None
         return b.limit
 
+    def observed_max(self, metric: str) -> Optional[float]:
+        """
+        The highest value this agent reached while it was HEALTHY.
+
+        The median says what the agent normally does; the limit says how far it may
+        stray from that before it is suspicious. This is the other end: the biggest
+        burst the agent did without anything being wrong. A rate the agent has already
+        reached while healthy is, by definition, normal for it — so it must never be
+        the thing that kills it.
+
+        Used by the probation limit: probation tightens how far the agent may stray
+        from its normal, and this is the floor it may not go below. Without it, an
+        agent that came back from a pause and did its usual work (a perfectly normal
+        burst) was killed for it, and the heal path never completed.
+        """
+        samples = self.samples.get(metric)
+        if not samples:
+            return None
+        values = [v for _, v in samples]
+        if not values:
+            return None
+        return max(values)
+
     def ready(self) -> bool:
         """True once every metric has enough samples to be worth trusting."""
         return all(self.metrics[m].samples > 0 for m in METRICS)
