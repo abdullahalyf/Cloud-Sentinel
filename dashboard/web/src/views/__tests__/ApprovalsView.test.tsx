@@ -72,6 +72,27 @@ describe('ApprovalsView', () => {
     expect(decide.mock.calls[0][1]).toMatchObject({ decision: 'allow', decided_by: 'human' });
   });
 
+  // The panel clips its overflow, so a button row that cannot wrap gets squeezed
+  // out of the card and silently stops being clickable — the approval button was
+  // invisible-but-present and its click never reached the API. Assert the layout
+  // rules that keep the row inside the card.
+  it('keeps the decision buttons inside the card by wrapping the row', async () => {
+    wrap(<ApprovalsView />);
+    const approve = await screen.findByRole('button', { name: 'Approve tool call 1' });
+    const row = approve.parentElement as HTMLElement;
+    expect(getComputedStyle(row).flexWrap).toBe('wrap');
+    // A button that may shrink is a button that can be pushed out of the card.
+    expect(getComputedStyle(approve).flexShrink).toBe('0');
+  });
+
+  it('keeps the heal decision buttons inside the card by wrapping the row', async () => {
+    wrap(<ApprovalsView />);
+    const apply = await screen.findByRole('button', { name: 'Apply heal 7' });
+    const row = apply.parentElement as HTMLElement;
+    expect(getComputedStyle(row).flexWrap).toBe('wrap');
+    expect(getComputedStyle(apply).flexShrink).toBe('0');
+  });
+
   it('J moves to the next card and D denies it from the keyboard', async () => {
     const decide = vi.spyOn(api, 'decideToolCall').mockResolvedValue(call(2, ''));
     wrap(<ApprovalsView />);

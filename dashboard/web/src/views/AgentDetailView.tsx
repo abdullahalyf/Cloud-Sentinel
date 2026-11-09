@@ -999,6 +999,10 @@ export const AgentDetailView: React.FC = () => {
                             alignItems: 'center',
                             justifyContent: 'flex-end',
                             gap: 'var(--space-2)',
+                            // The panel clips its overflow, so the buttons must wrap
+                            // rather than be squeezed out of the card and become
+                            // unclickable.
+                            flexWrap: 'wrap',
                             marginTop: 'var(--space-1)',
                             borderTop: '1px solid var(--color-border)',
                             paddingTop: 'var(--space-2)',

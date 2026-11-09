@@ -38,6 +38,10 @@ const btn = (bg: string, border: string, color: string): React.CSSProperties => 
   borderRadius: 'var(--radius-sm)',
   fontWeight: 600,
   fontSize: 'var(--type-micro-size)',
+  // The panel clips its overflow, so a button that is squeezed instead of wrapped
+  // would end up cut off — and a cut-off button cannot be clicked. Keeping the
+  // buttons at their natural width makes the row wrap onto a second line.
+  flexShrink: 0,
 });
 
 const cardStyle = (selected: boolean): React.CSSProperties => ({
@@ -165,7 +169,7 @@ const ToolCard: React.FC<ToolCardProps> = ({
           >
             {JSON.stringify(call.args, null, 2)}
           </pre>
-          <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <button type="button" aria-label={`Approve tool call ${call.id}`} disabled={busy} onClick={() => onDecide('allow')} style={btn('var(--color-state-healthy-bg)', 'var(--color-state-healthy-border)', 'var(--color-state-healthy)')}>
               <Check size={14} /> Approve (A)
             </button>
@@ -234,7 +238,7 @@ const HealCard: React.FC<{
           <pre>{JSON.stringify(heal.patch, null, 2)}</pre>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+      <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button type="button" aria-label={`Apply heal ${heal.id}`} disabled={busy} onClick={() => onDecide('apply')} style={btn('var(--color-state-healthy-bg)', 'var(--color-state-healthy-border)', 'var(--color-state-healthy)')}>
           <Check size={14} /> Apply (A)
         </button>
