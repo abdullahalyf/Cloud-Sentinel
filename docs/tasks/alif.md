@@ -1399,7 +1399,7 @@ run one at a time on the same loop as the A/B/C series.
    (`python -m brain.status --write docs/research/STATUS_BN.md`).
 7. Human-only items go to `docs/tasks/taseen.md` as **"needs Taseen"**. Never ask Alif.
 
-### E1 · [ ] 🔴 Rehearsal (C2)
+### E1 · [~] (alif/E1-rehearsal, 2026-11-11) 🔴 Rehearsal (C2)
 Run `scripts/demo_local.ps1 -Fresh -SkipInstall`. Check: the dashboard loads, the rogue agent is
 paused by the **LOOP detector** (not injection — if the reason is injection, fix only the demo
 agent's input, never the detector), the refund is held for approval, and restart works. Write

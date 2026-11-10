@@ -2,19 +2,19 @@
 
 এই ফাইলটাই পড়লেই চলবে — কে কতটা করেছে, কে আটকে আছে, আর CI কেমন।
 
-**CI:** সবুজ — সব CI পাস — `ci` passed on the last run
+**CI:** চলছে — `ci` is running right now
 
-*102টা commit পড়া হয়েছে `main` থেকে।*
+*136টা commit পড়া হয়েছে `main` থেকে।*
 
 ## এক নজরে
 
 | কে | হয়েছে | চলছে | পরিকল্পনায় | আটকে | পিছিয়ে |
 | --- | --- | --- | --- | --- | --- |
-| Alif | 30 | 1 | 8 | 0 | 0 |
-| Taseen | 2 | 0 | 13 | 0 | 3 |
-| Tamjid | 0 | 4 | 6 | 0 | 0 |
-| Fojle | 0 | 2 | 10 | 0 | 2 |
-| Orin | 0 | 0 | 11 | 0 | 5 |
+| Alif | 34 | 0 | 21 | 0 | 0 |
+| Taseen | 2 | 0 | 13 | 0 | 8 |
+| Tamjid | 10 | 0 | 0 | 0 | 0 |
+| Fojle | 0 | 2 | 10 | 0 | 4 |
+| Orin | 0 | 0 | 11 | 0 | 8 |
 
 ## মানুষের দরকার — Taseen (8টা)
 
@@ -52,59 +52,58 @@
 
 ## Alif
 
-**হয়েছে (30):** `A0`, `A1`, `A2`, `A3`, `A4`, `A5`, `A6`, `A7`, `A8`, `A9`, `A10`, `A11`, `A12`, `A13`, `A14`, `A15`, `B1`, `B2`, `B3`, `B4`, `B5`, `B6`, `B7`, `B8`, `B9`, `B10`, `B11`, `B12`, `C0`, `C1`
+**হয়েছে (34):** `A0`, `A1`, `A2`, `A3`, `A4`, `A5`, `A6`, `A7`, `A8`, `A9`, `A10`, `A11`, `A12`, `A13`, `A14`, `A15`, `B1`, `B2`, `B3`, `B4`, `B5`, `B6`, `B7`, `B8`, `B9`, `B10`, `B11`, `B12`, `C0`, `C1`, `C2`, `C10`, `E1`, `E16`
 
-**কাজ হয়ে গেছে কিন্তু PR খোলা হয়নি (1)** — শুধু PR খুললেই হবে:
-
-- `C2` — 🔴 The real integration rehearsal
-
-**পরিকল্পনায় (8):** `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `C10`
+**পরিকল্পনায় (21):** `C3`, `C4`, `C5`, `C6`, `C7`, `C8`, `C9`, `E2`, `E3`, `E4`, `E5`, `E6`, `E7`, `E8`, `E9`, `E10`, `E11`, `E12`, `E13`, `E14`, `E15`
 
 ## Taseen
 
-**পিছিয়ে আছে (3)** — পরিকল্পনায় ছিল, কিন্তু দিন চলে গেছে:
+**পিছিয়ে আছে (8)** — পরিকল্পনায় ছিল, কিন্তু দিন চলে গেছে:
 
 - `T2` — boot everything (Day 1)
 - `T4` — lock down the Docker socket (Day 2)
 - `T5` — CI/CD + releases (Day 3)
+- `T6` — CP2 end-to-end in Docker (Day 4)
+- `T7` — Kubernetes executor on kind (Day 5)
+- `T8` — Helm chart (Day 5)
+- `T9` — one-command public deploy with a live demo URL (Day 6)
+- `T15` — web dashboard in compose (Day 5)
 
 **হয়েছে (2):** `T1`, `T3`
 
-**পরিকল্পনায় (10):** `T6`, `T7`, `T8`, `T9`, `T10`, `T11`, `T12`, `T13`, `T14`, `T15`
+**পরিকল্পনায় (5):** `T10`, `T11`, `T12`, `T13`, `T14`
 
 ## Tamjid
 
-**কাজ হয়ে গেছে কিন্তু PR খোলা হয়নি (4)** — শুধু PR খুললেই হবে:
-
-- `D1` — `docs/DESIGN.md` first
-- `D2` — app scaffold + typed API client + panel states
-- `D3` — fleet overview
-- `D4` — full C2 on the agent page
-
-**পরিকল্পনায় (6):** `D5`, `D6`, `D7`, `D8`, `D9`, `D10`
+**হয়েছে (10):** `D1`, `D2`, `D3`, `D4`, `D5`, `D6`, `D7`, `D8`, `D9`, `D10`
 
 ## Fojle
 
-**পিছিয়ে আছে (2)** — পরিকল্পনায় ছিল, কিন্তু দিন চলে গেছে:
+**পিছিয়ে আছে (4)** — পরিকল্পনায় ছিল, কিন্তু দিন চলে গেছে:
 
 - `F1` — setup + Supabase project (Day 1)
 - `F4` — collector tests (Day 3)
+- `F5` — collector hardening: batching, backpressure, retries (Day 5)
+- `F6` — the full rogue fleet: 4 new misbehaviours (Day 6)
 
 **PR খোলা আছে, merge-এর অপেক্ষায় (2):** `F2`, `F3`
 
-**পরিকল্পনায় (8):** `F5`, `F6`, `F7`, `F8`, `F9`, `F10`, `F11`, `F12`
+**পরিকল্পনায় (6):** `F7`, `F8`, `F9`, `F10`, `F11`, `F12`
 
 ## Orin
 
-**পিছিয়ে আছে (5)** — পরিকল্পনায় ছিল, কিন্তু দিন চলে গেছে:
+**পিছিয়ে আছে (8)** — পরিকল্পনায় ছিল, কিন্তু দিন চলে গেছে:
 
 - `O1` — setup + watch the demo once (Day 1)
 - `O2` — QA checklist v1 (Day 1)
 - `O3` — ROI sentences (Day 2)
 - `O4` — `eval/RESULTS.md`, the results table you fill at every checkpoint (Day 2)
 - `O6` — scenarios: healthy, exact loop, token bomb (Day 3)
+- `O7` — scenarios: legit burst, memory leak, bad tool call (Day 4)
+- `O8` — with vs without CloudSentinel (Day 5)
+- `O9` — pitch deck outline (Day 6)
 
-**পরিকল্পনায় (6):** `O5`, `O7`, `O8`, `O9`, `O10`, `O11`
+**পরিকল্পনায় (3):** `O5`, `O10`, `O11`
 
 ## এই report-টা কিভাবে তৈরি হয়
 
