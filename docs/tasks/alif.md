@@ -1373,8 +1373,109 @@ submission draft) — if the token budget allows nothing else, do those two.
   must not inherit it), and delta's budget goes **$0.20 -> $0.50** so it outlives the 120 s approval window
   (at the measured burn rate $0.50 buys ~14 min of work). Regression tests in
   `brain/tests/test_budget_lifecycle.py` — with the fix stashed, 3 of the 7 fail and reproduce the live
-  failure verbatim. The mock API, the contract test and `docs/CONTRACTS.md` still carry the old $0.20; they
-  live in the contract folder, so they need a `contract/` branch — **not merged from here**.
+failure verbatim. The mock API, the contract test and `docs/CONTRACTS.md` still carry the old $0.20; they
+   live in the contract folder, so they need a `contract/` branch — **not merged from here**.
+
+---
+
+# 🆕 E-series backlog (added 2026-11-11) — the submission run
+
+**Where this sits.** Sixteen tasks, E1 to E16, for 2026-11-11 → 11-15. They are the closing run:
+rehearse, record evidence, write the submission, measure the red-team, soak, and hand off. They
+run one at a time on the same loop as the A/B/C series.
+
+**Rules that cover every E task** (from Alif, 11 Nov):
+1. **One task at a time. Small commits.** Before every merge: `python -m pytest -q` green **and**
+   the B3 demo runner 5/5 (`python -m brain.demo_runner --runs 5`). If either fails and cannot be
+   fixed in 2 tries → `git revert`, mark the task `[!]` with the reason, and move on.
+2. **Never change detector thresholds, `brain/policies.yaml`, `docs/CONTRACTS.md` or `shared/`
+   contracts** unless a task explicitly says so.
+3. **Never edit a teammate's folder** (`dashboard/`, `telemetry/`, `infra/`, `eval/`). Open a PR
+   into their folder and do not merge it.
+4. **Never invent numbers.** Every number comes from a command that was run; write the command
+   next to it. If something cannot be measured, write **"not measured"**.
+5. **FREEZE: after 2026-11-12 23:59 Asia/Dhaka**, no new features — only fixes, docs, submission.
+6. After each task: mark `[x]`, add 3 Bangla lines to `docs/SUMMARY_BN.md`, run B10
+   (`python -m brain.status --write docs/research/STATUS_BN.md`).
+7. Human-only items go to `docs/tasks/taseen.md` as **"needs Taseen"**. Never ask Alif.
+
+### E1 · [ ] 🔴 Rehearsal (C2)
+Run `scripts/demo_local.ps1 -Fresh -SkipInstall`. Check: the dashboard loads, the rogue agent is
+paused by the **LOOP detector** (not injection — if the reason is injection, fix only the demo
+agent's input, never the detector), the refund is held for approval, and restart works. Write
+`docs/research/rehearsal.md` (pass/fail table + exact steps). Stop all processes after.
+
+### E2 · [ ] 🟡 Demo backup (C8)
+Record the B3 runner output as a text/asciinema log and take PNG screenshots of every dashboard page
+with Playwright (dashboard running). Put them in `docs/evidence/demo/`. Write
+`docs/research/demo-fallback.md`: what to show if the live demo fails.
+
+### E3 · [ ] 🟡 Submission draft (C6)
+`docs/research/submission-draft.md` with all 8 sections from `docs/research/hackathon.md`
+§"The 8 submission sections" (Basics, Problem, Solution + Winning Signal mapping, Demo & links,
+Data & AI provenance = synthetic data only, Tooling/IDE/memory files, MCP disclosure, Prompt
+library). Every number links to `pitch-numbers.md`. Simple language.
+
+### E4 · [ ] 🟡 Prompt library
+`docs/research/prompt-library.md` — the real judge system prompt (copied from `brain/` code), the
+eval prompts, and 10 of the best coding prompts from `docs/tasks/*.md`. Mark each public or
+proprietary (default: public).
+
+### E5 · [ ] 🟡 Judge access note + links check
+`docs/research/judge-access.md` (repo is public, run in 3 commands, demo URL/video placeholder).
+Check every link in the README and submission-draft with a script; fix broken ones in files Alif
+owns and list the rest.
+
+### E6 · [ ] 🟡 Judge Q&A (C7)
+40 likely judge questions with short answers + evidence path + command, in
+`docs/research/judge-qa.md`.
+
+### E7 · [ ] 🟡 Threat model (C5)
+STRIDE table for brain/API/MCP/collector/executor + 5 short ADRs (outside-the-agent, judge only in
+the gray zone, heal-before-kill, OTel, hash-chained audit) in `docs/research/threat-model.md` and
+`docs/research/adr/`.
+
+### E8 · [ ] 🟡 README polish
+Top of `README.md` = 1-line pitch, a GIF/screenshot from E2, a 3-command quickstart, an
+architecture diagram (mermaid), and links to the evidence. Do not delete existing sections; only
+reorder and trim.
+
+### E9 · [ ] 🔴 Red-team MEASURE ONLY (C3, part 1)
+`brain/redteam/` with 5 attack agents (slow loop, paraphrase loop, loop split across 2 agents,
+healthy-looking pacing, budget leak under threshold). Measure detection rate per attack using the
+existing detectors with **no changes**. `docs/research/redteam.md` with the table + commands.
+Honest numbers even if bad.
+
+### E10 · [ ] 🔴 Red-team HARDEN (C3, part 2, before freeze only)
+For at most 2 attacks with the worst rate, add a fix behind a **NEW flag, default OFF**. Re-measure
+with the flag ON, plus false positives on the healthy fleet. Merge only if B3 is 20/20 with the
+flag ON and OFF. Add before/after to `redteam.md`.
+
+### E11 · [ ] 🔴 Soak (C4, short)
+A 30-minute mixed-fleet run. Record memory/CPU every minute, latency drift, false positives.
+`docs/research/soak.md`. Fix only real leaks in `brain/`.
+
+### E12 · [ ] 🟡 Orin helper
+Open PRs into `eval/` (**do NOT merge**) for O4 `eval/RESULTS.md` (real numbers from harness +
+pitch-numbers) and O2 QA checklist v1. Write simple Bangla steps for Orin in `docs/tasks/orin.md`:
+read, run 2 commands, merge.
+
+### E13 · [ ] 🟡 Pitch deck content
+`docs/research/pitch-outline.md` — 10 slides (problem, cost of a rogue agent, solution loop, live
+demo, numbers, red-team, architecture, MCP, competitors gap table, ask). Text + which E2 screenshot
+goes on each slide. Orin/Taseen make the slides.
+
+### E14 · [ ] 🟡 Self-score (C9)
+Score against the rubric in `hackathon.md` (1–10 each, honest) in `docs/research/self-score.md`.
+Fix only doc/evidence gaps (no features after the freeze).
+
+### E15 · [ ] 🔴 Final closing run (C10)
+Fresh clone into a temp folder → install → pytest → B3 20/20 → dashboard build → `demo_local`
+once. Record it in `docs/research/final-check.md`.
+
+### E16 · [ ] 🟡 Handoff
+Update `docs/HANDOFF.md` + `docs/TEAM_BRIEF_BN.md` with the final state and what Taseen must do to
+submit.
 
 ### 2026-11-10 · note from Tamjid's dashboard work (demo panel, PR #112)
 - **What happens:** a restarted or resumed `beta` in `python -m brain --fake` is killed on probation almost every time: `Misbehaved again while on probation: 8,9xx–10,6xx tokens/min ≥ soft limit`. Probation halves the soft limits (`brain/detectors.py`, `strict=True`): beta's learned limit is 17,477 tokens/min, so on probation it is ~8,740, while beta's healthy rate climbs to ~8,600–10,600 within ~13–25 s of a restart (median 7,040).
