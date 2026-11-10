@@ -34,7 +34,7 @@ test.describe('Keyboard-only run', () => {
     await page.goto('/fleet');
     await expect(page.getByTestId('fleet-agent-grid')).toBeVisible();
     // Tab through the page until an agent card has focus, then open it with Enter
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 120; i++) {
       await page.keyboard.press('Tab');
       const id = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') ?? '');
       if (id.startsWith('agent-card-')) break;

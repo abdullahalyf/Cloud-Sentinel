@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useLayoutEffect, useMemo, useState } from 'react';
 
 /**
  * Chart vocabulary (light theme): a Gantt-style session replay with a scrubber and tooltip card,
@@ -7,6 +7,28 @@ import React, { useMemo, useState } from 'react';
  */
 
 /* ───────── shared bits ───────── */
+
+/**
+ * Width of the chart's own box, so 1 SVG unit = 1 CSS pixel and text never scales up on wide screens.
+ * Falls back to `fallback` until measured (and in tests, where ResizeObserver never fires).
+ */
+export function useBoxWidth(fallback: number): [(el: HTMLDivElement | null) => void, number] {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [w, setW] = useState(fallback);
+  useLayoutEffect(() => {
+    if (!el) return;
+    const update = () => {
+      const cw = el.clientWidth;
+      if (cw > 0) setW(Math.max(320, Math.round(cw)));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [el]);
+  return [setEl, w];
+}
+
 
 export const TooltipCard: React.FC<{
   left: string;
@@ -80,7 +102,6 @@ const KIND_SOLID: Record<GanttKind, string> = {
 };
 export const KIND_NAME: Record<GanttKind, string> = { tool: 'Tool', error: 'Error', llm: 'LLM', action: 'Action' };
 
-const G_W = 900;
 const G_PAD = { l: 8, r: 8, t: 14 };
 const ROW = 26;
 
@@ -107,6 +128,7 @@ interface GanttProps {
 export const GanttReplay: React.FC<GanttProps> = ({ bars, title = 'Session replay', scrub, onScrub, kinds, domain, testId }) => {
   const rows = useMemo(() => pickBars(bars), [bars]);
   const [hoverT, setHoverT] = useState<number | null>(null);
+  const [boxRef, G_W] = useBoxWidth(900);
   if (rows.length === 0) return null;
 
   const t0 = domain ? domain[0] : Math.min(...rows.map((b) => b.start));
@@ -131,7 +153,7 @@ export const GanttReplay: React.FC<GanttProps> = ({ bars, title = 'Session repla
   };
 
   return (
-    <div style={{ position: 'relative' }} data-testid={testId}>
+    <div ref={boxRef} style={{ position: 'relative' }} data-testid={testId}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
         <span style={{ fontSize: 15, fontWeight: 600 }}>{title}</span>
         <Legend
@@ -268,13 +290,13 @@ interface LineProps {
   testId?: string;
 }
 
-const L_W = 760;
 const L_PAD = { l: 78, r: 16, t: 14, b: 26 };
 
 export const LineAreaChart: React.FC<LineProps> = ({ series, xLabels, format, markers = [], scale, ticks, knots = 6, height = 280, title, testId }) => {
   const [hover, setHover] = useState<number | null>(null);
+  const [boxRef, L_W] = useBoxWidth(760);
   const n = Math.max(...series.map((s) => s.values.length), 0);
-  if (n < 2) return <div style={{ height }} />;
+  if (n < 2) return <div ref={boxRef} style={{ height }} />;
 
   const innerW = L_W - L_PAD.l - L_PAD.r;
   const innerH = height - L_PAD.t - L_PAD.b;
@@ -293,7 +315,7 @@ export const LineAreaChart: React.FC<LineProps> = ({ series, xLabels, format, ma
   };
 
   return (
-    <div style={{ position: 'relative' }} data-testid={testId}>
+    <div ref={boxRef} style={{ position: 'relative' }} data-testid={testId}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
         {title && <span style={{ fontSize: 15, fontWeight: 600 }}>{title}</span>}
         <Legend items={series.map((s) => ({ color: s.color, label: s.name }))} />
@@ -422,11 +444,11 @@ interface BarsProps {
   testId?: string;
 }
 
-const B_W = 640;
 
 export const GroupedBars: React.FC<BarsProps> = ({ groups, format, height = 250, title, testId }) => {
   const [hover, setHover] = useState<number | null>(null);
-  if (groups.length === 0) return <div style={{ height }} />;
+  const [boxRef, B_W] = useBoxWidth(640);
+  if (groups.length === 0) return <div ref={boxRef} style={{ height }} />;
   const pad = { l: 8, r: 8, t: 16, b: 34 };
   const innerH = height - pad.t - pad.b;
   const base = pad.t + innerH;
@@ -436,7 +458,7 @@ export const GroupedBars: React.FC<BarsProps> = ({ groups, format, height = 250,
   const names = Array.from(new Map(groups.flatMap((g) => g.bars).map((b) => [b.name, b.color]))).map(([label, color]) => ({ label, color }));
 
   return (
-    <div style={{ position: 'relative' }} data-testid={testId}>
+    <div ref={boxRef} style={{ position: 'relative' }} data-testid={testId}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
         {title && <span style={{ fontSize: 15, fontWeight: 600 }}>{title}</span>}
         <Legend items={names} />

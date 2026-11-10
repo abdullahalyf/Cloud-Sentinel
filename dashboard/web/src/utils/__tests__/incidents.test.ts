@@ -35,6 +35,12 @@ describe('buildIncidents', () => {
     expect(buildIncidents([action(0, 'PAUSE'), action(30, 'RESUME')], [], [])[0].outcome).toBe('healed');
   });
 
+  it('ignores system actions that have no agent', () => {
+    const inc = buildIncidents([{ ...action(0, 'POLICY_RELOAD'), agent_id: '' }, action(5, 'PAUSE')], [], []);
+    expect(inc).toHaveLength(1);
+    expect(inc[0].agent_id).toBe('beta');
+  });
+
   it('puts memory edits on the timeline', () => {
     const inc = buildIncidents([action(0, 'PAUSE')], [], [], { beta: [mem(15, 2)] });
     expect(inc[0].events.map((e) => e.kind)).toEqual(['action', 'memory']);

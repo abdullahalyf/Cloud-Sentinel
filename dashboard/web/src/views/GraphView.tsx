@@ -5,6 +5,7 @@ import '@xyflow/react/dist/style.css';
 import { Network } from 'lucide-react';
 import { api } from '../api/client';
 import { Panel } from '../components/Panel';
+import { PageHeader } from '../components/ui';
 import { livePoll } from '../utils/live';
 import { cyclicEdges, edgeWidth, layoutGraph } from '../utils/fleetGraph';
 
@@ -68,15 +69,11 @@ export const GraphView: React.FC = () => {
   const cycles = cyclicEdges(data?.edges ?? []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%' }}>
-      <header>
-        <h1 style={{ fontSize: 'var(--type-title-sm-size)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-          Fleet Graph
-        </h1>
-        <p style={{ fontSize: 'var(--type-body-sm-size)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-          Which agents call which tools and models, over the last 2 minutes. Cycles are highlighted.
-        </p>
-      </header>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: '100%' }}>
+      <PageHeader
+        title="Fleet Graph"
+        summary={`Which agents call which tools and models, over the last 2 minutes. ${cycles.length ? `${cycles.length} cyclic edge${cycles.length === 1 ? '' : 's'} right now.` : 'No cycles right now.'}`}
+      />
 
       <Panel
         title="Agents, Tools & Models"

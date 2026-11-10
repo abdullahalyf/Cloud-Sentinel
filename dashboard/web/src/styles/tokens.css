@@ -1,69 +1,70 @@
 :root {
-  /* Surfaces: pale lavender canvas, near-white cards, soft shadows instead of borders */
+  /* Surfaces (colours unchanged from v3: light lavender canvas, near-white cards) */
   --color-canvas: #f4f5ff;
-  --color-surface: #fafaff;
+  --color-surface: #ffffff;
   --color-surface-elevated: #eeeffb;
+  --color-sidebar: #fbfbff;
   --color-header-glass: rgba(244, 245, 255, 0.92);
-  --color-fill: rgba(25, 18, 34, 0.04);
-  --shadow-card: 0 1px 2px rgba(34, 28, 80, 0.05), 0 18px 40px -22px rgba(34, 28, 80, 0.28);
-  --shadow-card-hover: 0 1px 2px rgba(34, 28, 80, 0.06), 0 26px 48px -22px rgba(34, 28, 80, 0.36);
+  --color-fill: rgba(25, 18, 34, 0.045);
+  --color-fill-strong: rgba(25, 18, 34, 0.08);
+  --shadow-card: 0 1px 2px rgba(34, 28, 80, 0.05), 0 14px 34px -22px rgba(34, 28, 80, 0.3);
+  --shadow-card-hover: 0 1px 2px rgba(34, 28, 80, 0.06), 0 22px 44px -22px rgba(34, 28, 80, 0.38);
   --shadow-pop: 0 18px 44px -12px rgba(34, 28, 80, 0.35);
+  --ring: inset 0 0 0 1px rgba(25, 18, 34, 0.09);
 
-  /* Chart palette (the graph vocabulary: tool / error / llm / action) */
+  /* Chart palette */
   --chart-indigo: #3b1fe8;
   --chart-violet: #6d44d9;
   --chart-magenta: #b944db;
   --chart-cyan: #12c8e8;
   --chart-amber: #f5b83d;
   --chart-red: #f0402f;
+  --chart-grey: #c4c2d0;
   --color-navy: #222c4e;
 
   /* Borders & Focus */
-  --color-border: rgba(25, 18, 34, 0.09);
+  --color-border: rgba(25, 18, 34, 0.08);
   --color-border-accent: rgba(117, 72, 231, 0.55);
   --color-focus-ring: #7548e7;
 
-  /* Text (all AA on the canvas) */
+  /* Text (AA on the canvas) */
   --color-text-primary: #191222;
   --color-text-secondary: #4a4558;
   --color-text-muted: #5f5a6e;
 
-  /* Circuit-breaker states: dark enough for text on the light canvas, tinted backgrounds */
+  /* Circuit-breaker states */
   --color-state-healthy: #065f46;
   --color-state-healthy-bg: rgba(4, 120, 87, 0.1);
   --color-state-healthy-border: rgba(4, 120, 87, 0.3);
-
   --color-state-suspicious: #92400e;
   --color-state-suspicious-bg: rgba(180, 83, 9, 0.1);
   --color-state-suspicious-border: rgba(180, 83, 9, 0.3);
-
   --color-state-paused: #4338ca;
   --color-state-paused-bg: rgba(79, 70, 229, 0.1);
   --color-state-paused-border: rgba(79, 70, 229, 0.3);
-
   --color-state-probation: #155e75;
   --color-state-probation-bg: rgba(14, 116, 144, 0.1);
   --color-state-probation-border: rgba(14, 116, 144, 0.3);
-
   --color-state-killed: #9f1239;
   --color-state-killed-bg: rgba(190, 18, 60, 0.09);
   --color-state-killed-border: rgba(190, 18, 60, 0.3);
-  /* kept for components that name the text variant explicitly */
   --color-state-killed-text: #9f1239;
   --color-state-paused-text: #4338ca;
 
   /* Accent: one violet for actions */
   --color-accent: #7548e7;
+  --color-accent-strong: #5b34c9;
   --color-accent-text: #5b34c9;
-  --color-telemetry-cyan: #0e7490;
-  --color-telemetry-indigo: #4f46e5;
+  --accent-gradient: linear-gradient(135deg, #8a5cf0 0%, #6a3fe0 55%, #5b34c9 100%);
+  --color-telemetry-cyan: #155e75;
+  --color-telemetry-indigo: #4338ca;
   --color-emerald: #065f46;
-  --color-rose: #be123c;
+  --color-rose: #9f1239;
   --color-amber: #92400e;
-  --color-indigo: #4f46e5;
-  --color-cyan: #0e7490;
+  --color-indigo: #4338ca;
+  --color-cyan: #155e75;
 
-  /* Spacing Scale (4, 8, 12, 16, 24, 32, 48) */
+  /* Spacing */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -73,32 +74,30 @@
   --space-8: 32px;
   --space-12: 48px;
 
-  /* Radii: cards are softly rounded */
-  --radius-sm: 8px;
+  /* Radii (cards 20, nav items 14, controls 13 / 9) */
+  --radius-sm: 9px;
   --radius-md: 14px;
   --radius-lg: 20px;
 
-  /* Fonts: one humanist sans for everything (tabular figures for numbers); mono only for code */
-  --font-sans: 'Figtree', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  /* Type: one geometric sans for everything (tabular figures for numbers); mono only for code */
+  --font-sans: 'Urbanist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-display: var(--font-sans);
   --font-mono: var(--font-sans);
   --font-code: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 
-  /* Type Scale with Line Heights */
   --type-micro-size: 12px;
-  --type-micro-lh: 16px;
-  --type-body-sm-size: 14px;
-  --type-body-sm-lh: 20px;
-  --type-body-size: 16px;
-  --type-body-lh: 24px;
-  --type-title-sm-size: 22px;
-  --type-title-sm-lh: 28px;
-  --type-title-md-size: 32px;
-  --type-title-md-lh: 38px;
-  --type-title-lg-size: 44px;
-  --type-title-lg-lh: 50px;
+  --type-micro-lh: 17px;
+  --type-body-sm-size: 13.5px;
+  --type-body-sm-lh: 19.5px;
+  --type-body-size: 14px;
+  --type-body-lh: 20px;
+  --type-title-sm-size: 15px;
+  --type-title-sm-lh: 19px;
+  --type-title-md-size: 37px;
+  --type-title-md-lh: 39px;
+  --type-title-lg-size: 37px;
+  --type-title-lg-lh: 39px;
 
-  /* Transitions */
   --transition-fast: 150ms cubic-bezier(0, 0, 0.2, 1);
   --transition-base: 220ms cubic-bezier(0.2, 0.7, 0.2, 1);
 }

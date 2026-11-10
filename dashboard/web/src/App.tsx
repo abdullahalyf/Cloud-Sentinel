@@ -27,35 +27,12 @@ const queryClient = new QueryClient({
 const LayoutShell: React.FC = () => {
   const location = useLocation();
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: '100vh',
-        width: '100%',
-        position: 'relative',
-        zIndex: 1,
-      }}
-    >
-
-      <TopBar />
-      <ConnectionBanner />
-      <div style={{ display: 'flex', flex: 1, width: '100%', position: 'relative', zIndex: 2 }}>
-        <LeftNav />
-        <main
-          role="main"
-          style={{
-            flex: 1,
-            padding: 'var(--space-6)',
-            backgroundColor: 'transparent',
-            maxWidth: '1640px',
-            minWidth: 0,
-            margin: '0 auto',
-            width: '100%',
-            position: 'relative',
-            zIndex: 2,
-          }}
-        >
+    <div className="shell">
+      <LeftNav />
+      <div className="content">
+        <TopBar />
+        <ConnectionBanner />
+        <main role="main" className="main">
           <div key={location.pathname} className="page-enter">
             <Outlet />
           </div>
