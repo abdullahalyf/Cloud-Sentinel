@@ -63,6 +63,21 @@ describe('IncidentsView replay', () => {
     expect(screen.getByRole('button', { name: 'Copy share link' })).toBeInTheDocument();
   });
 
+  it('keeps the clicked incident selected even when its memory edits move its start (bug fix)', async () => {
+    vi.spyOn(api, 'getActions').mockResolvedValue({ items: [
+      { id: 2, agent_id: 'beta', action: 'PAUSE', actor: 'claude', reason: 'loop', usd_saved_estimate: 2.52, created_at: iso(30) },
+      { id: 3, agent_id: 'gamma', action: 'KILL', actor: 'rules', reason: 'limit', usd_saved_estimate: 9, created_at: iso(300) },
+    ] });
+    // gamma has a memory edit just before its kill: merging it moves that incident's start time
+    vi.spyOn(api, 'getMemoryHistory').mockResolvedValue({ items: [{ agent_id: 'gamma', version: 2, content: {}, edited_by: 'human', reason: 'fix', created_at: iso(290) }] });
+    wrap();
+    const gamma = await screen.findByRole('option', { name: /Incident gamma/ });
+    fireEvent.click(gamma);
+    await waitFor(() => expect(screen.getByRole('option', { name: /Incident gamma/ })).toHaveAttribute('aria-selected', 'true'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole('option', { name: /Incident gamma/ })).toHaveAttribute('aria-selected', 'true');
+  });
+
   it('shows the empty state when nothing happened', async () => {
     vi.spyOn(api, 'getAlerts').mockResolvedValue({ items: [] });
     vi.spyOn(api, 'getVerdicts').mockResolvedValue({ items: [] });

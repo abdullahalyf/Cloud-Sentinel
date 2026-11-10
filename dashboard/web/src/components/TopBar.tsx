@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { resetDemo } from '../utils/demo';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Bell, Search, ChevronDown } from 'lucide-react';
@@ -28,6 +29,9 @@ export const TopBar: React.FC = () => {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuNote, setMenuNote] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const { data: health } = useQuery({ queryKey: ['health'], queryFn: api.getHealth, refetchInterval: livePoll });
   const { data: fleet } = useQuery({ queryKey: ['fleet'], queryFn: api.getFleet, refetchInterval: livePoll });
@@ -50,6 +54,32 @@ export const TopBar: React.FC = () => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // close the operator menu on outside click / Esc
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false);
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [menuOpen]);
+
+  const isDemo = health?.mode === 'fake' || health?.mode === 'mock' || import.meta.env.VITE_DEMO === '1';
+  const doReset = async () => {
+    setMenuNote('Resetting…');
+    try {
+      await resetDemo(api);
+      setMenuNote('Demo reset done');
+    } catch (e) {
+      setMenuNote(`Reset failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+  };
 
   const go = (to: string) => {
     navigate(to);
@@ -127,13 +157,48 @@ export const TopBar: React.FC = () => {
         )}
       </Link>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, height: 42, padding: '0 12px 0 6px', borderRadius: 14, background: 'var(--color-surface)', boxShadow: 'var(--ring)' }}>
-        <span className="avatar">OP</span>
-        <div style={{ lineHeight: 1.15 }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Operator</div>
-          <div style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>dashboard · C2</div>
-        </div>
-        <ChevronDown size={15} color="var(--color-text-muted)" />
+      <div ref={menuRef} style={{ position: 'relative' }}>
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-label="Operator menu"
+          onClick={() => {
+            setMenuOpen((o) => !o);
+            setMenuNote(null);
+          }}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, height: 42, padding: '0 12px 0 6px', borderRadius: 14, background: 'var(--color-surface)', boxShadow: 'var(--ring)', textAlign: 'left' }}
+        >
+          <span className="avatar">OP</span>
+          <span style={{ lineHeight: 1.15 }}>
+            <span style={{ display: 'block', fontSize: 13, fontWeight: 700 }}>Operator</span>
+            <span style={{ display: 'block', fontSize: 11.5, color: 'var(--color-text-muted)' }}>dashboard · C2</span>
+          </span>
+          <ChevronDown size={15} color="var(--color-text-muted)" style={{ transform: menuOpen ? 'rotate(180deg)' : 'none', transition: 'transform 160ms ease' }} />
+        </button>
+        {menuOpen && (
+          <div role="menu" aria-label="Operator menu" className="card menu pop-in" style={{ boxShadow: 'var(--shadow-pop)' }}>
+            <div style={{ padding: '8px 10px 6px', fontSize: 12, color: 'var(--color-text-muted)' }}>
+              API {health ? `${health.mode} mode · judge ${health.judge}` : 'not reachable'}
+            </div>
+            <div className="menu-sep" />
+            <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenuOpen(false); navigate('/fleet'); }}>Fleet overview</button>
+            <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenuOpen(false); navigate('/approvals'); }}>
+              Approvals inbox {pending > 0 && <span className="count-badge">{pending}</span>}
+            </button>
+            <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenuOpen(false); navigate('/cost'); }}>Cost report</button>
+            <button type="button" role="menuitem" className="menu-item" onClick={() => { setMenuOpen(false); inputRef.current?.focus(); }}>
+              Search <span className="kbd">{isMac ? '⌘K' : 'Ctrl K'}</span>
+            </button>
+            {isDemo && (
+              <>
+                <div className="menu-sep" />
+                <button type="button" role="menuitem" className="menu-item" onClick={doReset}>Reset demo</button>
+              </>
+            )}
+            {menuNote && <div role="status" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--color-text-muted)' }}>{menuNote}</div>}
+          </div>
+        )}
       </div>
     </header>
   );

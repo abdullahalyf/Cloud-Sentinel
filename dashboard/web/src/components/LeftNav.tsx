@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Cpu, ShieldAlert, Activity, DollarSign, Network, ShieldCheck, PanelLeft, Play } from 'lucide-react';
+import { LayoutDashboard, Cpu, ShieldAlert, Activity, DollarSign, Network, ShieldCheck, Menu, Play } from 'lucide-react';
 import { api } from '../api/client';
 import { livePoll } from '../utils/live';
 import { DemoPanel } from './DemoPanel';
@@ -56,12 +56,12 @@ export const LeftNav: React.FC = () => {
           <div style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>Agent control tower</div>
         </div>
         <button type="button" className="corner-btn sb-hide" aria-label="Collapse sidebar" onClick={() => setCollapsed(true)} style={{ borderRadius: 10 }}>
-          <PanelLeft size={15} />
+          <Menu size={16} />
         </button>
       </div>
       {collapsed && (
         <button type="button" className="corner-btn" aria-label="Expand sidebar" onClick={() => setCollapsed(false)} style={{ borderRadius: 10, alignSelf: 'center', marginBottom: 6 }}>
-          <PanelLeft size={15} />
+          <Menu size={16} />
         </button>
       )}
 
@@ -88,7 +88,7 @@ export const LeftNav: React.FC = () => {
 
       <div style={{ flex: 1 }} />
 
-      <div className="card sb-hide" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, borderRadius: 16 }}>
+      <NavLink to="/cost" aria-label="Fleet budget used, open cost and ROI" className="card card-hover sb-hide" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, borderRadius: 16 }}>
         <ProgressRing value={budget > 0 ? spend / budget : 0} label="Fleet budget used" />
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Fleet budget used</div>
@@ -97,7 +97,7 @@ export const LeftNav: React.FC = () => {
             of ${budget.toFixed(2)} · {halted} halted
           </div>
         </div>
-      </div>
+      </NavLink>
 
       {demoOpen && isDemo && <DemoPanel onClose={() => setDemoOpen(false)} />}
     </nav>
