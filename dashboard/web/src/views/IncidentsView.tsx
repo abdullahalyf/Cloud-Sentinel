@@ -6,6 +6,7 @@ import { AlertTriangle, Link2, Play, Pause, ShieldCheck } from 'lucide-react';
 import { api } from '../api/client';
 import type { AgentState } from '../api/types';
 import { Panel } from '../components/Panel';
+import { PageHeader } from '../components/ui';
 import { StateBadge } from '../components/StateBadge';
 import { GanttReplay, type GanttBar, type GanttKind } from '../components/viz';
 import { buildIncidents, stateAt, type EventKind, type Outcome } from '../utils/incidents';
@@ -136,15 +137,11 @@ export const IncidentsView: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%' }}>
-      <header>
-        <h1 style={{ fontSize: 'var(--type-title-sm-size)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-          Incident Replay & Interventions Timeline
-        </h1>
-        <p style={{ fontSize: 'var(--type-body-sm-size)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-          Trace time-travel scrubber, root cause postmortems, and circuit-breaker trip records.
-        </p>
-      </header>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: '100%' }}>
+      <PageHeader
+        title="Incident Replay & Interventions Timeline"
+        summary={`${incidents.length} incidents · ${actions.length} interventions logged · scrub any incident to see the agent's state at that moment.`}
+      />
 
       <Panel
         title="Detected Incident Alerts"
@@ -158,7 +155,7 @@ export const IncidentsView: React.FC = () => {
       >
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) minmax(0, 2.4fr)', gap: 'var(--space-4)' }}>
           {/* Incident list */}
-          <div role="listbox" aria-label="Incidents" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+          <div role="listbox" aria-label="Incidents" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: 560, overflowY: 'auto', paddingRight: 4 }}>
             {incidents.map((inc) => {
               const sel = inc.id === incident?.id;
               return (

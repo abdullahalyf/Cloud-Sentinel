@@ -1,5 +1,15 @@
 # CloudSentinel Web Control Tower: Design System (DESIGN.md)
 
+> **Update 2026-11-10: layout v4. Supersedes the layout, type and component notes of v3; v3 colours stay exactly as they are.**
+>
+> - **Shell:** a 248 px sidebar (brand, "Run the 3 AM demo", sections *Operate* and *Money & proof*, nav items 44 px tall with 14 px radius, the active item a solid violet pill, count badges, a fleet-budget ring at the bottom, collapsible to icons) and an in-page top bar (search with Ctrl/⌘ K, live date, mode chip, approvals bell with count, operator chip).
+> - **Type:** Urbanist only (500/600/700, tabular figures); page title 37 px / 600 / -0.025em, greeting line above and a one-sentence summary below; card titles 15 px / 600 with a 12.5 px muted subtitle.
+> - **Cards:** 20 px radius, 20/22 px padding, soft shadow, optional round corner arrow linking to the full page.
+> - **Controls:** segmented control (13 px radius track, 9 px pills), filter chips (active = violet), underline tabs, `kbd` hints, primary (violet gradient), secondary (white with hairline ring) and small row buttons.
+> - **Overview pattern (Fleet):** hero KPI (solid violet) + three KPI cards with delta pill and sparkline; a big lollipop chart against a dashed limit with a time-window switch, stat row and per-agent chips; right column with Budget, a tick-ring gauge (task success), "Needs a human" and a watch list; then agent states (stage bars), top spenders (ranked list) and the agents table with state pills and an Inspect action.
+> - **Report pattern (Cost):** page tabs (Overview / By agent / Attribution), KPI row, the burn-down chart, an agents x time heatmap and a per-agent table with an "against budget" bar; Export CSV.
+> - **Charts measure their own width** so text is always its real size, on a laptop or a projector.
+
 > **Update 2026-11-09: light redesign (v3). This block supersedes the dark-theme visual direction, tokens (section 2), background (2.9) and motion rules below. The component, state, data and review rules still apply.**
 >
 > - **Direction:** minimal and light, after the AgentOps product site (format, charts, motion, colour; not a copy). No glow, glass, light beams, neon or custom particle effects.

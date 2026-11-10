@@ -5,6 +5,9 @@ import { ErrorState } from './ErrorState';
 
 export interface PanelProps {
   title: string;
+  /** one line under the title, in the muted colour */
+  subtitle?: React.ReactNode;
+  /** kept for older call sites; the card header no longer shows icons */
   icon?: React.ReactNode;
   actions?: React.ReactNode;
   loading?: boolean;
@@ -17,9 +20,10 @@ export interface PanelProps {
   className?: string;
 }
 
+/** A card with a title, an optional subtitle and actions, and the three mandatory states. */
 export const Panel: React.FC<PanelProps> = ({
   title,
-  icon,
+  subtitle,
   actions,
   loading = false,
   error = null,
@@ -34,49 +38,26 @@ export const Panel: React.FC<PanelProps> = ({
     <section
       aria-label={title}
       className={`mission-panel card ${className}`}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        overflow: 'hidden',
-        width: '100%',
-      }}
+      style={{ display: 'flex', flexDirection: 'column', width: '100%', minWidth: 0 }}
     >
-      {/* Panel Header */}
       <header
         style={{
           display: 'flex',
-          alignItems: 'center',
+          alignItems: 'flex-start',
           justifyContent: 'space-between',
-          padding: 'var(--space-3) var(--space-4)',
-          borderBottom: '1px solid var(--color-border)',
-          minHeight: '48px',
+          gap: 'var(--space-3)',
+          padding: '20px 22px 0',
+          flexWrap: 'wrap',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          {icon && <span style={{ color: 'var(--color-text-muted)', display: 'flex' }}>{icon}</span>}
-          <h2
-            style={{
-              fontSize: 'var(--type-body-size)',
-              lineHeight: 'var(--type-body-lh)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            {title}
-          </h2>
+        <div style={{ minWidth: 0 }}>
+          <h2 className="card-title">{title}</h2>
+          {subtitle && <p className="card-sub">{subtitle}</p>}
         </div>
-        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>{actions}</div>}
+        {actions && <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>{actions}</div>}
       </header>
 
-      {/* Panel Body */}
-      <div
-        style={{
-          padding: 'var(--space-4)',
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
+      <div style={{ padding: '16px 22px 22px', flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {loading ? (
           <LoadingState />
         ) : error ? (

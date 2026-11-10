@@ -5,6 +5,7 @@ import { ShieldAlert, Check, X, Edit2, Clock, Keyboard } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import type { HealProposalRow, ToolCallRow } from '../api/types';
 import { Panel } from '../components/Panel';
+import { PageHeader } from '../components/ui';
 import { JsonEditor } from '../components/JsonEditor';
 import { useToast } from '../components/Toast';
 
@@ -46,11 +47,12 @@ const btn = (bg: string, border: string, color: string): React.CSSProperties => 
 });
 
 const cardStyle = (selected: boolean): React.CSSProperties => ({
-  backgroundColor: 'var(--color-surface-elevated)',
-  border: `1px solid ${selected ? 'var(--color-accent)' : 'var(--color-border)'}`,
-  boxShadow: selected ? '0 0 0 1px var(--color-accent)' : 'none',
-  borderRadius: 'var(--radius-sm)',
-  padding: 'var(--space-4)',
+  backgroundColor: 'var(--color-surface)',
+  borderLeft: `3px solid ${selected ? 'var(--color-accent)' : 'transparent'}`,
+  boxShadow: selected ? 'inset 0 0 0 1px var(--color-border-accent), var(--shadow-card)' : 'var(--ring)',
+  borderRadius: 16,
+  padding: '16px 18px',
+  transition: 'box-shadow 160ms ease, border-color 160ms ease',
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--space-3)',
@@ -362,27 +364,20 @@ export const ApprovalsView: React.FC = () => {
   }, [order, selected, decideSelected]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--type-title-sm-size)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-            Human-in-the-Loop Approvals Inbox
-          </h1>
-          <p style={{ fontSize: 'var(--type-body-sm-size)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Review, approve, deny, or rewrite high-risk tool calls and memory patches.
-          </p>
-        </div>
-        <div
-          aria-label="Keyboard shortcuts"
-          style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--type-micro-size)', color: 'var(--color-text-muted)' }}
-        >
-          <Keyboard size={14} />
-          <span>J/K move</span>
-          <span>A approve</span>
-          <span>D deny</span>
-          <span>R rewrite</span>
-        </div>
-      </header>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: '100%' }}>
+      <PageHeader
+        title="Human-in-the-Loop Approvals Inbox"
+        summary={`${pendingCalls.length + pendingHeals.length} waiting for a human · review, approve, deny, or rewrite high-risk tool calls and memory patches.`}
+        actions={
+          <div aria-label="Keyboard shortcuts" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+            <Keyboard size={14} />
+            <span><span className="kbd">J</span>/<span className="kbd">K</span> move</span>
+            <span><span className="kbd">A</span> approve</span>
+            <span><span className="kbd">D</span> deny</span>
+            <span><span className="kbd">R</span> rewrite</span>
+          </div>
+        }
+      />
 
       <Panel
         title={`Pending Tool Overrides (${pendingCalls.length})`}

@@ -27,6 +27,7 @@ import {
 import { api, ApiError } from '../api/client';
 import type { ToolCallRow } from '../api/types';
 import { Panel } from '../components/Panel';
+import { PageHeader, ago } from '../components/ui';
 import { StateBadge } from '../components/StateBadge';
 import { JsonEditor } from '../components/JsonEditor';
 import { GraphFlow } from '../components/GraphFlow';
@@ -363,109 +364,25 @@ export const AgentDetailView: React.FC = () => {
       {/* ───────────────────────────────────────────────────────────────────────────── */}
       {/* Top Header & Navigation */}
       {/* ───────────────────────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 'var(--space-4)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <Link
-            to="/fleet"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--space-1)',
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-text-secondary)',
-              fontSize: 'var(--type-body-sm-size)',
-              textDecoration: 'none',
-              fontWeight: 600,
-              transition: 'border-color var(--transition-fast)',
-            }}
-          >
-            <ArrowLeft size={16} /> Fleet Overview
+      <PageHeader
+        eyebrow={
+          <Link to="/fleet" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)', fontWeight: 600 }}>
+            <ArrowLeft size={14} /> Fleet Overview
           </Link>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <h1
-                style={{
-                  fontSize: 'var(--type-title-sm-size)',
-                  fontWeight: 700,
-                  color: 'var(--color-text-primary)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                C2 NODE: {id}
-              </h1>
-              {agent && <StateBadge state={agent.state} />}
-            </div>
-            <div
-              style={{
-                fontSize: 'var(--type-micro-size)',
-                color: 'var(--color-text-muted)',
-                marginTop: '2px',
-                fontFamily: 'var(--font-mono)',
-              }}
-            >
-              RUNTIME: {agent?.runtime || 'langgraph'} · LAST UPDATED: {agent?.updated_at || 'LIVE'}
-            </div>
-          </div>
-        </div>
-
-        {/* Global Live Source / Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: 'var(--space-1) var(--space-3)',
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-surface-elevated)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--type-micro-size)',
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--color-telemetry-cyan)',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-telemetry-cyan)',
-                boxShadow: '0 0 8px var(--color-telemetry-cyan)',
-              }}
-            />
-            AUTONOMOUS C2 ACTIVE
+        }
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 14 }}>
+            C2 NODE: {id}
+            {agent && <StateBadge state={agent.state} />}
           </span>
-          <button
-            type="button"
-            onClick={() => refetchAgent()}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-text-secondary)',
-              fontSize: 'var(--type-micro-size)',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            <Clock size={12} /> Sync
+        }
+        summary={`Runtime ${agent?.runtime || 'unknown'} · updated ${agent?.updated_at ? ago(agent.updated_at) : 'live'} · every command here goes through the C2 API.`}
+        actions={
+          <button type="button" className="btn" onClick={() => refetchAgent()}>
+            <Clock size={14} /> Sync
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* ───────────────────────────────────────────────────────────────────────────── */}
       {/* Mission Control Command Bar (Top Bento Strip) */}

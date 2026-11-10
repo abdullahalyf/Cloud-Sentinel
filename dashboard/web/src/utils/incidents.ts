@@ -49,7 +49,8 @@ export function toEvents(
       ev.push({ ts: ms(m.created_at), kind: 'memory', agent_id: agent, title: `memory v${m.version}`, detail: `${m.edited_by}: ${m.reason}` })
     )
   );
-  return ev.filter((e) => Number.isFinite(e.ts)).sort((a, b) => a.ts - b.ts);
+  // system actions (e.g. POLICY_RELOAD) have no agent and are not part of any agent's incident
+  return ev.filter((e) => Number.isFinite(e.ts) && !!e.agent_id).sort((a, b) => a.ts - b.ts);
 }
 
 function outcomeOf(events: IncidentEvent[]): Outcome {
