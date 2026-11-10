@@ -56,7 +56,7 @@ const STATE_COLORS: Record<string, string> = {
 
 export const FleetView: React.FC = () => {
   const navigate = useNavigate();
-  const [filterState, setFilterState] = useState<AgentState | 'all'>('all');
+  const [filterState, setFilterState] = useState<AgentState | 'all' | 'over'>('all');
   const [byNode, setByNode] = useState(false);
   const [minutes, setMinutes] = useState(5);
   const [focus, setFocus] = useState<string>('all');
@@ -94,7 +94,9 @@ export const FleetView: React.FC = () => {
     return acc;
   }, {});
   const sortedAgents = sortFleetAgents(agents);
-  const displayedAgents = filterState === 'all' ? sortedAgents : sortedAgents.filter((a) => a.state === filterState);
+  const isOver = (a: AgentView) => a.budget_usd > 0 && a.spend_usd / a.budget_usd >= 0.8;
+  const displayedAgents =
+    filterState === 'all' ? sortedAgents : filterState === 'over' ? sortedAgents.filter(isOver) : sortedAgents.filter((a) => a.state === filterState);
   const pending = [...(calls?.items ?? []).map((c) => ({ kind: 'tool' as const, id: c.id, agent: c.agent_id, title: c.tool_name, sub: c.value_usd > 0 ? `$${c.value_usd.toFixed(0)} at stake` : c.reason, at: c.created_at })), ...(heals?.items ?? []).map((h) => ({ kind: 'heal' as const, id: h.id, agent: h.agent_id, title: 'Memory fix proposed', sub: `${Math.round(h.confidence * 100)}% confidence`, at: h.created_at }))];
   const budgetLeft = agents.reduce((s, a) => s + Math.max(0, a.budget_usd - a.spend_usd), 0);
   const overBudget = agents.filter((a) => a.budget_usd > 0 && a.spend_usd / a.budget_usd >= 0.8);
@@ -184,15 +186,17 @@ export const FleetView: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr 1fr 1fr', gap: 18 }}>
             <HeroCard
               testId="kpi-saved"
+              to="/cost"
               label="Total $ saved"
               icon={<DollarSign size={15} />}
               value={`$${savedShown.toFixed(4)}`}
               foot={`${fmtRoi(totalSpend > 0 ? totalSaved / totalSpend : 0)}× return on ${money2(totalSpend)} spent`}
               progress={totalSaved + totalSpend > 0 ? totalSaved / (totalSaved + totalSpend) : 0}
             />
-            <KpiCard label="Fleet spend" icon={<Coins size={15} />} value={`$${totalSpend.toFixed(4)}`} spark={spendSeries} delta={deltaPct(spendSeries)} goodWhenUp={false} />
+            <KpiCard to="/cost" label="Fleet spend" icon={<Coins size={15} />} value={`$${totalSpend.toFixed(4)}`} spark={spendSeries} delta={deltaPct(spendSeries)} goodWhenUp={false} />
             <KpiCard label="Burn rate" icon={<Activity size={15} />} value={`$${totalBurnRate.toFixed(4)}/min`} spark={usdSeries} delta={deltaPct(usdSeries)} goodWhenUp={false} />
             <KpiCard
+              to="/incidents"
               label="Interventions"
               icon={<ShieldAlert size={15} />}
               value={interventions}
@@ -302,6 +306,11 @@ export const FleetView: React.FC = () => {
                       BY NODE
                     </button>
                   )}
+                  {overBudget.length > 0 && (
+                    <button type="button" className="filter-chip" aria-pressed={filterState === 'over'} onClick={() => setFilterState('over')} aria-label="Filter by over 80% of budget">
+                      Over 80% ({overBudget.length})
+                    </button>
+                  )}
                   {(['all', 'healthy', 'suspicious', 'paused', 'killed'] as const).map((st) => {
                     const count = st === 'all' ? agents.length : stateCounts[st] || 0;
                     return (
@@ -364,7 +373,10 @@ export const FleetView: React.FC = () => {
               <DollarSign size={15} /> Open cost report
             </Link>
             {overBudget.length > 0 ? (
-              <button type="button" className="btn-warn btn-block" style={{ marginTop: 8 }} onClick={() => document.getElementById('agents-table')?.scrollIntoView({ behavior: 'smooth' })}>
+              <button type="button" className="btn-warn btn-block" style={{ marginTop: 8 }} onClick={() => {
+                  setFilterState('over');
+                  document.getElementById('agents-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}>
                 <AlertTriangle size={14} /> {overBudget.length} agent{overBudget.length === 1 ? '' : 's'} over 80% of budget
               </button>
             ) : (

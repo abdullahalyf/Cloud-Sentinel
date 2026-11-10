@@ -1375,3 +1375,9 @@ submission draft) — if the token budget allows nothing else, do those two.
   `brain/tests/test_budget_lifecycle.py` — with the fix stashed, 3 of the 7 fail and reproduce the live
   failure verbatim. The mock API, the contract test and `docs/CONTRACTS.md` still carry the old $0.20; they
   live in the contract folder, so they need a `contract/` branch — **not merged from here**.
+
+### 2026-11-10 · note from Tamjid's dashboard work (demo panel, PR #112)
+- **What happens:** a restarted or resumed `beta` in `python -m brain --fake` is killed on probation almost every time: `Misbehaved again while on probation: 8,9xx–10,6xx tokens/min ≥ soft limit`. Probation halves the soft limits (`brain/detectors.py`, `strict=True`): beta's learned limit is 17,477 tokens/min, so on probation it is ~8,740, while beta's healthy rate climbs to ~8,600–10,600 within ~13–25 s of a restart (median 7,040).
+- **Seen with:** `curl -X POST :8000/v1/agents/beta/commands -d '{"command":"RESTART","requested_by":"dashboard","reason":"probe"}'`, then polling `/v1/fleet` every second (probation → killed after ~14 s, 3 runs out of 3).
+- **Why it matters:** the D4/D9 demo story is "pause → fix → resume → probation → healthy"; with this rule the resume step usually ends in a KILL.
+- **Suspect:** `brain/breaker.py` `on_finding` (any SUSPICIOUS on probation kills) together with the halved limits in `brain/detectors.py`. Not changed by the dashboard; the demo panel now retries 3 times and then says this plainly.

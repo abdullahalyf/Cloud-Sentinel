@@ -348,3 +348,17 @@ html[data-static='true'] .skeleton-bar { animation: none !important; stroke-dash
 /* State badges read as words, not shouting: 'PAUSED' shows as 'Paused' */
 .state-badge-label { display: inline-block; text-transform: lowercase; }
 .state-badge-label::first-letter { text-transform: uppercase; }
+
+/* spinners and disabled controls */
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+button:disabled { opacity: 0.55; }
+html[data-static='true'] .spin { animation: none !important; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none !important; } }
+
+/* dropdown menu */
+.menu { position: absolute; right: 0; top: calc(100% + 8px); min-width: 220px; padding: 6px; z-index: 40; }
+.menu-item { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px; border-radius: 10px; font-size: 13.5px; font-weight: 600; color: var(--color-text-primary); text-align: left; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--color-fill); }
+.menu-sep { height: 1px; background: var(--color-border); margin: 6px 4px; }
+a.card-hover { display: flex; color: inherit; }

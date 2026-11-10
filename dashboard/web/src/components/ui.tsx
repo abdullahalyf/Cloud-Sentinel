@@ -5,6 +5,25 @@ import { MiniSpark } from './charts';
 
 /** Shared layout pieces: page header, card header, segmented control, tabs, KPI cards, rings. */
 
+/** A card that is a link when it has somewhere to go, and a plain region when it does not. */
+const Wrap: React.FC<{ to?: string; label: string; className?: string; testId?: string; style?: React.CSSProperties; children: React.ReactNode }> = ({
+  to,
+  label,
+  className,
+  testId,
+  style,
+  children,
+}) =>
+  to ? (
+    <Link to={to} aria-label={label} data-testid={testId} className={className} style={style}>
+      {children}
+    </Link>
+  ) : (
+    <section aria-label={label} data-testid={testId} className={className} style={style}>
+      {children}
+    </section>
+  );
+
 export function greeting(d = new Date()): string {
   const h = d.getHours();
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
@@ -126,9 +145,10 @@ export const KpiCard: React.FC<{
   delta?: number | null;
   goodWhenUp?: boolean;
   foot?: React.ReactNode;
+  to?: string;
   testId?: string;
-}> = ({ label, icon, value, spark, delta = null, goodWhenUp, foot, testId }) => (
-  <section className="card card-pad card-hover" aria-label={label} data-testid={testId} style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+}> = ({ label, icon, value, spark, delta = null, goodWhenUp, foot, to, testId }) => (
+  <Wrap to={to} label={label} className={`card card-pad ${to ? 'card-hover' : ''}`} testId={testId} style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span style={{ color: 'var(--color-accent-text)', display: 'inline-flex' }}>{icon}</span>
       <span className="kpi-label">{label}</span>
@@ -143,7 +163,7 @@ export const KpiCard: React.FC<{
         </div>
       )}
     </div>
-  </section>
+  </Wrap>
 );
 
 /** The solid accent card (the one number that matters most). */
@@ -153,12 +173,14 @@ export const HeroCard: React.FC<{
   value: React.ReactNode;
   foot: React.ReactNode;
   progress?: number; // 0..1
+  to?: string;
   testId?: string;
-}> = ({ label, icon, value, foot, progress, testId }) => (
-  <section
-    aria-label={label}
-    data-testid={testId}
-    className="card-hover"
+}> = ({ label, icon, value, foot, progress, to, testId }) => (
+  <Wrap
+    to={to}
+    label={label}
+    testId={testId}
+    className={to ? 'card-hover' : ''}
     style={{
       background: 'var(--accent-gradient)',
       color: '#fff',
@@ -182,7 +204,7 @@ export const HeroCard: React.FC<{
         <div className="meter-fill" style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%`, height: '100%', background: '#fff', borderRadius: 2 }} />
       </div>
     )}
-  </section>
+  </Wrap>
 );
 
 export const ProgressRing: React.FC<{ value: number; size?: number; stroke?: number; label?: string }> = ({

@@ -39,7 +39,7 @@ export const IncidentsView: React.FC = () => {
   const [search] = useSearchParams();
   const [selectedId, setSelectedId] = useState<string | null>(incidentId ?? null);
   const [t, setT] = useState(() => Number(search.get('t')) || 0);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<'idle' | 'ok' | 'fail'>('idle');
   const [playing, setPlaying] = useState(false);
 
   const alerts = alertsQ.data?.items ?? [];
@@ -62,16 +62,18 @@ export const IncidentsView: React.FC = () => {
     () => buildIncidents(actions, verdicts, alerts, selectedAgent ? { [selectedAgent]: memoryRows } : {}),
     [actions, verdicts, alerts, selectedAgent, memoryRows]
   );
-  const incident = incidents.find((i) => i.id === selectedId) ?? incidents[0];
+  const base = baseIncidents.find((i) => i.id === selectedId) ?? baseIncidents[0];
+  // the same incident with the selected agent's memory edits merged in (its start may move, its identity does not)
+  const incident = base ? incidents.find((i) => i.agent_id === base.agent_id && i.start <= base.end && i.end >= base.start) ?? base : undefined;
 
   // jump to the start of an incident when it is selected
   useEffect(() => {
-    if (incident && (selectedId !== incident.id)) {
-      setSelectedId(incident.id);
-      setT(incident.start);
+    if (base && selectedId !== base.id) {
+      setSelectedId(base.id);
+      setT(base.start);
       setPlaying(false);
     }
-  }, [incident, selectedId]);
+  }, [base, selectedId]);
 
   // keep t inside the (possibly growing) incident window
   const start = incident?.start ?? 0;
@@ -109,14 +111,15 @@ export const IncidentsView: React.FC = () => {
 
   const copyLink = async () => {
     if (!incident) return;
-    const url = `${window.location.origin}/incidents/${encodeURIComponent(incident.id)}?t=${Math.round(clamped)}`;
+    const url = `${window.location.origin}/incidents/${encodeURIComponent(base?.id ?? incident.id)}?t=${Math.round(clamped)}`;
     try {
       await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      setCopied('ok');
     } catch {
+      setCopied('fail');
       window.prompt('Copy this link', url);
     }
+    setTimeout(() => setCopied('idle'), 2200);
   };
 
   const onScrubKey = (e: React.KeyboardEvent) => {
@@ -140,7 +143,7 @@ export const IncidentsView: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: '100%' }}>
       <PageHeader
         title="Incident Replay & Interventions Timeline"
-        summary={`${incidents.length} incidents · ${actions.length} interventions logged · scrub any incident to see the agent's state at that moment.`}
+        summary={`${baseIncidents.length} incidents · ${actions.length} interventions logged · scrub any incident to see the agent's state at that moment.`}
       />
 
       <Panel
@@ -148,7 +151,7 @@ export const IncidentsView: React.FC = () => {
         icon={<AlertTriangle size={18} />}
         loading={loading}
         error={error}
-        empty={incidents.length === 0}
+        empty={baseIncidents.length === 0}
         emptyTitle="Zero Active Incidents"
         emptyMessage="No anomaly flags or semantic loop alerts have tripped the circuit breaker."
         onRetry={retry}
@@ -156,8 +159,8 @@ export const IncidentsView: React.FC = () => {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(240px, 1fr) minmax(0, 2.4fr)', gap: 'var(--space-4)' }}>
           {/* Incident list */}
           <div role="listbox" aria-label="Incidents" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: 560, overflowY: 'auto', paddingRight: 4 }}>
-            {incidents.map((inc) => {
-              const sel = inc.id === incident?.id;
+            {baseIncidents.map((inc) => {
+              const sel = inc.id === base?.id;
               return (
                 <button
                   key={inc.id}
@@ -249,7 +252,7 @@ export const IncidentsView: React.FC = () => {
                   onClick={copyLink}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: 'var(--space-2) var(--space-3)', border: '1px solid var(--color-border)', borderRadius: 10, color: 'var(--color-text-primary)', fontSize: 'var(--type-body-sm-size)', fontWeight: 600 }}
                 >
-                  <Link2 size={13} /> {copied ? 'Link copied' : 'Share'}
+                  <Link2 size={13} /> {copied === 'ok' ? 'Link copied' : copied === 'fail' ? 'Copy blocked: link shown' : 'Share'}
                 </button>
               </div>
 
