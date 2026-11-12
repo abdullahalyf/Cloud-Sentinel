@@ -87,7 +87,8 @@ class Query:
             rows = self.payload if isinstance(self.payload, list) else [self.payload]
             out = []
             for row in rows:
-                new = dict(row, id=self.fake.next_id.get(self.name, 1))   # ids count per table, like Postgres
+                new = dict({**self.fake.defaults.get(self.name, {}), **row},
+                           id=self.fake.next_id.get(self.name, 1))   # ids count per table, like Postgres
                 self.fake.next_id[self.name] = new["id"] + 1
                 stored.append(new)
                 out.append(dict(new))
@@ -98,7 +99,7 @@ class Query:
             if match:
                 match[0].update(self.payload)
             else:
-                stored.append(dict(self.payload))
+                stored.append({**self.fake.defaults.get(self.name, {}), **self.payload})
             return Result([dict(self.payload)])
         hit = [r for r in stored if self._match(r)]
         if self.op == "update":
@@ -119,6 +120,7 @@ class Query:
 class FakeSupabase:
     def __init__(self):
         self.tables, self.requests, self.next_id = {}, [], {}
+        self.defaults = {"agents": {"baseline": "{}"}}  # column defaults of the real tables
 
     def table(self, name):
         return Query(self, name)
@@ -146,6 +148,14 @@ class Row:
 # ── the story, with the exact column names of the tables ─────────────────────
 NOW = time.time()
 STAMP = datetime.now(timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def fresh_clock(monkeypatch):
+    """The story is built around "now". Take the time again for every test: a long test run must not age it."""
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "NOW", time.time())
+    monkeypatch.setattr(module, "STAMP", datetime.now(timezone.utc))
 
 
 def iso(seconds_ago):
@@ -284,7 +294,8 @@ def test_reset_empties_all_nine_tables_even_agents_which_has_no_id(monkeypatch):
     story(s)
     s.reset()
     assert all(not fake.tables.get(t) for t in ("agents", "spans", "agent_metrics", "alerts", "verdicts",
-                                                "actions", "commands", "agent_memory", "tool_calls"))
+                                                "actions", "commands", "agent_memory", "tool_calls",
+                                                "heal_proposals"))
 
 
 def test_json_that_is_already_an_object_is_kept(monkeypatch):

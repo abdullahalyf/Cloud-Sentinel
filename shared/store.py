@@ -406,80 +406,165 @@ class SupabaseStore:
         res = self._db.table("alerts").select("*").order("id", desc=True).limit(limit).execute()
         return res.data or []
 
-    # ── TODO(Fojle) Day 2: writes ──
+    # ── writes (F2) ──
     def upsert_agent(self, row: AgentRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """Insert the agent, or update it when the agent_id already exists (like LocalStore)."""
+        d = row.to_row()
+        baseline = d.get("baseline")
+        # An empty baseline means "no new baseline": the brain writes the agent row every tick and must not
+        # wipe the one it learned. Leaving the column out keeps the old value (a new agent gets '{}').
+        if not (baseline or "{}").strip("{}").strip():
+            d.pop("baseline", None)
+        elif isinstance(baseline, str):
+            d["baseline"] = load_json(baseline)  # the column is json: send an object, not a text
+        self._db.table("agents").upsert(d, on_conflict="agent_id").execute()
 
     def insert_spans(self, rows: list[SpanRow]) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """One request for the whole list. An empty list does nothing."""
+        if not rows:
+            return
+        self._db.table("spans").insert([r.to_row() for r in rows]).execute()
 
     def insert_metric(self, row: MetricRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("agent_metrics", row.to_row())
 
     def insert_verdict(self, row: VerdictRow) -> int:
-        raise NotImplementedError("Fojle Day 2")
+        return self._insert("verdicts", row.to_row())
 
     def insert_action(self, row: ActionRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("actions", row.to_row())
 
-    # ── TODO(Fojle) Day 4: the rest ──
+    # ── the rest (F3): same behaviour as LocalStore, method by method ──
+    @staticmethod
+    def _row(r: dict) -> dict:
+        """Decode the JSON text columns like LocalStore does (a value that already is an object stays)."""
+        for col in JSON_COLUMNS:
+            if col in r and (r[col] is None or isinstance(r[col], str)):
+                r[col] = load_json(r[col])
+        return r
+
+    def _read(self, build, limit: Optional[int] = None) -> list[dict]:
+        """Run a select page by page: Supabase returns at most 1000 rows per request.
+        `build()` must return a fresh query WITH an order. limit=None means all the rows."""
+        rows: list[dict] = []
+        while limit is None or len(rows) < limit:
+            want = 1000 if limit is None else min(1000, limit - len(rows))
+            page = build().range(len(rows), len(rows) + want - 1).execute().data or []
+            rows.extend(page)
+            if len(page) < want:
+                break
+        return [self._row(r) for r in rows]
+
+    _memory_lock = threading.Lock()  # one memory writer at a time inside this process
     def write_memory(self, agent_id: str, content: dict, edited_by: str, reason: str = "",
                      base_version: Optional[int] = None) -> dict:
-        raise NotImplementedError("Fojle Day 4")
+        with self._memory_lock:
+            history = self.memory_history(agent_id, limit=50)
+            if _conflicts(history, base_version, edited_by):
+                raise MemoryConflict(f"memory of {agent_id} was changed by a human; reload it first")
+            version = (history[0]["version"] if history else 0) + 1
+            self._insert("agent_memory", MemoryRow(agent_id, version, content, edited_by, reason).to_row())
+            return self.get_memory(agent_id)  # type: ignore[return-value]
 
     def insert_tool_call(self, row: ToolCallRow) -> int:
-        raise NotImplementedError("Fojle Day 4")
+        return self._insert("tool_calls", row.to_row())
 
     def decide_tool_call(self, call_id: int, decision: str, final_args: Optional[dict],
                          decided_by: str, reason: str) -> None:
-        raise NotImplementedError("Fojle Day 4")
+        from shared.contracts import _dump
+        self._db.table("tool_calls").update(
+            {"decision": decision, "final_args": _dump(final_args or {}), "decided_by": decided_by,
+             "reason": reason, "decided_at": utc_now_iso()}).eq("id", call_id).execute()
 
     def insert_heal_proposal(self, row: HealProposalRow) -> int:
-        raise NotImplementedError("Fojle Day 4")
+        return self._insert("heal_proposals", row.to_row())
 
     def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
                              reason: str = "") -> None:
-        raise NotImplementedError("Fojle Day 4")
+        self._db.table("heal_proposals").update(
+            {"status": status, "decided_by": decided_by, "reason": reason,
+             "decided_at": utc_now_iso()}).eq("id", proposal_id).execute()
 
     def list_agents(self) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("agents").select("*").order("agent_id"))
 
     def get_agent(self, agent_id: str) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        res = self._db.table("agents").select("*").eq("agent_id", agent_id).limit(1).execute()
+        return self._row(res.data[0]) if res.data else None
 
     def spans_after(self, last_id: int, limit: int = 2000) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("spans").select("*").gt("id", last_id).order("id"), limit)
 
     def recent_spans(self, minutes: float = 5, agent_id: Optional[str] = None) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        since = time.time() - minutes * 60
+
+        def build():
+            q = self._db.table("spans").select("*").gte("start_ts", since)
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("start_ts").order("id")
+
+        return self._read(build)
 
     def recent_metrics(self, minutes: float = 5, agent_id: Optional[str] = None) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        since = _since_iso(minutes)
+
+        def build():
+            q = self._db.table("agent_metrics").select("*").gte("created_at", since)
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("created_at").order("id")
+
+        return self._read(build)
 
     def recent_verdicts(self, limit: int = 20, agent_id: Optional[str] = None) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        def build():
+            q = self._db.table("verdicts").select("*")
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("id", desc=True)
+
+        return self._read(build, limit)
 
     def recent_actions(self, limit: int = 50) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("actions").select("*").order("id", desc=True), limit)
 
     def get_memory(self, agent_id: str) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        rows = self.memory_history(agent_id, limit=1)
+        return rows[0] if rows else None
 
     def memory_history(self, agent_id: str, limit: int = 10) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("agent_memory").select("*").eq("agent_id", agent_id)
+                          .order("version", desc=True), limit)
 
     def get_tool_call(self, call_id: int) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        res = self._db.table("tool_calls").select("*").eq("id", call_id).limit(1).execute()
+        return self._row(res.data[0]) if res.data else None
 
     def list_tool_calls(self, status: Optional[str] = None, limit: int = 50) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        def build():
+            q = self._db.table("tool_calls").select("*")
+            if status:
+                q = q.eq("decision", status)
+            return q.order("id", desc=True)
+
+        return self._read(build, limit)
 
     def get_heal_proposal(self, proposal_id: int) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        res = self._db.table("heal_proposals").select("*").eq("id", proposal_id).limit(1).execute()
+        return self._row(res.data[0]) if res.data else None
 
     def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
                             limit: int = 50) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        def build():
+            q = self._db.table("heal_proposals").select("*")
+            if status:
+                q = q.eq("status", status)
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("id", desc=True)
+
+        return self._read(build, limit)
 
     # ── brain workers (A8): implemented here, not left as a stub ──
     # The sharding tests run against SQLite, but a store that raises on heartbeat_worker
@@ -504,7 +589,12 @@ class SupabaseStore:
         self._db.table("workers").delete().eq("worker_id", worker_id).execute()
 
     def reset(self) -> None:
-        raise NotImplementedError("Fojle Day 4")
+        for table in TABLES:
+            delete = self._db.table(table).delete()
+            if table == "agents":
+                delete.neq("agent_id", "").execute()  # the agents table has no id column
+            else:
+                delete.gte("id", 0).execute()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
