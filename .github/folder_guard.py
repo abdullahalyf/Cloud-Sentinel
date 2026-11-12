@@ -148,13 +148,15 @@ def run_self_tests() -> None:
     assert not is_allowed("contract/c1", "brain/engine.py")
     assert not is_allowed("contract/c1", "dashboard/app.py")
 
-    # taseen
+    # taseen (lead integration override)
     assert is_allowed("taseen/t1", "infra/executor/docker_exec.py")
     assert is_allowed("taseen/t1", ".github/workflows/ci.yml")
     assert is_allowed("taseen/t1", ".gitleaks.toml")
     assert is_allowed("taseen/t1", "docker-compose.yml")
     assert is_allowed("taseen/t1", "README.md")
     assert is_allowed("taseen/t1", "brain/engine.py")
+    assert is_allowed("taseen/t1", "eval/QA.md")
+    assert is_allowed("taseen/t1", "docs/research/submission-draft.md")
 
     # unknown prefix
     assert not is_allowed("random/branch", "brain/engine.py")

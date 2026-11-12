@@ -13,7 +13,9 @@ def test_web_build():
     assert npm is not None, "npm not found on system PATH"
 
     lockfile = WEB_DIR / "package-lock.json"
-    install_cmd = [npm, "ci"] if lockfile.exists() else [npm, "install"]
+    # On Windows, npm ci fails with EPERM trying to unlink active native binaries like esbuild.exe.
+    # Use npm install when node_modules is already populated, npm ci otherwise.
+    install_cmd = [npm, "install"] if (WEB_DIR / "node_modules").exists() else ([npm, "ci"] if lockfile.exists() else [npm, "install"])
     res_install = subprocess.run(
         install_cmd,
         cwd=WEB_DIR,
