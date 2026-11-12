@@ -89,7 +89,7 @@ Run `docker compose up -d --build` and check `docker compose ps` (all services u
 
 ✅ **Done when:** `python -m pytest infra -q` passes on your laptop with Docker running.
 
-### T4 (Day 2): lock down the Docker socket
+### T4 (Day 2): [x] lock down the Docker socket
 > Prompt for Antigravity:
 > *Read docker-compose.yml. Only edit docker-compose.yml and infra/. Add a service "docker-proxy" using
 > image tecnativa/docker-socket-proxy:0.3.0 with environment CONTAINERS=1, POST=1, INFO=1 and every other
@@ -99,6 +99,7 @@ Run `docker compose up -d --build` and check `docker compose ps` (all services u
 
 ✅ **Done when:** after `docker compose up -d --build`, `python scripts/demo.py rogue beta paraphrase_loop` still pauses beta
 (`docker ps` shows `(Paused)`), and `docker compose exec brain env | grep DOCKER_HOST` shows the proxy.
+*(Done on taseen/t4-docker-proxy: docker-proxy added, direct socket removed from brain, DOCKER_HOST wired).*
 
 ### T5 (Day 3): CI/CD + releases
 > Prompt for Antigravity:
@@ -215,10 +216,11 @@ If not, file an issue for `brain` with the numbers. Alif's agent picks it up in 
 On a laptop that has never run the project, follow `docs/HANDOFF.md` §4 and README.md exactly, and time it. Fix the docs.
 ✅ **Done when:** a fresh setup reaches the dashboard in under 15 minutes.
 
-### T15 (Day 5): web dashboard in compose (for Tamjid)
+### T15 (Day 5): [x] web dashboard in compose (for Tamjid)
 Tamjid's React dashboard (`dashboard/web/`) ships a `Dockerfile` (nginx serving the build, proxying `/v1` to brain).
 Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm chart, and keep Streamlit as `dashboard`.
 ✅ **Done when:** `docker compose up -d --build` serves the React dashboard at http://localhost:5173, against the real brain.
+*(Done on taseen/t4-docker-proxy: web service added to compose on 5173:80).*
 
 ## 🟢 STRETCH
 - **T16:** K8s across 3 kind nodes with agents pinned to different nodes (nodeSelector), to show distributed C2 in Kubernetes on the same slide.

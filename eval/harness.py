@@ -23,6 +23,8 @@ from shared.config import settings
 from shared.mocks.fake_fleet import FakeFleet
 from shared.store import LocalStore
 
+from eval.roi import tasks_by_agent, total_spend
+
 START = 1_000_000.0          # virtual clock start (seconds)
 ROGUE_AT = 10.0              # the subject misbehaves after this many seconds
 DURATION = 90.0              # seconds simulated per scenario
@@ -38,9 +40,11 @@ class Scenario:
 
 
 SCENARIOS: list[Scenario] = [
+    Scenario("healthy", "alpha", None, False),
     Scenario("paraphrase_loop", "beta", "paraphrase_loop", True),
-    # TODO(Orin Day 4): add "healthy", "exact_loop", "token_bomb" here (same pattern)
-    # TODO(Orin Day 5): add "memory_leak", "bad_tool_call", "injection"
+    Scenario("exact_loop", "beta", "loop", True),
+    Scenario("token_bomb", "gamma", "token_bomb", True),
+    Scenario("bad_tool_call", "delta", "bad_tool_call", True),
 ]
 
 
@@ -70,12 +74,41 @@ def run_scenario(sc: Scenario, judge_provider: str = "fallback") -> dict:
     intervened = bool(hits)
     first = engine.breakers.get(sc.agent)
     detect_s = _first_trip_time(store, sc.agent, rogue_started) if hits and rogue_started else None
+    spans = store.spans_after(0, limit=100_000)
+    per = tasks_by_agent(spans)
+    subject_stats = per.get(sc.agent, {})
     return {"scenario": sc.name, "expected": "intervene" if sc.expect_intervention else "leave alone",
             "got": hits[0]["action"] + f" by {hits[0]['actor']}" if hits else "no action",
             "state": first.state if first else "?", "time_to_detect_s": detect_s,
             "usd_saved": round(sum(float(h["usd_saved_estimate"] or 0) for h in hits), 4),
+            "spend_with": total_spend(spans),
+            "wasted_with": subject_stats.get("wasted_usd", 0.0),
+            "success_rate_with": subject_stats.get("success_rate", 0.0),
             "false_kills": len(control_hits),
             "passed": intervened == sc.expect_intervention and not control_hits}
+
+
+def run_without(sc: Scenario) -> dict:
+    """Run simulated agents without CloudSentinel protection (O8)."""
+    store = LocalStore(":memory:")
+    fleet = FakeFleet(store, names=(sc.agent, "alpha") if sc.agent != "alpha" else ("alpha",),
+                      auto_rogue=None, start=START)
+    now, rogue_started = START, None
+    while now < START + DURATION:
+        now += 1.0
+        if sc.kind and rogue_started is None and now - START >= ROGUE_AT:
+            fleet.go_rogue(sc.agent, sc.kind, now)
+            rogue_started = now
+        fleet.step(now)
+    spans = store.spans_after(0, limit=100_000)
+    per = tasks_by_agent(spans)
+    subject_stats = per.get(sc.agent, {})
+    return {
+        "scenario": sc.name,
+        "spend_without": total_spend(spans),
+        "wasted_without": subject_stats.get("wasted_usd", 0.0),
+        "success_rate_without": subject_stats.get("success_rate", 0.0),
+    }
 
 
 def _first_trip_time(store, agent_id: str, rogue_started: float) -> Optional[float]:
@@ -90,9 +123,22 @@ def _first_trip_time(store, agent_id: str, rogue_started: float) -> Optional[flo
 def main() -> None:
     p = argparse.ArgumentParser(prog="python -m eval.harness")
     p.add_argument("--judge", default="fallback", help="fallback (default) | auto | claude | gemini")
+    p.add_argument("--compare", action="store_true", help="Compare with vs without CloudSentinel (O8)")
+    p.add_argument("--markdown", action="store_true", help="Output results as markdown")
     args = p.parse_args()
     logging.disable(logging.CRITICAL)  # keep the table readable
     results = [run_scenario(sc, args.judge) for sc in SCENARIOS]
+    
+    if args.compare:
+        print(f"{'scenario':18} {'Spend With':>12} {'Spend W/O':>12} {'$ Saved':>10} {'Waste Saved %':>14}")
+        for r in results:
+            sc = next(s for s in SCENARIOS if s.name == r["scenario"])
+            wo = run_without(sc)
+            saved = max(0.0, wo["spend_without"] - r["spend_with"])
+            waste_pct = round(((wo["wasted_without"] - r["wasted_with"]) / wo["wasted_without"] * 100) if wo["wasted_without"] > 0 else 0.0, 1)
+            print(f"{r['scenario']:18} ${r['spend_with']:>10.4f} ${wo['spend_without']:>10.4f} ${saved:>9.4f} {waste_pct:>13.1f}%")
+        return
+
     print(f"{'scenario':18} {'expected':12} {'got':24} {'detect(s)':>9} {'$ saved':>9}  result")
     for r in results:
         print(f"{r['scenario']:18} {r['expected']:12} {r['got']:24} {str(r['time_to_detect_s']):>9} "
