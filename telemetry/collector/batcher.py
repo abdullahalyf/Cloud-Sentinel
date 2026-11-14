@@ -19,19 +19,24 @@ MAX_QUEUE_ROWS = 10000   # rows waiting for the store; when full, the collector 
 BATCH_ROWS = 500         # most rows in one insert_spans() call
 BATCH_WAIT = 0.2         # seconds to wait for more rows before writing a smaller batch
 
+RETRY_DELAYS = (0.2, 0.4, 0.8, 1.6, 3.2)   # seconds to wait before retry 1..5 of a failed batch
+
 _all: "weakref.WeakSet[SpanBatcher]" = weakref.WeakSet()
 
 
 class SpanBatcher:
     def __init__(self, store, max_rows: int = MAX_QUEUE_ROWS, batch_rows: int = BATCH_ROWS,
-                 wait: float = BATCH_WAIT):
+                 wait: float = BATCH_WAIT, retry_delays=RETRY_DELAYS):
         self.store = store
         self.batch_rows = batch_rows
         self.wait = wait
+        self.retry_delays = tuple(retry_delays)
+        self._sleep = time.sleep  # replaced in tests
         self._q: "queue.Queue" = queue.Queue(maxsize=max_rows)
         self.accepted = 0
         self.dropped = 0
         self.failed_batches = 0
+        self.last_ok = True   # did the last batch reach the store?
         _all.add(self)
         threading.Thread(target=self._run, name="span-batcher", daemon=True).start()
 
@@ -60,15 +65,30 @@ class SpanBatcher:
                 break
         return batch
 
+    def _write(self, batch: list) -> None:
+        """Write one batch. If the store raises, retry the SAME batch with backoff, then drop it."""
+        attempts = len(self.retry_delays) + 1
+        for n in range(attempts):
+            try:
+                self.store.insert_spans(batch)
+                self.last_ok = True
+                log.info("stored %d spans from %s", len(batch), ", ".join(sorted({r.agent_id for r in batch})))
+                return
+            except Exception as exc:
+                if n < len(self.retry_delays):
+                    self._sleep(self.retry_delays[n])
+                else:
+                    self.failed_batches += 1
+                    self.last_ok = False
+                    log.error("dropped a batch of %d spans after %d tries: %s", len(batch), attempts, exc)
+
     def _run(self) -> None:
         while True:
             batch = self._take_batch()
             try:
-                self.store.insert_spans(batch)
-                log.info("stored %d spans from %s", len(batch), ", ".join(sorted({r.agent_id for r in batch})))
-            except Exception as exc:  # never crash the thread (S3 adds retries here)
-                self.failed_batches += 1
-                log.error("could not store a batch of %d spans: %s", len(batch), exc)
+                self._write(batch)
+            except Exception:  # never crash the thread
+                log.exception("unexpected error while storing a batch")
             finally:
                 for _ in batch:
                     self._q.task_done()

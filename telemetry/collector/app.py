@@ -15,6 +15,8 @@ from telemetry.collector.normalize import normalize_otlp_json, normalize_otlp_pr
 
 log = logging.getLogger("telemetry.collector")
 
+MAX_BODY_BYTES = 4 * 1024 * 1024   # bigger request bodies are answered with 413
+
 
 def create_app(store, phoenix=None, batcher=None) -> FastAPI:
     """phoenix: optional telemetry.collector.phoenix.PhoenixExporter (CS_EXPORT_PHOENIX=true)."""
@@ -23,13 +25,24 @@ def create_app(store, phoenix=None, batcher=None) -> FastAPI:
     app.state.batcher = batcher
     app.state.flush = batcher.flush
 
+    @app.get("/healthz")
+    def healthz() -> dict:
+        return {"queue": batcher.qsize(), "accepted": batcher.accepted, "dropped": batcher.dropped,
+                "failed_batches": batcher.failed_batches, "store": "ok" if batcher.last_ok else "error"}
+
     @app.get("/health")
     def health() -> dict:
         return {"ok": True}
 
     @app.post("/v1/traces")
     async def traces(request: Request) -> Response:
+        if int(request.headers.get("content-length") or 0) > MAX_BODY_BYTES:
+            batcher.dropped += 1
+            raise HTTPException(413, "request body is over 4 MB")
         body = await request.body()
+        if len(body) > MAX_BODY_BYTES:
+            batcher.dropped += 1
+            raise HTTPException(413, "request body is over 4 MB")
         ctype = request.headers.get("content-type", "")
         try:
             rows = normalize_otlp_json(json.loads(body or b"{}")) if "json" in ctype else normalize_otlp_protobuf(body)
