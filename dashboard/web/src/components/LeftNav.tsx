@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { LayoutDashboard, Cpu, ShieldAlert, Activity, DollarSign, Network, ShieldCheck, Menu, Play } from 'lucide-react';
+import { LayoutDashboard, Cpu, ShieldAlert, Activity, DollarSign, Network, Menu, Play } from 'lucide-react';
 import { api } from '../api/client';
 import { livePoll } from '../utils/live';
 import { DemoPanel } from './DemoPanel';
@@ -45,15 +45,15 @@ export const LeftNav: React.FC = () => {
   return (
     <nav role="navigation" aria-label="Main Navigation" className={`sb ${collapsed ? 'collapsed' : ''}`}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 4px 10px' }}>
-        <span style={{ width: 38, height: 38, borderRadius: 12, background: 'var(--accent-gradient)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 8px 18px -8px rgba(117,72,231,0.9)' }}>
-          <ShieldCheck size={20} />
-        </span>
+        <img src="/logo.png" alt="CloudSentinel logo" width={42} height={29} style={{ width: 42, height: 'auto', flexShrink: 0, display: 'block' }} />
         <div className="sb-hide" style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <strong style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.02em' }}>CloudSentinel</strong>
-            <span className="count-badge" style={{ height: 18, fontSize: 10 }}>v2</span>
+            <span className="wordmark" aria-label="CloudSentinel">
+              <span className="wm-cloud">Cloud</span>
+              <span className="wm-sentinel">Sentinel</span>
+            </span>
           </div>
-          <div style={{ fontSize: 11.5, color: 'var(--color-text-muted)' }}>Agent control tower</div>
+          <div style={{ fontSize: 11.5, color: 'var(--color-text-muted)', marginTop: 2 }}>v2 · Control tower</div>
         </div>
         <button type="button" className="corner-btn sb-hide" aria-label="Collapse sidebar" onClick={() => setCollapsed(true)} style={{ borderRadius: 10 }}>
           <Menu size={16} />

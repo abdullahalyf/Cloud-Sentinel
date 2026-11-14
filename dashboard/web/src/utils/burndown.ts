@@ -39,6 +39,49 @@ export function actionMarkers(actions: ActionRow[]): { ts: number; label: string
     .filter((m) => Number.isFinite(m.ts));
 }
 
+export interface Marker {
+  ts: number;
+  label: string;
+  count: number;
+}
+
+/**
+ * Turns the raw PAUSE/KILL markers into something readable: keeps only those inside [from, to] and
+ * merges markers closer than `minGapFrac` of the visible span into one ("3 stops"), so labels never
+ * print on top of each other.
+ */
+export function clusterMarkers(markers: { ts: number; label: string }[], from: number, to: number, minGapFrac = 0.1): Marker[] {
+  const span = Math.max(1, to - from);
+  const inside = markers.filter((m) => m.ts >= from && m.ts <= to).sort((a, b) => a.ts - b.ts);
+  const groups: { ts: number; label: string }[][] = [];
+  inside.forEach((m) => {
+    const g = groups[groups.length - 1];
+    if (g && m.ts - g[g.length - 1].ts < span * minGapFrac) g.push(m);
+    else groups.push([m]);
+  });
+  return groups.map((g) => ({ ts: g[0].ts, label: g.length === 1 ? g[0].label : `${g.length} stops`, count: g.length }));
+}
+
+/** The visible time window: from the first sample to the last, plus room on the right for the projection. */
+export function viewWindow(series: Point[][]): { from: number; to: number; max: number } | null {
+  const ts = series.flat().map((p) => p[0]);
+  if (ts.length === 0) return null;
+  const from = Math.min(...ts);
+  const to = Math.max(...ts);
+  const room = Math.max(5 * 60_000, (to - from) * 0.35);
+  return { from, to, max: to + room };
+}
+
+/** Cuts a projection at the right edge of the view (the line is straight, so this is a simple interpolation). */
+export function clipProjection(proj: [Point, Point] | null, maxTs: number): [Point, Point] | null {
+  if (!proj) return null;
+  const [a, b] = proj;
+  if (b[0] <= maxTs) return proj;
+  if (a[0] >= maxTs) return null;
+  const k = (maxTs - a[0]) / (b[0] - a[0]);
+  return [a, [maxTs, a[1] + (b[1] - a[1]) * k]];
+}
+
 export interface TaskRow extends TaskStats {
   agent: string;
 }

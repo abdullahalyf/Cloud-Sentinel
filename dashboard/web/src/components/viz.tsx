@@ -279,7 +279,9 @@ interface LineProps {
   series: LineSeries[];
   xLabels: string[];
   format: (v: number) => string;
-  markers?: { index: number; label: string }[];
+  /** event dots drawn on a series (default: the last one), each with an info card on hover */
+  markers?: { index: number; label: string; color?: string; meaning?: string; detail?: string }[];
+  markerSeries?: number;
   /** maps a value to 0..1 of the plot height (defaults to linear over 0..max) */
   scale?: (v: number) => number;
   /** y-axis tick values and labels */
@@ -292,8 +294,9 @@ interface LineProps {
 
 const L_PAD = { l: 78, r: 16, t: 14, b: 26 };
 
-export const LineAreaChart: React.FC<LineProps> = ({ series, xLabels, format, markers = [], scale, ticks, knots = 6, height = 280, title, testId }) => {
+export const LineAreaChart: React.FC<LineProps> = ({ series, xLabels, format, markers = [], markerSeries, scale, ticks, knots = 6, height = 280, title, testId }) => {
   const [hover, setHover] = useState<number | null>(null);
+  const [dotHover, setDotHover] = useState<number | null>(null);
   const [boxRef, L_W] = useBoxWidth(760);
   const n = Math.max(...series.map((s) => s.values.length), 0);
   if (n < 2) return <div ref={boxRef} style={{ height }} />;
@@ -379,28 +382,30 @@ export const LineAreaChart: React.FC<LineProps> = ({ series, xLabels, format, ma
           );
         })}
 
-        {(() => {
-          let lastLabelX = -1e9;
-          return [...markers]
-            .sort((a, b) => a.index - b.index)
-            .map((m, mi) => {
-              const x = xAt(m.index);
-              const showLabel = x - lastLabelX > 96;
-              if (showLabel) lastLabelX = x;
-              return (
-                <g key={`${m.label}-${m.index}-${mi}`}>
-                  <line x1={x} x2={x} y1={L_PAD.t} y2={base} stroke="var(--chart-amber)" strokeDasharray="3 4" />
-                  {showLabel && (
-                    <text x={x + 6} y={L_PAD.t + 11} fontSize="11" fontWeight="600" fill="var(--color-amber)">
-                      {m.label}
-                    </text>
-                  )}
-                </g>
-              );
-            });
-        })()}
+        {/* event dots sit on the line itself; hover one for what it means */}
+        {markers.map((m, mi) => {
+          const s = series[markerSeries ?? series.length - 1];
+          const v = s?.values[m.index];
+          if (v === undefined) return null;
+          const active = dotHover === mi;
+          return (
+            <g key={`${m.label}-${m.index}-${mi}`} onMouseEnter={() => setDotHover(mi)} onMouseLeave={() => setDotHover(null)}>
+              <circle cx={xAt(m.index)} cy={yAt(v)} r="14" fill="transparent" />
+              <circle
+                className="dot-pop"
+                style={{ animationDelay: `${600 + mi * 90}ms`, filter: 'drop-shadow(0 2px 4px rgba(34,28,80,0.35))' }}
+                cx={xAt(m.index)}
+                cy={yAt(v)}
+                r={active ? 9 : 7.5}
+                fill={m.color ?? 'var(--chart-amber)'}
+                stroke="#fff"
+                strokeWidth="2.5"
+              />
+            </g>
+          );
+        })}
 
-        {hover !== null && (
+        {hover !== null && dotHover === null && (
           <g pointerEvents="none">
             <line x1={xAt(hover)} x2={xAt(hover)} y1={L_PAD.t} y2={base} stroke="rgba(25,18,34,0.25)" />
             {series.map((s) => s.values[hover] !== undefined && (
@@ -410,7 +415,18 @@ export const LineAreaChart: React.FC<LineProps> = ({ series, xLabels, format, ma
         )}
       </svg>
 
-      {hover !== null && (
+      {dotHover !== null && markers[dotHover] && (
+        <TooltipCard left={`${(xAt(markers[dotHover].index) / L_W) * 100}%`} top={20} flip={markers[dotHover].index > n * 0.6}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, marginBottom: 4 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: markers[dotHover].color ?? 'var(--chart-amber)' }} />
+            {markers[dotHover].label}
+          </div>
+          {markers[dotHover].meaning && <div style={{ color: 'var(--color-text-secondary)', maxWidth: 260, marginBottom: 4 }}>{markers[dotHover].meaning}</div>}
+          {markers[dotHover].detail && <div style={{ ...MONO, fontWeight: 600 }}>{markers[dotHover].detail}</div>}
+        </TooltipCard>
+      )}
+
+      {hover !== null && dotHover === null && (
         <TooltipCard left={`${(xAt(hover) / L_W) * 100}%`} top={30} flip={hover > n * 0.6}>
           <div style={{ color: 'var(--color-text-muted)', marginBottom: 6 }}>{xLabels[hover] ?? ''}</div>
           {series.map((s) => (
