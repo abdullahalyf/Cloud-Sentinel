@@ -1,6 +1,8 @@
 @import '@fontsource/urbanist/500.css';
 @import '@fontsource/urbanist/600.css';
 @import '@fontsource/urbanist/700.css';
+@import '@fontsource/fredoka/600.css';
+@import '@fontsource/fredoka/700.css';
 @import '@fontsource/jetbrains-mono/400.css';
 
 @import './tokens.css';
@@ -362,3 +364,8 @@ html[data-static='true'] .spin { animation: none !important; }
 .menu-item:hover, .menu-item:focus-visible { background: var(--color-fill); }
 .menu-sep { height: 1px; background: var(--color-border); margin: 6px 4px; }
 a.card-hover { display: flex; color: inherit; }
+
+/* Brand wordmark: a chunky rounded face that matches the logo's thick outlines (used only here) */
+.wordmark { font-family: 'Fredoka', var(--font-sans); font-weight: 700; font-size: 19px; line-height: 1; letter-spacing: 0.005em; white-space: nowrap; }
+.wm-cloud { color: #0b2a45; }
+.wm-sentinel { color: #b8480c; }

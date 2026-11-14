@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { budgetLeftSeries, projectToZero, actionMarkers, taskRowsByWasted } from '../burndown';
+import { budgetLeftSeries, projectToZero, actionMarkers, taskRowsByWasted, clusterMarkers, viewWindow, clipProjection } from '../burndown';
 import type { ActionRow, MetricRow, TaskStats } from '../../api/types';
 
 const m = (agent: string, iso: string, spend: number, budget = 1): MetricRow => ({
@@ -70,5 +70,33 @@ describe('burn-down math', () => {
     } as Record<string, TaskStats>);
     expect(rows.map((r) => r.agent)).toEqual(['beta', 'delta', 'alpha']);
     expect(taskRowsByWasted(undefined)).toEqual([]);
+  });
+
+  it('merges markers that are close together into one labelled marker and drops those outside the window', () => {
+    const min = 60_000;
+    const m = (t: number, label: string) => ({ ts: t * min, label });
+    const out = clusterMarkers([m(1, 'KILL a'), m(1.2, 'KILL b'), m(1.4, 'PAUSE c'), m(20, 'KILL d'), m(500, 'KILL far')], 0, 30 * min);
+    expect(out).toEqual([
+      { ts: 1 * min, label: '3 stops', count: 3 },
+      { ts: 20 * min, label: 'KILL d', count: 1 },
+    ]);
+  });
+
+  it('builds the view window with room on the right, and clips a projection at its edge', () => {
+    const t0 = 0;
+    const t1 = 30 * 60_000;
+    const win = viewWindow([[[t0, 1], [t1, 0.5]], []])!;
+    expect(win.from).toBe(t0);
+    expect(win.to).toBe(t1);
+    expect(win.max).toBeGreaterThan(win.to);
+    expect(viewWindow([[]])).toBeNull();
+
+    const proj: [[number, number], [number, number]] = [[t1, 1], [t1 + 120 * 60_000, 0]];
+    const clipped = clipProjection(proj, win.max)!;
+    expect(clipped[1][0]).toBe(win.max);
+    expect(clipped[1][1]).toBeGreaterThan(0); // not at $0 yet: it runs past the edge
+    expect(clipProjection(proj, t1 + 1)![1][0]).toBe(t1 + 1);
+    expect(clipProjection(null, 5)).toBeNull();
+    expect(clipProjection([[10, 1], [20, 0]], 5)).toBeNull();
   });
 });
