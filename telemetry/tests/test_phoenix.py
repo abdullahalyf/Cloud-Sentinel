@@ -7,6 +7,7 @@ import cloudsentinel as cs
 from shared.config import settings
 from shared.store import LocalStore
 from telemetry.collector.app import create_app
+from telemetry.collector.batcher import flush
 from telemetry.collector.phoenix import PhoenixExporter, from_settings, to_phoenix_body
 
 
@@ -65,6 +66,7 @@ def test_collector_forwards_in_background_and_survives_phoenix_down():
     r = TestClient(create_app(store, good)).post("/v1/traces", content=_otlp_body(),
                                                  headers={"content-type": "application/x-protobuf"})
     good.join()
+    flush()
     assert r.status_code == 200 and len(store.spans_after(0)) == 2            # CloudSentinel got the spans
     assert sent and sent[0][0] == "http://phoenix:6006/v1/traces" and sent[0][1]["Content-Type"] == "application/x-protobuf"
 
