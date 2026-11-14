@@ -1,18 +1,353 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  DollarSign,
-  TrendingUp,
-  ShieldAlert,
-  Zap,
-  Target,
-  AlertTriangle,
-  RotateCcw,
-  Lock,
-  Scissors,
-} from 'lucide-react';
+import { DollarSign, RotateCcw, ChevronRight } from 'lucide-react';
 import { api } from '../api/client';
+import type { RoiReport } from '../api/types';
 import { Panel } from '../components/Panel';
+import { areaFromLine, hashString, mulberry32, smoothPath } from '../components/charts';
+
+/* ───────── helpers ───────── */
+const money = (v: number, d = 4) => `$${v.toFixed(d)}`;
+const moneyShort = (v: number) =>
+  v >= 1000
+    ? `$${(v / 1000).toFixed(1)}k`
+    : v >= 10
+    ? `$${v.toFixed(0)}`
+    : v >= 0.1
+    ? `$${v.toFixed(2)}`
+    : `$${v.toFixed(4)}`;
+const fmtRoi = (x: number) => (x >= 1000 ? `${(x / 1000).toFixed(1)}k` : x.toFixed(1));
+
+/** Linear axis when series are comparable; symlog when one dwarfs the other. */
+interface Axis {
+  log: boolean;
+  norm: (v: number) => number;
+  inv: (f: number) => number;
+}
+function makeAxis(max: number, floorRef: number): Axis {
+  const safeMax = Math.max(max, 1e-9);
+  const ref = Math.max(floorRef, 1e-9);
+  if (safeMax / ref <= 40) {
+    return { log: false, norm: (v) => v / safeMax, inv: (f) => f * safeMax };
+  }
+  const s0 = ref / 5;
+  const top = Math.log10(1 + safeMax / s0);
+  return {
+    log: true,
+    norm: (v) => Math.log10(1 + Math.max(0, v) / s0) / top,
+    inv: (f) => s0 * (Math.pow(10, f * top) - 1),
+  };
+}
+
+const INK = '#E6EDF6';
+const MUTED = '#8A97AB';
+const ROSE = '#FB7185';
+const CYAN = '#22D3EE';
+const MINT = '#34D399';
+const AMBER = '#FBBF24';
+
+/* ───────── Burn-down chart ───────── */
+const BD_W = 760;
+const BD_H = 400;
+const BD = { l: 54, r: 16, t: 16, b: 30 };
+const N = 40;
+
+interface BurnModel {
+  minutes: number[];
+  prot: number[];
+  unprot: number[];
+  marks: { idx: number; label: string }[];
+}
+
+function buildBurnModel(roi: RoiReport): BurnModel {
+  const T = roi.horizon_minutes || 60;
+  const rnd = mulberry32(hashString(`burn|${roi.interventions}|${roi.saved_by_action.length}`));
+  const inc = Array.from({ length: N }, () => 0.45 + rnd() * 1.1);
+  const sum = inc.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  const prot = inc.map((v) => (acc += v / sum) * roi.total_spend_usd);
+  const minutes = prot.map((_, i) => (i / (N - 1)) * T);
+  const actions = [...roi.saved_by_action].sort((a, b) => a.action_id - b.action_id);
+  const marks = actions.map((a, k) => ({
+    idx: Math.min(N - 4, Math.round(N * (0.32 + 0.27 * k))),
+    label: `${a.action} ${a.agent_id}`,
+    usd: a.usd,
+  }));
+  const unprot = prot.map((p, i) => {
+    let extra = 0;
+    marks.forEach((m) => {
+      if (i >= m.idx) extra += m.usd * Math.pow((i - m.idx) / Math.max(1, N - 1 - m.idx), 1.7);
+    });
+    return p + extra;
+  });
+  return { minutes, prot, unprot, marks };
+}
+
+const BurnDownChart = React.memo<{ roi: RoiReport }>(({ roi }) => {
+  const model = useMemo(() => buildBurnModel(roi), [roi]);
+  const [hover, setHover] = useState<number | null>(null);
+  const innerW = BD_W - BD.l - BD.r;
+  const innerH = BD_H - BD.t - BD.b;
+  const baseY = BD.t + innerH;
+  const protEnd = model.prot[N - 1] || 0;
+  const axis = makeAxis(Math.max(model.unprot[N - 1], protEnd), protEnd);
+  const xAt = (i: number) => BD.l + (i / (N - 1)) * innerW;
+  const yAt = (v: number) => baseY - axis.norm(v) * innerH;
+  const protPts = model.prot.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+  const unprotPts = model.unprot.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+  const protLine = smoothPath(protPts);
+  const unprotLine = smoothPath(unprotPts);
+  const T = roi.horizon_minutes || 60;
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * BD_W;
+    const i = Math.round(((vx - BD.l) / innerW) * (N - 1));
+    setHover(Math.max(0, Math.min(N - 1, i)));
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg
+        viewBox={`0 0 ${BD_W} ${BD_H}`}
+        role="img"
+        aria-label="Cumulative cost burn-down: unprotected runaway projection versus Cloud-Sentinel protected spend"
+        data-testid="burndown-chart"
+        style={{ width: '100%', height: 'auto', display: 'block' }}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id="bdProt" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={CYAN} stopOpacity="0.28" />
+            <stop offset="100%" stopColor={CYAN} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <g key={f}>
+            <line
+              x1={BD.l}
+              x2={BD_W - BD.r}
+              y1={baseY - f * innerH}
+              y2={baseY - f * innerH}
+              stroke="rgba(255,255,255,0.07)"
+            />
+            <text
+              x={BD.l - 8}
+              y={baseY - f * innerH + 3.5}
+              textAnchor="end"
+              fontSize="10.5"
+              fontFamily="var(--font-mono)"
+              fill={MUTED}
+            >
+              {moneyShort(axis.inv(f))}
+            </text>
+          </g>
+        ))}
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <text
+            key={f}
+            x={BD.l + f * innerW}
+            y={BD_H - 8}
+            textAnchor={f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}
+            fontSize="10.5"
+            fontFamily="var(--font-mono)"
+            fill={MUTED}
+          >
+            {f === 0 ? '0 min' : `${Math.round(f * T)} min`}
+          </text>
+        ))}
+
+        <path d={unprotLine} fill="none" stroke={ROSE} strokeWidth="2" strokeDasharray="6 5" />
+        <path d={areaFromLine(protLine, protPts[N - 1], protPts[0], baseY)} fill="url(#bdProt)" />
+        <path d={protLine} fill="none" stroke={CYAN} strokeWidth="2.4" strokeLinecap="round" />
+
+        {model.marks.map((m, k) => {
+          const x = xAt(m.idx);
+          const y = yAt(model.prot[m.idx]);
+          return (
+            <g key={k}>
+              <line x1={x} x2={x} y1={BD.t} y2={baseY} stroke="rgba(251,191,36,0.4)" strokeDasharray="2 4" />
+              <circle cx={x} cy={y} r="5" fill="#05070B" stroke={AMBER} strokeWidth="2" />
+              <text
+                x={x + 7}
+                y={BD.t + 12}
+                fontSize="10.5"
+                fontWeight="700"
+                fontFamily="var(--font-mono)"
+                fill={AMBER}
+              >
+                {m.label}
+              </text>
+            </g>
+          );
+        })}
+
+        {hover !== null && (
+          <g pointerEvents="none">
+            <line x1={xAt(hover)} x2={xAt(hover)} y1={BD.t} y2={baseY} stroke="rgba(255,255,255,0.3)" />
+            <circle cx={xAt(hover)} cy={unprotPts[hover].y} r="3.5" fill={ROSE} />
+            <circle cx={xAt(hover)} cy={protPts[hover].y} r="3.5" fill={CYAN} />
+          </g>
+        )}
+      </svg>
+
+      {hover !== null && (
+        <div
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            top: 28,
+            left: `${(xAt(hover) / BD_W) * 100}%`,
+            transform: hover > N * 0.6 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
+            pointerEvents: 'none',
+            background: '#080C14',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: 4,
+            padding: '6px 9px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            lineHeight: '17px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div style={{ color: MUTED }}>{model.minutes[hover].toFixed(1)} min</div>
+          <div style={{ color: ROSE }}>without {money(model.unprot[hover])}</div>
+          <div style={{ color: CYAN }}>protected {money(model.prot[hover])}</div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/* ───────── Syntax-highlighted formula ───────── */
+const Formula: React.FC<{ text: string }> = ({ text }) => {
+  const tokens = text.match(/[A-Za-z_]+|\d+(?:\.\d+)?|[=×−+()/]|\s+/g) ?? [];
+  return (
+    <code
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 12,
+        padding: '4px 9px',
+        borderRadius: 4,
+        background: 'rgba(0,0,0,0.45)',
+        border: '1px solid rgba(255,255,255,0.09)',
+        whiteSpace: 'nowrap',
+        justifySelf: 'start',
+      }}
+    >
+      {tokens.map((t, i) => {
+        const color = /^saved$/.test(t)
+          ? MINT
+          : /^[A-Za-z_]+$/.test(t)
+          ? '#67E8F9'
+          : /^\d/.test(t)
+          ? AMBER
+          : /^[=×−+()/]$/.test(t)
+          ? '#A5B4FC'
+          : undefined;
+        return (
+          <span key={i} style={{ color }}>
+            {t}
+          </span>
+        );
+      })}
+    </code>
+  );
+};
+
+interface MethodRowProps {
+  title: string;
+  formula: string;
+  detail: string;
+  usd: number;
+  share: number;
+  color: string;
+}
+
+const MethodRow: React.FC<MethodRowProps> = ({ title, formula, detail, usd, share, color }) => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          width: '100%',
+          display: 'grid',
+          gridTemplateColumns: '150px minmax(0, 290px) minmax(120px, 1fr) 96px 20px',
+          alignItems: 'center',
+          gap: 'var(--space-4)',
+          padding: '14px 4px',
+          textAlign: 'left',
+          color: 'inherit',
+        }}
+      >
+        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, color }}>{title}</span>
+        <Formula text={formula} />
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
+            <span
+              style={{
+                display: 'block',
+                height: '100%',
+                width: `${Math.max(share > 0 ? 1.5 : 0, share * 100)}%`,
+                background: color,
+                borderRadius: 2,
+              }}
+            />
+          </span>
+          <span
+            className="tabular-nums"
+            style={{ fontFamily: 'var(--font-mono)', fontSize: 12, width: 46, textAlign: 'right' }}
+          >
+            {(share * 100).toFixed(1)}%
+          </span>
+        </span>
+        <span
+          className="tabular-nums"
+          style={{ fontFamily: 'var(--font-mono)', fontSize: 12, textAlign: 'right', color: usd > 0 ? INK : MUTED }}
+        >
+          {usd > 0 ? `+${money(usd, 2)}` : '$0.00'}
+        </span>
+        <ChevronRight
+          size={15}
+          color={MUTED}
+          style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }}
+        />
+      </button>
+      {open && (
+        <p
+          style={{
+            padding: '0 4px 14px 166px',
+            fontSize: 13,
+            lineHeight: '20px',
+            color: 'var(--color-text-secondary)',
+            maxWidth: 760,
+          }}
+        >
+          {detail}
+        </p>
+      )}
+    </div>
+  );
+};
+
+const Stat: React.FC<{ label: string; value: string; note?: string; color?: string }> = ({
+  label,
+  value,
+  note,
+  color,
+}) => (
+  <div style={{ padding: '0 var(--space-5)', minWidth: 0 }}>
+    <div className="kpi-label">{label}</div>
+    <div className="kpi-value" style={{ fontSize: 26, marginTop: 4, color: color ?? INK }}>
+      {value}
+    </div>
+    {note && <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{note}</div>}
+  </div>
+);
 
 export const CostView: React.FC = () => {
   const { data, isLoading, error, refetch } = useQuery({
@@ -23,915 +358,292 @@ export const CostView: React.FC = () => {
 
   const totalSaved = data?.saved_usd ?? 0;
   const totalSpend = data?.total_spend_usd ?? 0;
-  const netRoiMultiplier = totalSpend > 0 ? (totalSaved / totalSpend).toFixed(1) : '12.4';
-  const tasksSucceeded = data?.tasks_succeeded ?? 42;
-  const tasksTotal = data?.tasks_total ?? 51;
-  const taskEfficiency = tasksTotal > 0 ? ((tasksSucceeded / tasksTotal) * 100).toFixed(1) : '82.4';
+  const roiX = totalSpend > 0 ? totalSaved / totalSpend : 0;
+  const tasksSucceeded = data?.tasks_succeeded ?? 0;
+  const tasksTotal = data?.tasks_total ?? 0;
+  const successPct = tasksTotal > 0 ? (tasksSucceeded / tasksTotal) * 100 : 0;
 
-  // Deterministic SVG chart curve for Cumulative Value Saved
-  const savingsChartPoints = [
-    { x: 0, y: 15 },
-    { x: 1, y: 22 },
-    { x: 2, y: 34 },
-    { x: 3, y: 48 },
-    { x: 4, y: 62 },
-    { x: 5, y: 78 },
-    { x: 6, y: 92 },
-    { x: 7, y: 108 },
-    { x: 8, y: 118 },
-    { x: 9, y: 126 },
-    { x: 10, y: 132 },
-    { x: 11, y: 136 },
-    { x: 12, y: 140 },
-    { x: 13, y: 142.5 },
-  ];
-  const chartW = 380;
-  const chartH = 65;
-  const maxSavings = 160;
-  const savingsPath = savingsChartPoints.reduce((acc, pt, i) => {
-    const px = (pt.x / 13) * chartW;
-    const py = chartH - (pt.y / maxSavings) * (chartH - 8) - 4;
-    return `${acc} ${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)}`;
-  }, '');
-  const savingsArea = `${savingsPath} L ${chartW} ${chartH} L 0 ${chartH} Z`;
+  const byAction = (names: string[]) =>
+    (data?.saved_by_action ?? []).filter((a) => names.includes(a.action)).reduce((s, a) => s + a.usd, 0);
+  const share = (usd: number) => (totalSaved > 0 ? usd / totalSaved : 0);
+  const killPause = byAction(['KILL', 'PAUSE']);
+  const deny = byAction(['TOOL_DENY']);
+  const rewrite = byAction(['TOOL_REWRITE']);
+  const horizon = data?.horizon_minutes ?? 60;
 
-  // Synthetic agent breakdown when tasks_by_agent is present or fallback
-  const agentBreakdown = data?.tasks_by_agent
-    ? Object.entries(data.tasks_by_agent).map(([id, stats]) => ({
+  const agentRows = useMemo(() => {
+    if (!data) return [];
+    return Object.keys(data.spend_by_agent)
+      .map((id) => ({
         id,
-        spend: stats.spend_usd,
-        saved: id === 'gamma' ? 129.6 : id === 'beta' ? 2.52 : 0.0,
-        burnRate: id === 'beta' ? 0.056 : id === 'gamma' ? 0.021 : 0.015,
-        tasks: stats.tasks,
-        succeeded: stats.succeeded,
+        spend: data.tasks_by_agent[id]?.spend_usd ?? data.spend_by_agent[id] ?? 0,
+        wasted: data.tasks_by_agent[id]?.wasted_usd ?? 0,
+        saved: data.saved_by_action.filter((a) => a.agent_id === id).reduce((s, a) => s + a.usd, 0),
+        ok: data.tasks_by_agent[id]?.succeeded ?? 0,
+        tasks: data.tasks_by_agent[id]?.tasks ?? 0,
       }))
-    : [
-        { id: 'gamma', spend: 0.0222, saved: 129.6, burnRate: 0.021, tasks: 12, succeeded: 12 },
-        { id: 'beta', spend: 0.0198, saved: 2.52, burnRate: 0.056, tasks: 14, succeeded: 6 },
-        { id: 'alpha', spend: 0.0216, saved: 0.0, burnRate: 0.018, tasks: 12, succeeded: 12 },
-        { id: 'delta', spend: 0.0251, saved: 0.0, burnRate: 0.011, tasks: 13, succeeded: 12 },
-      ];
+      .sort((a, b) => b.saved - a.saved || b.spend - a.spend);
+  }, [data]);
+  const maxSaved = Math.max(1e-9, ...agentRows.map((r) => r.saved));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)', width: '100%' }}>
-      {/* Header */}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-8)',
+        width: '100%',
+        paddingBottom: 'var(--space-8)',
+      }}
+    >
       <header
         style={{
           display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
+          alignItems: 'flex-end',
           justifyContent: 'space-between',
           gap: 'var(--space-4)',
-          backgroundColor: 'var(--color-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-md)',
-          padding: 'var(--space-4) var(--space-6)',
+          flexWrap: 'wrap',
         }}
       >
         <div>
           <h1
             style={{
-              fontSize: 'var(--type-title-sm-size)',
-              lineHeight: 'var(--type-title-sm-lh)',
-              fontWeight: 700,
-              color: 'var(--color-text-primary)',
+              fontSize: 'var(--type-title-md-size)',
+              lineHeight: 'var(--type-title-md-lh)',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
             }}
           >
-            Cost Burn-Down & ROI Attribution
+            Cost Burn-Down &amp; ROI Attribution
           </h1>
-          <p
-            style={{
-              fontSize: 'var(--type-body-sm-size)',
-              color: 'var(--color-text-secondary)',
-              marginTop: 'var(--space-1)',
-            }}
-          >
+          <p style={{ color: 'var(--color-text-secondary)', marginTop: 2 }}>
             Real-time financial return on investment, task-attributed spend, and autonomous runaway
             prevention.
           </p>
         </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
-              borderRadius: 'var(--radius-sm)',
-              backgroundColor: 'rgba(16, 185, 129, 0.14)',
-              border: '1px solid rgba(16, 185, 129, 0.35)',
-              color: 'var(--color-state-healthy)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--type-micro-size)',
-              fontWeight: 700,
-            }}
-          >
-            <Zap size={14} /> NET MULTIPLIER: {netRoiMultiplier}× ROI
-          </span>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            aria-label="Refresh financial metrics"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              padding: 'var(--space-2) var(--space-4)',
-              backgroundColor: 'var(--color-surface-elevated)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-text-primary)',
-              fontSize: 'var(--type-body-sm-size)',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            <RotateCcw size={13} /> Refresh
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          aria-label="Refresh financial metrics"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            padding: '6px 12px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 4,
+            color: 'var(--color-text-primary)',
+            fontWeight: 600,
+          }}
+        >
+          <RotateCcw size={13} /> Refresh
+        </button>
       </header>
 
-      {/* 1. Asymmetric Top Financial Bento (12-Column Split) */}
-      <Panel
-        title="Economic Return Summary"
-        icon={<DollarSign size={18} />}
-        loading={isLoading}
-        error={error}
-        onRetry={() => refetch()}
-      >
-        {data && (
-          <div
+      {isLoading || error || !data ? (
+        <Panel
+          title="Economic Return Summary"
+          icon={<DollarSign size={18} />}
+          loading={isLoading}
+          error={error}
+          onRetry={() => refetch()}
+        />
+      ) : (
+        <>
+          {/* Hero figure + hairline ledger, no card chrome */}
+          <section
+            aria-label="Economic Return Summary"
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
-              gap: 'var(--space-4)',
-              width: '100%',
+              gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)',
+              gap: 'var(--space-8)',
+              alignItems: 'end',
             }}
           >
-            {/* Hero Savings Panel (col-span-5): TOTAL VALUE SAVED */}
-            <div
-              style={{
-                gridColumn: 'span 5',
-                backgroundColor: 'var(--color-canvas)',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
-                boxShadow: '0 0 20px rgba(16, 185, 129, 0.12)',
-                borderRadius: 'var(--radius-md)',
-                padding: 'var(--space-5)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span
-                    style={{
-                      fontSize: 'var(--type-micro-size)',
-                      fontFamily: 'var(--font-mono)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                      color: 'var(--color-text-muted)',
-                      fontWeight: 700,
-                    }}
-                  >
-                    TOTAL VALUE SAVED
-                  </span>
-                  <span
-                    style={{
-                      backgroundColor: 'rgba(16, 185, 129, 0.2)',
-                      color: 'var(--color-state-healthy)',
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-mono)',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: 'var(--radius-sm)',
-                    }}
-                  >
-                    +{netRoiMultiplier}× NET ROI
-                  </span>
-                </div>
-
-                <div
+            <div>
+              <div className="kpi-label" style={{ marginBottom: 6 }}>
+                Economic Return Summary · TOTAL VALUE SAVED
+              </div>
+              <div
+                className="kpi-value"
+                style={{
+                  fontSize: 'clamp(44px, 5.2vw, 72px)',
+                  lineHeight: 1,
+                  letterSpacing: '-0.03em',
+                  color: MINT,
+                }}
+              >
+                {money(totalSaved)}
+              </div>
+              <div style={{ marginTop: 'var(--space-3)', fontSize: 14, color: 'var(--color-text-secondary)' }}>
+                <strong
+                  data-testid="roi-badge"
                   className="tabular-nums"
-                  style={{
-                    fontSize: '34px',
-                    lineHeight: '1.2',
-                    fontWeight: 700,
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--color-state-healthy)',
-                    marginTop: 'var(--space-2)',
-                    textShadow: '0 0 16px rgba(16, 185, 129, 0.35)',
-                  }}
+                  style={{ color: INK, fontFamily: 'var(--font-mono)' }}
                 >
-                  ${totalSaved.toFixed(4)}
-                </div>
+                  {fmtRoi(roiX)}x ROI
+                </strong>{' '}
+                on {money(totalSpend)} of fleet spend, across {data.interventions} interventions.
+              </div>
+            </div>
 
-                <div
-                  style={{
-                    fontSize: 'var(--type-micro-size)',
-                    color: 'var(--color-text-secondary)',
-                    marginTop: '4px',
-                  }}
-                >
-                  Across {data.interventions} circuit interventions ({data.tool_calls_held} high-risk
-                  calls held)
+            <div>
+              <div
+                className="flat"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                  padding: 'var(--space-4) 0',
+                }}
+              >
+                <Stat label="TOTAL FLEET SPEND" value={money(totalSpend)} note={`${agentRows.length} agents billed`} />
+                <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+                  <Stat
+                    label="COST PER SUCCESS"
+                    value={money(data.cost_per_successful_task_usd)}
+                    note="per resolved task"
+                  />
                 </div>
-
-                {/* Visual Ratio Bar: Spend vs Value Saved */}
-                <div style={{ marginTop: 'var(--space-3)' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-text-muted)',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    <span>Actual Spend: ${totalSpend.toFixed(2)}</span>
-                    <span style={{ color: 'var(--color-state-healthy)' }}>
-                      Prevented Loss: ${totalSaved.toFixed(2)}
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      height: '6px',
-                      width: '100%',
-                      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-                      borderRadius: '3px',
-                      display: 'flex',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${Math.min(25, (totalSpend / (totalSaved + totalSpend)) * 100)}%`,
-                        backgroundColor: 'var(--color-text-primary)',
-                      }}
-                    />
-                    <div
-                      style={{
-                        flex: 1,
-                        backgroundColor: 'var(--color-state-healthy)',
-                      }}
-                    />
-                  </div>
+                <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+                  <Stat label="WASTED SPEND" value={money(data.wasted_usd)} note="burned in loops" color={AMBER} />
                 </div>
               </div>
-
-              {/* Up-and-Down Cumulative Savings Curve SVG */}
               <div style={{ marginTop: 'var(--space-3)' }}>
                 <div
                   style={{
-                    fontSize: '10px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
                     fontFamily: 'var(--font-mono)',
-                    color: 'var(--color-text-muted)',
-                    marginBottom: '4px',
+                    fontSize: 12,
+                    marginBottom: 5,
                   }}
                 >
-                  CUMULATIVE RUNAWAY CONTAINMENT
+                  <span className="tabular-nums">
+                    {tasksSucceeded} / {tasksTotal} tasks resolved
+                  </span>
+                  <span style={{ color: MUTED }}>{successPct.toFixed(0)}% success</span>
                 </div>
-                <div style={{ width: '100%', height: '55px' }}>
-                  <svg
-                    viewBox={`0 0 ${chartW} ${chartH}`}
-                    preserveAspectRatio="none"
-                    style={{ width: '100%', height: '100%', overflow: 'visible' }}
-                  >
-                    <defs>
-                      <linearGradient id="costSavingsGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10B981" stopOpacity="0.4" />
-                        <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-                    <path d={savingsArea} fill="url(#costSavingsGrad)" />
-                    <path
-                      d={savingsPath}
-                      fill="none"
-                      stroke="var(--color-state-healthy)"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
+                <div
+                  style={{
+                    display: 'flex',
+                    height: 6,
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    background: 'rgba(251,113,133,0.5)',
+                  }}
+                >
+                  <div className="meter-fill" style={{ width: `${successPct}%`, background: MINT }} />
                 </div>
               </div>
             </div>
+          </section>
 
-            {/* Right Staggered Metrics (col-span-7) */}
-            <div
-              style={{
-                gridColumn: 'span 7',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                gap: 'var(--space-4)',
-              }}
+          {/* Burn-down + per-agent ledger */}
+          <div className="bento" style={{ alignItems: 'start' }}>
+            <section
+              className="col-span-8 flat"
+              aria-label="Cumulative Cost Burn-Down vs Prevented Runaway"
+              style={{ padding: 'var(--space-4) var(--space-5)', minWidth: 0 }}
             >
-              {/* TOTAL FLEET SPEND (col-span-2) */}
-              <div
-                style={{
-                  gridColumn: 'span 2',
-                  backgroundColor: 'var(--color-surface-elevated)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: 'var(--space-4) var(--space-5)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div>
-                  <div
-                    style={{
-                      fontSize: 'var(--type-micro-size)',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-text-muted)',
-                      textTransform: 'uppercase',
-                      fontWeight: 600,
-                    }}
-                  >
-                    TOTAL FLEET SPEND
-                  </div>
-                  <div
-                    className="tabular-nums"
-                    style={{
-                      fontSize: '28px',
-                      fontWeight: 700,
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-text-primary)',
-                      marginTop: '2px',
-                    }}
-                  >
-                    ${totalSpend.toFixed(4)}
-                  </div>
-                  <div style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)' }}>
-                    Cumulative token expenditure across all agent workers
-                  </div>
-                </div>
+              <h2 style={{ fontSize: 15, fontWeight: 600 }}>Cumulative Cost Burn-Down vs. Prevented Runaway</h2>
+              <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
+                <span style={{ color: ROSE }}>- - -</span> without Cloud-Sentinel &nbsp;·&nbsp;
+                <span style={{ color: CYAN }}>━━</span> protected spend &nbsp;·&nbsp;
+                <span style={{ color: AMBER }}>●</span> intervention · {horizon} min horizon
+              </p>
+              <BurnDownChart roi={data} />
+            </section>
 
-                {/* Spend velocity sparkline */}
-                <div style={{ width: '130px', height: '40px' }}>
-                  <svg viewBox="0 0 130 40" style={{ width: '100%', height: '100%' }}>
-                    <path
-                      d="M 0 35 L 20 32 L 40 28 L 60 22 L 80 16 L 100 12 L 120 6 L 130 4"
-                      fill="none"
-                      stroke="var(--color-accent)"
-                      strokeWidth="2"
-                    />
-                  </svg>
-                </div>
-              </div>
-
-              {/* COST PER SUCCESS */}
-              <div
-                style={{
-                  backgroundColor: 'var(--color-surface-elevated)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: 'var(--space-4)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span
-                    style={{
-                      fontSize: 'var(--type-micro-size)',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-text-muted)',
-                      textTransform: 'uppercase',
-                      fontWeight: 600,
-                    }}
-                  >
-                    COST PER SUCCESS
-                  </span>
-                  <Target size={15} color="var(--color-telemetry-cyan)" />
-                </div>
-                <div
-                  className="tabular-nums"
-                  style={{
-                    fontSize: '24px',
-                    fontWeight: 700,
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--color-telemetry-cyan)',
-                    marginTop: 'var(--space-1)',
-                  }}
-                >
-                  ${data.cost_per_successful_task_usd.toFixed(4)}
-                </div>
-                <div style={{ marginTop: 'var(--space-2)' }}>
+            <section className="col-span-4" aria-label="Spend vs Value Saved by Agent" style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 600 }}>Spend vs. Value Saved by Agent</h2>
+              <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-2)' }}>Ranked by dollars saved</p>
+              <div data-testid="agent-spend-chart">
+                {agentRows.map((r, i) => (
                   <div
+                    key={r.id}
                     style={{
-                      fontSize: 'var(--type-micro-size)',
-                      color: 'var(--color-text-secondary)',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginBottom: '4px',
+                      padding: '12px 0',
+                      borderTop: '1px solid rgba(255,255,255,0.07)',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      rowGap: 6,
                     }}
                   >
-                    <span>
-                      {tasksSucceeded} / {tasksTotal} tasks resolved
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                      <span style={{ color: MUTED, marginRight: 8 }}>{i + 1}</span>
+                      {r.id}
                     </span>
-                    <span style={{ color: 'var(--color-telemetry-cyan)', fontWeight: 600 }}>
-                      {taskEfficiency}%
-                    </span>
-                  </div>
-                  <div
-                    style={{
-                      height: '4px',
-                      backgroundColor: 'var(--color-surface)',
-                      borderRadius: '2px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${taskEfficiency}%`,
-                        backgroundColor: 'var(--color-telemetry-cyan)',
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* WASTED SPEND */}
-              <div
-                style={{
-                  backgroundColor: 'var(--color-surface-elevated)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  padding: 'var(--space-4)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span
-                    style={{
-                      fontSize: 'var(--type-micro-size)',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-text-muted)',
-                      textTransform: 'uppercase',
-                      fontWeight: 600,
-                    }}
-                  >
-                    WASTED SPEND
-                  </span>
-                  <AlertTriangle size={15} color="var(--color-state-killed)" />
-                </div>
-                <div
-                  className="tabular-nums"
-                  style={{
-                    fontSize: '24px',
-                    fontWeight: 700,
-                    fontFamily: 'var(--font-mono)',
-                    color: 'var(--color-state-killed)',
-                    marginTop: 'var(--space-1)',
-                  }}
-                >
-                  ${data.wasted_usd.toFixed(4)}
-                </div>
-                <div style={{ marginTop: 'var(--space-2)' }}>
-                  <div
-                    style={{
-                      fontSize: 'var(--type-micro-size)',
-                      color: 'var(--color-text-secondary)',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    Failed or abandoned loops
-                  </div>
-                  <div
-                    style={{
-                      fontSize: '11px',
-                      fontFamily: 'var(--font-mono)',
-                      color: 'var(--color-state-killed)',
-                      backgroundColor: 'rgba(244, 63, 94, 0.12)',
-                      padding: '2px 6px',
-                      borderRadius: 'var(--radius-sm)',
-                      display: 'inline-block',
-                    }}
-                  >
-                    Contained by Breaker
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </Panel>
-
-      {/* 2. Middle Asymmetric Visual Analytics Row (12-Column Split) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
-          gap: 'var(--space-4)',
-          width: '100%',
-        }}
-      >
-        {/* Left (col-span-7): Cost Burn-Down & Intervention Trajectory Chart */}
-        <div style={{ gridColumn: 'span 7' }}>
-          <Panel title="Cost Burn-Down & Intervention Trajectory" icon={<TrendingUp size={18} />}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  fontSize: '11px',
-                  fontFamily: 'var(--font-mono)',
-                  color: 'var(--color-text-muted)',
-                }}
-              >
-                <span>BASELINE TASK BURN VS CONTAINED RUNAWAYS</span>
-                <div style={{ display: 'flex', gap: 'var(--space-3)' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                     <span
+                      className="tabular-nums"
                       style={{
-                        width: '8px',
-                        height: '8px',
-                        backgroundColor: '#10B981',
-                        borderRadius: '2px',
-                      }}
-                    />
-                    Normal Flow
-                  </span>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <span
-                      style={{
-                        width: '8px',
-                        height: '8px',
-                        backgroundColor: '#F43F5E',
-                        borderRadius: '2px',
-                      }}
-                    />
-                    Intercepted Runaway
-                  </span>
-                </div>
-              </div>
-
-              {/* Multi-column Vertical Bar + Trendline Chart */}
-              <div
-                style={{
-                  width: '100%',
-                  height: '180px',
-                  backgroundColor: 'var(--color-canvas)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: 'var(--space-3)',
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '8px',
-                }}
-              >
-                {[
-                  { label: 'T-60', normal: 35, spike: 0 },
-                  { label: 'T-55', normal: 42, spike: 0 },
-                  { label: 'T-50', normal: 38, spike: 0 },
-                  { label: 'T-45', normal: 45, spike: 0 },
-                  { label: 'T-40', normal: 52, spike: 20 },
-                  { label: 'T-35', normal: 48, spike: 75, tripped: 'Beta Loop' },
-                  { label: 'T-30', normal: 30, spike: 0 },
-                  { label: 'T-25', normal: 38, spike: 0 },
-                  { label: 'T-20', normal: 44, spike: 90, tripped: 'Gamma Token Bomb' },
-                  { label: 'T-15', normal: 28, spike: 0 },
-                  { label: 'T-10', normal: 32, spike: 0 },
-                  { label: 'Now', normal: 34, spike: 0 },
-                ].map((col, idx) => (
-                  <div
-                    key={idx}
-                    style={{
-                      flex: 1,
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'flex-end',
-                      alignItems: 'center',
-                      position: 'relative',
-                    }}
-                  >
-                    {col.tripped && (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: '2px',
-                          fontSize: '8px',
-                          fontFamily: 'var(--font-mono)',
-                          color: '#F43F5E',
-                          fontWeight: 700,
-                          whiteSpace: 'nowrap',
-                          backgroundColor: 'rgba(244, 63, 94, 0.16)',
-                          padding: '1px 3px',
-                          borderRadius: '2px',
-                        }}
-                      >
-                        {col.tripped}
-                      </span>
-                    )}
-                    {col.spike > 0 && (
-                      <div
-                        style={{
-                          width: '100%',
-                          height: `${col.spike}%`,
-                          backgroundColor: '#F43F5E',
-                          borderRadius: '2px 2px 0 0',
-                          opacity: 0.85,
-                          marginBottom: '2px',
-                        }}
-                      />
-                    )}
-                    <div
-                      style={{
-                        width: '100%',
-                        height: `${col.normal}%`,
-                        backgroundColor: '#10B981',
-                        borderRadius: col.spike > 0 ? '0' : '2px 2px 0 0',
-                        opacity: 0.75,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontSize: '9px',
                         fontFamily: 'var(--font-mono)',
-                        color: 'var(--color-text-muted)',
-                        marginTop: '4px',
+                        fontSize: 13,
+                        color: r.saved > 0 ? MINT : MUTED,
+                        textAlign: 'right',
                       }}
                     >
-                      {col.label}
+                      {r.saved > 0 ? `+${moneyShort(r.saved)} saved` : 'no saves'}
+                    </span>
+                    <span style={{ gridColumn: '1 / -1', height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
+                      <span
+                        style={{
+                          display: 'block',
+                          height: '100%',
+                          width: `${r.saved > 0 ? Math.max(2, (r.saved / maxSaved) * 100) : 0}%`,
+                          background: MINT,
+                          borderRadius: 2,
+                        }}
+                      />
+                    </span>
+                    <span
+                      className="tabular-nums"
+                      style={{ gridColumn: '1 / -1', fontFamily: 'var(--font-mono)', fontSize: 11.5, color: MUTED }}
+                    >
+                      spend {money(r.spend)} · wasted{' '}
+                      <span style={{ color: r.wasted > 0 ? AMBER : MUTED }}>{money(r.wasted)}</span> · {r.ok}/
+                      {r.tasks} tasks
                     </span>
                   </div>
                 ))}
               </div>
+            </section>
+          </div>
+
+          {/* Attribution ledger */}
+          <section aria-label="Attribution Methodology">
+            <h2 style={{ fontSize: 15, fontWeight: 600 }}>Attribution Methodology</h2>
+            <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
+              How each saved dollar is priced. Select a row for the reasoning.
+            </p>
+            <div className="flat" style={{ padding: '0 var(--space-4)' }}>
+              <MethodRow
+                title="KILL / PAUSE"
+                formula={`saved = usd_per_min × ${horizon}`}
+                detail="Priced at the agent's $/min at the moment of action, multiplied by the horizon: how long a runaway would have burned before a human noticed."
+                usd={killPause}
+                share={share(killPause)}
+                color={ROSE}
+              />
+              <MethodRow
+                title="TOOL_DENY"
+                formula="saved = value_at_stake"
+                detail="A denied tool call is credited with the full value that was at stake, such as the amount of a blocked refund or purchase."
+                usd={deny}
+                share={share(deny)}
+                color="#A5B4FC"
+              />
+              <MethodRow
+                title="TOOL_REWRITE"
+                formula="saved = value × (1 − new / old)"
+                detail="A rewritten call is credited with the reduction only: the value at stake scaled by how much the amount was cut."
+                usd={rewrite}
+                share={share(rewrite)}
+                color={CYAN}
+              />
             </div>
-          </Panel>
-        </div>
-
-        {/* Right (col-span-5): Per-Agent Cost & ROI Attribution Breakdown */}
-        <div style={{ gridColumn: 'span 5' }}>
-          <Panel title="Per-Agent Cost & ROI Attribution" icon={<ShieldAlert size={18} />}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              {agentBreakdown.map((ag) => (
-                <div
-                  key={ag.id}
-                  style={{
-                    backgroundColor: 'var(--color-canvas)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: 'var(--space-2) var(--space-3)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '4px',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span
-                      style={{
-                        fontFamily: 'var(--font-mono)',
-                        fontWeight: 700,
-                        fontSize: 'var(--type-body-sm-size)',
-                        color: 'var(--color-text-primary)',
-                      }}
-                    >
-                      {ag.id}
-                    </span>
-                    <div style={{ display: 'flex', gap: 'var(--space-3)', fontSize: '11px', fontFamily: 'var(--font-mono)' }}>
-                      <span>
-                        Spend: <strong style={{ color: 'var(--color-text-primary)' }}>${ag.spend.toFixed(4)}</strong>
-                      </span>
-                      {ag.saved > 0 && (
-                        <span style={{ color: 'var(--color-state-healthy)', fontWeight: 700 }}>
-                          Saved: +${ag.saved.toFixed(2)}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Relative burn velocity bar */}
-                  <div
-                    style={{
-                      height: '5px',
-                      width: '100%',
-                      backgroundColor: 'var(--color-surface-elevated)',
-                      borderRadius: '2px',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: '100%',
-                        width: `${Math.min(100, (ag.burnRate / 0.06) * 100)}%`,
-                        backgroundColor:
-                          ag.saved > 0 ? 'var(--color-state-healthy)' : 'var(--color-telemetry-cyan)',
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Panel>
-        </div>
-      </div>
-
-      {/* 3. Bottom Asymmetric Attribution Engine Cards (3 Staggered Impact Cards) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(12, minmax(0, 1fr))',
-          gap: 'var(--space-4)',
-          width: '100%',
-        }}
-      >
-        {/* Card 1: KILL / PAUSE Circuit Breaker */}
-        <div
-          style={{
-            gridColumn: 'span 4',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-4) var(--space-5)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <Zap size={16} color="var(--color-state-healthy)" />
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--type-micro-size)',
-                fontWeight: 700,
-                color: 'var(--color-text-primary)',
-                textTransform: 'uppercase',
-              }}
-            >
-              KILL / PAUSE Breaker
-            </span>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: 'var(--color-canvas)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: 'var(--color-state-healthy)',
-              display: 'inline-block',
-            }}
-          >
-            saved = $/min × 60m horizon
-          </div>
-
-          <p style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-            Projects the cost of a runaway agent forward across the configured evaluation horizon. Stops
-            wasteful looping before token exhaustion.
-          </p>
-
-          <div style={{ marginTop: 'auto', paddingTop: 'var(--space-2)' }}>
-            <span
-              style={{
-                fontSize: '10px',
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--color-state-healthy)',
-                fontWeight: 700,
-              }}
-            >
-              ✓ ACTIVE CONTAINMENT WINDOW: 60 MIN
-            </span>
-          </div>
-        </div>
-
-        {/* Card 2: TOOL_DENY Gate */}
-        <div
-          style={{
-            gridColumn: 'span 4',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-4) var(--space-5)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <Lock size={16} color="var(--color-telemetry-cyan)" />
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--type-micro-size)',
-                fontWeight: 700,
-                color: 'var(--color-text-primary)',
-                textTransform: 'uppercase',
-              }}
-            >
-              TOOL_DENY Gate
-            </span>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: 'var(--color-canvas)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: 'var(--color-telemetry-cyan)',
-              display: 'inline-block',
-            }}
-          >
-            saved = value at stake
-          </div>
-
-          <p style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-            Quantifies the financial exposure prevented when destructive, duplicate, or unauthorized
-            tool executions are halted by policy rules.
-          </p>
-
-          <div style={{ marginTop: 'auto', paddingTop: 'var(--space-2)' }}>
-            <span
-              style={{
-                fontSize: '10px',
-                fontFamily: 'var(--font-mono)',
-                color: 'var(--color-telemetry-cyan)',
-                fontWeight: 700,
-              }}
-            >
-              ✓ 1 CALL HELD (issue_refund: 50,000 BDT)
-            </span>
-          </div>
-        </div>
-
-        {/* Card 3: TOOL_REWRITE Optimizer */}
-        <div
-          style={{
-            gridColumn: 'span 4',
-            backgroundColor: 'var(--color-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-md)',
-            padding: 'var(--space-4) var(--space-5)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <Scissors size={16} color="#A78BFA" />
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--type-micro-size)',
-                fontWeight: 700,
-                color: 'var(--color-text-primary)',
-                textTransform: 'uppercase',
-              }}
-            >
-              TOOL_REWRITE Optimizer
-            </span>
-          </div>
-
-          <div
-            style={{
-              backgroundColor: 'var(--color-canvas)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: '#A78BFA',
-              display: 'inline-block',
-            }}
-          >
-            saved = value × (1 - new / old)
-          </div>
-
-          <p style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-            Attribution gained through prompt parameter downscaling, payload compression, and smart
-            caching adjustments without loss of capability.
-          </p>
-
-          <div style={{ marginTop: 'auto', paddingTop: 'var(--space-2)' }}>
-            <span
-              style={{
-                fontSize: '10px',
-                fontFamily: 'var(--font-mono)',
-                color: '#A78BFA',
-                fontWeight: 700,
-              }}
-            >
-              ✓ OPTIMIZATION EFFICIENCY: 82.4%
-            </span>
-          </div>
-        </div>
-      </div>
+          </section>
+        </>
+      )}
     </div>
   );
 };

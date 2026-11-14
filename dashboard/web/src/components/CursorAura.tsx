@@ -1,76 +1,86 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 
+/**
+ * Cursor dot + ring. Position is written straight to the DOM from a rAF loop, so moving the
+ * mouse never triggers a React re-render (the old state-per-mousemove version caused jank).
+ */
 export const CursorAura: React.FC = () => {
-  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
-  const [isMouseDown, setIsMouseDown] = useState(false);
+  const dot = useRef<HTMLDivElement>(null);
+  const ring = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    let x = 0;
+    let y = 0;
+    let raf = 0;
+    let shown = false;
 
-    const handleMouseMove = (e: MouseEvent) => {
-      setPos({ x: e.clientX, y: e.clientY });
+    const paint = () => {
+      raf = 0;
+      const t = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
+      if (dot.current) dot.current.style.transform = t;
+      if (ring.current) ring.current.style.transform = t;
     };
+    const onMove = (e: MouseEvent) => {
+      x = e.clientX;
+      y = e.clientY;
+      if (!shown) {
+        shown = true;
+        if (dot.current) dot.current.style.opacity = '1';
+        if (ring.current) ring.current.style.opacity = '1';
+      }
+      if (!raf) raf = requestAnimationFrame(paint);
+    };
+    const onDown = () => ring.current?.setAttribute('data-down', 'true');
+    const onUp = () => ring.current?.removeAttribute('data-down');
 
-    const handleMouseDown = () => setIsMouseDown(true);
-    const handleMouseUp = () => setIsMouseDown(false);
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
-
+    window.addEventListener('mousemove', onMove, { passive: true });
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('mouseup', onUp);
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mouseup', onUp);
+      if (raf) cancelAnimationFrame(raf);
     };
   }, []);
 
-  if (!pos) return null;
-
   return (
     <>
-      {/* Precision Core Dot */}
       <div
+        ref={dot}
         id="cs-cursor-dot"
         aria-hidden="true"
         style={{
           position: 'fixed',
           top: 0,
           left: 0,
-          width: '7px',
-          height: '7px',
+          width: 7,
+          height: 7,
+          opacity: 0,
           backgroundColor: '#00F0FF',
           borderRadius: '50%',
           pointerEvents: 'none',
           zIndex: 99999999,
-          boxShadow: '0 0 10px #00F0FF, 0 0 20px #00F0FF',
-          transform: `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`,
-          transition: 'transform 0.04s ease-out',
+          willChange: 'transform',
         }}
       />
-
-      {/* Cybernetic AI Aura */}
       <div
+        ref={ring}
         id="cs-cursor-aura"
+        className="cs-ring"
         aria-hidden="true"
         style={{
           position: 'fixed',
           top: 0,
           left: 0,
-          width: isMouseDown ? '24px' : '34px',
-          height: isMouseDown ? '24px' : '34px',
-          border: isMouseDown ? '2px solid #EF4444' : '1.6px dashed #00F0FF',
-          backgroundColor: isMouseDown ? 'rgba(239, 68, 68, 0.2)' : 'transparent',
-          borderRadius: '50%',
+          width: 34,
+          height: 34,
+          opacity: 0,
           pointerEvents: 'none',
           zIndex: 99999998,
-          boxShadow: isMouseDown ? '0 0 25px #EF4444' : '0 0 16px rgba(0, 240, 255, 0.4)',
-          transform: `translate3d(${pos.x}px, ${pos.y}px, 0) translate(-50%, -50%)`,
-          transition:
-            'width 0.18s, height 0.18s, border 0.18s, background-color 0.18s, box-shadow 0.18s',
+          willChange: 'transform',
         }}
       />
     </>
   );
 };
-

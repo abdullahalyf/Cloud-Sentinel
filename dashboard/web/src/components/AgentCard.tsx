@@ -1,7 +1,8 @@
 import React from 'react';
 import type { AgentView } from '../api/types';
 import { StateBadge } from './StateBadge';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, ShieldAlert } from 'lucide-react';
+import { areaFromLine, hashString, mulberry32, smoothPath } from './charts';
 
 interface AgentCardProps {
   agent: AgentView;
@@ -10,90 +11,88 @@ interface AgentCardProps {
 }
 
 /**
- * Deterministically generates an up-and-down SVG sparkline path for an agent
- * based on its ID, tokens per minute, and loop score.
+ * Deterministic fluctuating sparkline. Seeded from the agent id plus its quantised burn rate and
+ * tokens/min, so every card has a distinct waveform that only changes when the load meaningfully does.
  */
-function getAgentSparkline(
+export function getAgentSparkline(
   agentId: string,
-  _tokensPerMin: number,
-  _loopScore: number,
+  usdPerMin: number,
+  tokensPerMin: number,
+  loopScore: number,
   width = 240,
-  height = 34
+  height = 38
 ) {
-  let hash = 0;
-  for (let i = 0; i < agentId.length; i++) {
-    hash = (hash * 31 + agentId.charCodeAt(i)) & 0xffffffff;
+  const seed = hashString(`${agentId}|${Math.round(usdPerMin * 1000)}|${Math.round(tokensPerMin / 250)}`);
+  const rnd = mulberry32(seed);
+  const n = 20;
+  const phaseA = rnd() * Math.PI * 2;
+  const phaseB = rnd() * Math.PI * 2;
+  const freqA = 0.5 + rnd() * 0.5;
+  const freqB = 1.1 + rnd() * 0.9;
+  const amp = 0.14 + rnd() * 0.1;
+  const runaway = Math.max(0, Math.min(1, loopScore));
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    const wave =
+      Math.sin(phaseA + i * freqA) * amp +
+      Math.cos(phaseB + i * freqB) * amp * 0.7 +
+      (rnd() - 0.5) * 0.12;
+    // Looping agents ramp up toward the right edge
+    const ramp = runaway >= 0.4 ? Math.pow(t, 2.2) * runaway * 0.5 : 0;
+    const v = Math.max(0.08, Math.min(0.94, 0.42 + wave + ramp));
+    pts.push({ x: t * width, y: height - 3 - v * (height - 8) });
   }
-
-  const numPoints = 12;
-  const points: { x: number; y: number }[] = [];
-  const stepX = width / (numPoints - 1);
-
-  for (let i = 0; i < numPoints; i++) {
-    const x = i * stepX;
-    // Harmonic wave oscillation based on agent identity hash
-    const wave1 = Math.sin((hash % 10) + i * 0.9) * 0.35;
-    const wave2 = Math.cos(((hash >> 3) % 10) + i * 1.4) * 0.25;
-
-    // Anomalous runaway spike for looping/paused agents (beta/gamma)
-    const anomalySpike =
-      agentId === 'beta' && i >= 7
-        ? 0.55
-        : agentId === 'gamma' && i >= 9
-        ? 0.4
-        : 0;
-
-    const normalized = Math.max(0.12, Math.min(0.92, 0.45 + wave1 + wave2 + anomalySpike));
-    const y = height - normalized * (height - 6) - 3;
-    points.push({ x, y });
-  }
-
-  const linePath = points.reduce(
-    (acc, pt, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${pt.x.toFixed(1)} ${pt.y.toFixed(1)}`,
-    ''
-  );
-  const areaPath = `${linePath} L ${width} ${height} L 0 ${height} Z`;
-
-  return { linePath, areaPath, lastPoint: points[points.length - 1] };
+  const linePath = smoothPath(pts);
+  const last = pts[pts.length - 1];
+  return { linePath, areaPath: areaFromLine(linePath, last, pts[0], height), lastPoint: last };
 }
 
 export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className = '' }) => {
-  // Budget calculations
+  // Each agent's true individual spend-to-budget ratio
   const budget = Math.max(0.01, agent.budget_usd);
   const spend = agent.spend_usd;
-  const budgetPct = Math.min(100, Math.round((spend / budget) * 100));
+  const budgetRatio = spend / budget;
+  const budgetPct = Math.min(100, Math.round(budgetRatio * 100));
+  const budgetBarPct = spend > 0 ? Math.max(2, Math.min(100, budgetRatio * 100)) : 0;
 
-  // Dynamic progress bar coloring:
-  // Emerald for normal spend, Amber for >70%, Rose ONLY for paused/runaway/critical nodes
   const isCritical = agent.state === 'killed' || agent.state === 'paused';
-  const isWarning = agent.state === 'suspicious' || (agent.state === 'healthy' && budgetPct > 70);
+  const isSuspicious = agent.state === 'suspicious';
+  const isWarning = isSuspicious || (!isCritical && budgetPct > 70);
+  const isAnomalous = isCritical || isSuspicious;
 
-  const budgetColor = isCritical
-    ? 'var(--color-state-killed)'
+  // Rose/Amber only for anomalous or near-budget nodes; healthy nodes stay Emerald/Cyan
+  const budgetFill = isCritical
+    ? 'linear-gradient(90deg, #be123c, #f43f5e)'
     : isWarning
-    ? 'var(--color-state-suspicious)'
-    : 'var(--color-state-healthy)';
+    ? 'linear-gradient(90deg, #d97706, #f59e0b)'
+    : 'linear-gradient(90deg, #06b6d4, #10b981)';
+  const sparklineColor = isCritical
+    ? '#f43f5e'
+    : isWarning
+    ? '#f59e0b'
+    : agent.loop_score >= 0.4
+    ? '#f59e0b'
+    : '#06b6d4';
 
-  // Loop score calculations
+  // Loop score
   const loopScore = Math.max(0, Math.min(1, agent.loop_score));
   const loopPct = Math.round(loopScore * 100);
   const isLoopAnomaly = loopScore >= 0.4;
-  const loopColor =
+  const loopFill =
     loopScore >= 0.6
-      ? 'var(--color-state-killed)'
+      ? 'linear-gradient(90deg, #be123c, #f43f5e)'
       : loopScore >= 0.4
-      ? 'var(--color-state-suspicious)'
-      : 'var(--color-state-healthy)';
+      ? 'linear-gradient(90deg, #d97706, #f59e0b)'
+      : 'linear-gradient(90deg, #059669, #10b981)';
 
   // Baseline ratio formatting (Task A4 note)
   let baselineText = '';
   const median = agent.baseline?.tokens_per_min?.median;
   if (median && median > 0) {
-    const ratio = (agent.tokens_per_min / median).toFixed(1);
-    baselineText = ` — ${ratio}× normal`;
+    baselineText = ` — ${(agent.tokens_per_min / median).toFixed(1)}× normal`;
   }
 
-  // Token count formatting
   const tokensFormatted =
     agent.tokens_per_min >= 1000
       ? `${(agent.tokens_per_min / 1000).toFixed(1)}k`
@@ -111,38 +110,36 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
     lastActionText = 'Resumed on probation; active surveillance window.';
   }
 
-  // Sparkline wave for this agent
-  const sparkline = getAgentSparkline(agent.agent_id, agent.tokens_per_min, agent.loop_score);
-  const sparklineColor = isCritical
-    ? 'var(--color-state-killed)'
-    : isWarning
-    ? 'var(--color-state-suspicious)'
-    : 'var(--color-telemetry-cyan)';
+  const sparkline = getAgentSparkline(
+    agent.agent_id,
+    agent.usd_per_min,
+    agent.tokens_per_min,
+    agent.loop_score
+  );
 
-  // Border & Glow for anomalous nodes
-  const cardBorder =
-    agent.state === 'killed'
-      ? '1px solid rgba(244, 63, 94, 0.55)'
-      : agent.state === 'paused'
-      ? '1px solid rgba(99, 102, 241, 0.6)'
-      : agent.state === 'suspicious'
-      ? '1px solid rgba(245, 158, 11, 0.55)'
-      : '1px solid var(--color-border)';
-
-  const cardBoxShadow =
-    agent.state === 'killed'
-      ? '0 0 20px rgba(244, 63, 94, 0.22)'
-      : agent.state === 'paused'
-      ? '0 0 20px rgba(99, 102, 241, 0.25)'
-      : agent.state === 'suspicious'
-      ? '0 0 16px rgba(245, 158, 11, 0.18)'
-      : 'none';
+  const pulseClass = isCritical ? 'anomaly-rose' : isSuspicious ? 'anomaly-amber' : '';
+  const badgeColor = isCritical ? '#f43f5e' : '#f59e0b';
+  const idleBorder = '1px solid rgba(255, 255, 255, 0.08)';
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onClick();
     }
+  };
+
+  const microLabel: React.CSSProperties = {
+    fontSize: 'var(--type-micro-size)',
+    color: 'var(--color-text-muted)',
+    fontFamily: 'var(--font-mono)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  };
+  const track: React.CSSProperties = {
+    height: '5px',
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderRadius: '3px',
+    overflow: 'hidden',
   };
 
   return (
@@ -153,39 +150,19 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
       data-testid={`agent-card-${agent.agent_id}`}
       onClick={onClick}
       onKeyDown={handleKeyDown}
-      className={`agent-card ${className}`}
+      className={`agent-card glass ${pulseClass} ${className}`}
       style={{
-        backgroundColor: 'var(--color-surface)',
-        border: cardBorder,
-        borderRadius: 'var(--radius-md)',
+        border: isAnomalous ? `1px solid ${badgeColor}88` : idleBorder,
         padding: 'var(--space-4)',
         display: 'flex',
         flexDirection: 'column',
         gap: 'var(--space-3)',
         cursor: 'pointer',
-        position: 'relative',
-        boxShadow: cardBoxShadow,
-        transition: 'all var(--transition-fast)',
         outline: 'none',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = 'var(--color-border-accent)';
-        e.currentTarget.style.backgroundColor = 'var(--color-surface-elevated)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = cardBorder.split(' ')[2] || 'var(--color-border)';
-        e.currentTarget.style.backgroundColor = 'var(--color-surface)';
-      }}
-      onFocus={(e) => {
-        e.currentTarget.style.borderColor = 'var(--color-focus-ring)';
-        e.currentTarget.style.boxShadow = '0 0 0 2px var(--color-focus-ring)';
-      }}
-      onBlur={(e) => {
-        e.currentTarget.style.borderColor = cardBorder.split(' ')[2] || 'var(--color-border)';
-        e.currentTarget.style.boxShadow = cardBoxShadow;
+        minWidth: 0,
       }}
     >
-      {/* Card Header */}
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <span
@@ -200,13 +177,10 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
           </span>
           <span
             style={{
-              fontSize: 'var(--type-micro-size)',
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--color-text-muted)',
-              backgroundColor: 'var(--color-surface-elevated)',
+              ...microLabel,
+              backgroundColor: 'rgba(255,255,255,0.06)',
               padding: '1px 6px',
               borderRadius: 'var(--radius-sm)',
-              textTransform: 'uppercase',
             }}
           >
             {agent.runtime}
@@ -215,31 +189,21 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
         <StateBadge state={agent.state} />
       </div>
 
-      {/* Burn Rate & Tokens/Min Box with Live Sparkline */}
+      {/* Burn metrics + live sparkline */}
       <div
         style={{
           display: 'flex',
           flexDirection: 'column',
-          backgroundColor: 'var(--color-canvas)',
-          borderRadius: 'var(--radius-sm)',
-          border: '1px solid var(--color-border)',
+          backgroundColor: 'rgba(5, 7, 11, 0.6)',
+          borderRadius: '8px',
+          border: '1px solid rgba(255,255,255,0.06)',
           padding: 'var(--space-2) var(--space-3)',
           gap: 'var(--space-2)',
         }}
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)' }}>
           <div>
-            <div
-              style={{
-                fontSize: 'var(--type-micro-size)',
-                color: 'var(--color-text-muted)',
-                fontFamily: 'var(--font-mono)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-              }}
-            >
-              Burn Rate
-            </div>
+            <div style={microLabel}>Burn Rate</div>
             <div
               className="tabular-nums"
               style={{
@@ -259,19 +223,8 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
               </span>
             </div>
           </div>
-
           <div>
-            <div
-              style={{
-                fontSize: 'var(--type-micro-size)',
-                color: 'var(--color-text-muted)',
-                fontFamily: 'var(--font-mono)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em',
-              }}
-            >
-              Tokens/min
-            </div>
+            <div style={microLabel}>Tokens/min</div>
             <div
               className="tabular-nums"
               style={{
@@ -299,42 +252,48 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
           </div>
         </div>
 
-        {/* Up-and-Down Deterministic SVG Sparkline */}
-        <div style={{ width: '100%', height: '32px', position: 'relative', marginTop: '2px' }}>
+        <div style={{ width: '100%', height: '38px', position: 'relative' }}>
           <svg
-            viewBox="0 0 240 34"
+            viewBox="0 0 240 38"
             preserveAspectRatio="none"
             style={{ width: '100%', height: '100%', overflow: 'visible' }}
+            aria-hidden="true"
           >
             <defs>
               <linearGradient id={`grad-${agent.agent_id}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={sparklineColor} stopOpacity="0.32" />
-                <stop offset="100%" stopColor={sparklineColor} stopOpacity="0.0" />
+                <stop offset="0%" stopColor={sparklineColor} stopOpacity="0.34" />
+                <stop offset="100%" stopColor={sparklineColor} stopOpacity="0" />
               </linearGradient>
             </defs>
-            {/* Area fill */}
             <path d={sparkline.areaPath} fill={`url(#grad-${agent.agent_id})`} />
-            {/* Stroke line */}
             <path
               d={sparkline.linePath}
               fill="none"
               stroke={sparklineColor}
               strokeWidth="1.8"
               strokeLinecap="round"
-            />
-            {/* End point pulse */}
-            <circle
-              cx={sparkline.lastPoint.x}
-              cy={sparkline.lastPoint.y}
-              r="2.5"
-              fill={sparklineColor}
-              style={{ filter: `drop-shadow(0 0 4px ${sparklineColor})` }}
+              vectorEffect="non-scaling-stroke"
             />
           </svg>
+          {/* Live pulse dot kept as HTML so it stays circular under non-uniform SVG scaling */}
+          <span
+            style={{
+              position: 'absolute',
+              right: 0,
+              top: `${(sparkline.lastPoint.y / 38) * 100}%`,
+              width: 7,
+              height: 7,
+              marginTop: -3.5,
+              marginRight: -3,
+              borderRadius: '50%',
+              backgroundColor: sparklineColor,
+              boxShadow: `0 0 8px ${sparklineColor}`,
+            }}
+          />
         </div>
       </div>
 
-      {/* Spend vs Budget Meter */}
+      {/* Spend vs Budget */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div
           style={{
@@ -354,27 +313,20 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
             ${spend.toFixed(2)} / ${budget.toFixed(2)} ({budgetPct}%)
           </span>
         </div>
-        <div
-          style={{
-            height: '4px',
-            backgroundColor: 'var(--color-surface-elevated)',
-            borderRadius: '2px',
-            overflow: 'hidden',
-          }}
-        >
+        <div style={track}>
           <div
+            className="meter-fill"
             style={{
               height: '100%',
-              width: `${budgetPct}%`,
-              backgroundColor: budgetColor,
-              borderRadius: '2px',
-              transition: 'width var(--transition-base)',
+              width: `${budgetBarPct}%`,
+              background: budgetFill,
+              borderRadius: '3px',
             }}
           />
         </div>
       </div>
 
-      {/* Loop Score Bar */}
+      {/* Loop Score */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
         <div
           style={{
@@ -409,51 +361,72 @@ export const AgentCard: React.FC<AgentCardProps> = ({ agent, onClick, className 
             )}
           </span>
         </div>
-        <div
-          style={{
-            height: '4px',
-            backgroundColor: 'var(--color-surface-elevated)',
-            borderRadius: '2px',
-            overflow: 'hidden',
-          }}
-        >
+        <div style={track}>
           <div
+            className="meter-fill"
             style={{
               height: '100%',
               width: `${loopPct}%`,
-              backgroundColor: loopColor,
-              borderRadius: '2px',
-              transition: 'width var(--transition-base)',
+              background: loopFill,
+              borderRadius: '3px',
             }}
           />
         </div>
       </div>
 
-      {/* Card Footer: Last Action & Navigation Arrow */}
+      {/* Footer: quarantine badge for anomalous nodes, plain last action otherwise */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
+          gap: 'var(--space-2)',
           paddingTop: 'var(--space-2)',
-          borderTop: '1px solid var(--color-border)',
+          borderTop: '1px solid rgba(255,255,255,0.08)',
           fontSize: 'var(--type-micro-size)',
           color: 'var(--color-text-secondary)',
           marginTop: 'auto',
+          minWidth: 0,
         }}
       >
-        <div
-          style={{
-            fontFamily: 'var(--font-mono)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            maxWidth: 'calc(100% - 24px)',
-          }}
-          title={lastActionText}
-        >
-          {lastActionText}
-        </div>
+        {isAnomalous ? (
+          <div
+            data-testid={`quarantine-badge-${agent.agent_id}`}
+            title={lastActionText}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              minWidth: 0,
+              fontFamily: 'var(--font-mono)',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: badgeColor,
+              backgroundColor: `${badgeColor}1f`,
+              border: `1px solid ${badgeColor}66`,
+              borderRadius: '4px',
+              padding: '3px 8px',
+            }}
+          >
+            <ShieldAlert size={12} style={{ flexShrink: 0 }} />
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {lastActionText}
+            </span>
+          </div>
+        ) : (
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              minWidth: 0,
+            }}
+            title={lastActionText}
+          >
+            {lastActionText}
+          </div>
+        )}
         <ArrowRight size={14} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
       </div>
     </div>

@@ -33,11 +33,8 @@ export const Panel: React.FC<PanelProps> = ({
   return (
     <section
       aria-label={title}
-      className={`mission-panel ${className}`}
+      className={`mission-panel glass ${className}`}
       style={{
-        backgroundColor: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: 'var(--radius-md)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -51,7 +48,7 @@ export const Panel: React.FC<PanelProps> = ({
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: 'var(--space-3) var(--space-4)',
-          borderBottom: '1px solid var(--color-border)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
           minHeight: '48px',
         }}
       >
