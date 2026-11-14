@@ -3,17 +3,15 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { DollarSign, Download, ChevronRight, Coins, Target, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client';
-import type { RoiReport } from '../api/types';
 import { Panel } from '../components/Panel';
 import { CardHeader, HeroCard, KpiCard, PageHeader, Tabs } from '../components/ui';
 import { Heatmap } from '../components/vizExtra';
 import { burnHeatmap } from '../utils/burn';
 import { fmtCompact } from '../components/charts';
-import { LineAreaChart } from '../components/viz';
-import { BudgetBurnDown } from '../components/BudgetBurnDown';
+import { AgentBudgetCards, SavingsPanel } from '../components/CostPanels';
+import { fmtRoi } from '../utils/costView';
 import { useCountUp } from '../utils/useCountUp';
 import { taskRowsByWasted } from '../utils/burndown';
-import { hashString, mulberry32 } from '../components/charts';
 
 /* ───────── helpers ───────── */
 const money = (v: number, d = 4) => `$${v.toFixed(d)}`;
@@ -25,98 +23,12 @@ const moneyShort = (v: number) =>
     : v >= 0.1
     ? `$${v.toFixed(2)}`
     : `$${v.toFixed(4)}`;
-const fmtRoi = (x: number) => (x >= 1000 ? `${(x / 1000).toFixed(1)}k` : x.toFixed(1));
-
-/** Linear axis when series are comparable; symlog when one dwarfs the other. */
-interface Axis {
-  log: boolean;
-  norm: (v: number) => number;
-  inv: (f: number) => number;
-}
-function makeAxis(max: number, floorRef: number): Axis {
-  const safeMax = Math.max(max, 1e-9);
-  const ref = Math.max(floorRef, 1e-9);
-  if (safeMax / ref <= 40) {
-    return { log: false, norm: (v) => v / safeMax, inv: (f) => f * safeMax };
-  }
-  const s0 = ref / 5;
-  const top = Math.log10(1 + safeMax / s0);
-  return {
-    log: true,
-    norm: (v) => Math.log10(1 + Math.max(0, v) / s0) / top,
-    inv: (f) => s0 * (Math.pow(10, f * top) - 1),
-  };
-}
-
 const INK = 'var(--color-text-primary)';
 const MUTED = 'var(--color-text-muted)';
 const ROSE = 'var(--color-state-killed)';
 const CYAN = 'var(--color-state-probation)';
 const MINT = 'var(--color-state-healthy)';
 const AMBER = 'var(--color-state-suspicious)';
-
-/* ───────── Burn-down chart (area-line, shared with the Fleet page) ───────── */
-const N = 40;
-
-interface BurnModel {
-  minutes: number[];
-  prot: number[];
-  unprot: number[];
-  marks: { idx: number; label: string }[];
-}
-
-function buildBurnModel(roi: RoiReport): BurnModel {
-  const T = roi.horizon_minutes || 60;
-  const rnd = mulberry32(hashString(`burn|${roi.interventions}|${roi.saved_by_action.length}`));
-  const inc = Array.from({ length: N }, () => 0.45 + rnd() * 1.1);
-  const sum = inc.reduce((a, b) => a + b, 0);
-  let acc = 0;
-  const prot = inc.map((v) => (acc += v / sum) * roi.total_spend_usd);
-  const minutes = prot.map((_, i) => (i / (N - 1)) * T);
-  const actions = [...roi.saved_by_action].sort((a, b) => a.action_id - b.action_id);
-  const marks = actions.map((a, k) => ({
-    idx: Math.min(N - 4, Math.round(N * (0.32 + 0.27 * k))),
-    label: `${a.action} ${a.agent_id}`,
-    usd: a.usd,
-  }));
-  const unprot = prot.map((p, i) => {
-    let extra = 0;
-    marks.forEach((m) => {
-      if (i >= m.idx) extra += m.usd * Math.pow((i - m.idx) / Math.max(1, N - 1 - m.idx), 1.7);
-    });
-    return p + extra;
-  });
-  return { minutes, prot, unprot, marks };
-}
-
-const BurnDownChart = React.memo<{ roi: RoiReport }>(({ roi }) => {
-  const model = useMemo(() => buildBurnModel(roi), [roi]);
-  const protEnd = model.prot[N - 1] || 0;
-  const axis = makeAxis(Math.max(model.unprot[N - 1], protEnd), protEnd);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ value: axis.inv(f), label: moneyShort(axis.inv(f)) }));
-  const markers = model.marks.map((m) => ({ index: m.idx, label: m.label }));
-  return (
-    <div>
-      <LineAreaChart
-        testId="burndown-chart"
-        series={[
-          { name: 'Without Cloud-Sentinel', color: 'var(--chart-indigo)', values: model.unprot },
-          { name: 'Protected spend', color: 'var(--chart-cyan)', values: model.prot },
-        ]}
-        xLabels={model.minutes.map((m) => `${m.toFixed(0)} min`)}
-        format={(v) => money(v)}
-        markers={markers}
-        scale={axis.norm}
-        ticks={ticks}
-        height={330}
-        knots={7}
-      />
-      {axis.log && (
-        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>Log scale: the two lines differ by more than 40x.</p>
-      )}
-    </div>
-  );
-});
 
 /* ───────── Syntax-highlighted formula ───────── */
 const Formula: React.FC<{ text: string }> = ({ text }) => {
@@ -329,8 +241,8 @@ export const CostView: React.FC = () => {
                 testId="roi-badge"
                 label="Total value saved"
                 icon={<DollarSign size={15} />}
-                value={money(savedShown)}
-                foot={`${fmtRoi(roiX)}x ROI on ${money(totalSpend, 2)} of spend · ${data.interventions} interventions`}
+                value={money(savedShown, 2)}
+                foot={`${fmtRoi(roiX)} ROI on ${money(totalSpend, 2)} of spend · ${data.interventions} interventions`}
                 progress={totalSaved + totalSpend > 0 ? totalSaved / (totalSaved + totalSpend) : 0}
               />
               <KpiCard label="Total fleet spend" icon={<Coins size={15} />} value={money(totalSpend)} foot={<span className="muted" style={{ fontSize: 12 }}>{agentRows.length} agents billed</span>} />
@@ -339,9 +251,9 @@ export const CostView: React.FC = () => {
             </div>
           </section>
 
-          <section className="card card-pad" aria-label="Cumulative Cost Burn-Down vs Prevented Runaway">
-            <CardHeader title="Cumulative cost burn-down vs. prevented runaway" sub={`${horizon} min horizon — amber dots mark circuit-breaker interventions; hover one for details`} />
-            <BurnDownChart roi={data} />
+          <section className="card card-pad" aria-label="What the circuit breaker saved">
+            <CardHeader title="What the circuit breaker saved" sub="Actual spend next to what the fleet would have spent if nothing had been stopped" />
+            <SavingsPanel roi={data} actions={actionsData?.items ?? []} />
           </section>
 
           <div className="bento" style={{ alignItems: 'start' }}>
@@ -397,13 +309,9 @@ export const CostView: React.FC = () => {
         </>
       ) : tab === 'agents' ? (
         <>
-          <section className="card card-pad" aria-label="Budget Burn-Down by Agent">
-            <CardHeader title="Budget burn-down by agent" sub="Budget left over the last 30 min. Dashed lines project when each agent hits $0; paused agents flatten at the PAUSE marker." />
-            {(metricsData?.metrics.length ?? 0) === 0 ? (
-              <p className="muted" style={{ padding: '24px 0' }}>No metrics yet. Budget lines appear once agents report spend.</p>
-            ) : (
-              <BudgetBurnDown metrics={metricsData?.metrics ?? []} actions={actionsData?.items ?? []} agents={fleetData?.agents ?? []} />
-            )}
+          <section className="card card-pad" aria-label="Budget by Agent">
+            <CardHeader title="Budget by agent" sub="How much of each agent's budget is used, and how long the rest lasts at its current rate" />
+            <AgentBudgetCards agents={fleetData?.agents ?? []} roi={data} />
           </section>
           <section className="card" aria-label="Task Economics by Agent" style={{ padding: '20px 0 8px' }}>
             <div style={{ padding: '0 22px' }}>
