@@ -340,7 +340,7 @@ export const CostView: React.FC = () => {
           </section>
 
           <section className="card card-pad" aria-label="Cumulative Cost Burn-Down vs Prevented Runaway">
-            <CardHeader title="Cumulative cost burn-down vs. prevented runaway" sub={`${horizon} min horizon — amber lines mark circuit-breaker interventions`} />
+            <CardHeader title="Cumulative cost burn-down vs. prevented runaway" sub={`${horizon} min horizon — amber dots mark circuit-breaker interventions; hover one for details`} />
             <BurnDownChart roi={data} />
           </section>
 
