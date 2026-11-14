@@ -1,18 +1,23 @@
-import React, { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, Activity, ShieldAlert, Coins, Cpu, ArrowRight, AlertTriangle, Wallet, Clock } from 'lucide-react';
+import {
+  DollarSign,
+  Activity,
+  ShieldAlert,
+  Cpu,
+  RefreshCw,
+  Filter,
+  BarChart2,
+  Terminal,
+  TrendingUp,
+} from 'lucide-react';
 import { api } from '../api/client';
 import type { AgentState, AgentView } from '../api/types';
 import { Panel } from '../components/Panel';
-import { StateBadge } from '../components/StateBadge';
-import { MiniSpark, fmtCompact } from '../components/charts';
-import { CardHeader, HeroCard, KpiCard, PageHeader, Segmented, deltaPct, greeting, ago } from '../components/ui';
-import { Lollipop, StageBars, TickGauge, downsample } from '../components/vizExtra';
-import { aggregateField } from '../utils/burn';
-import { livePoll } from '../utils/live';
+import { AgentCard } from '../components/AgentCard';
+import { areaFromLine, fmtCompact, smoothPath, useRollingSeries } from '../components/charts';
 import { groupByNode, hasNodes } from '../utils/nodes';
-import { useCountUp } from '../utils/useCountUp';
 
 export function sortFleetAgents(agents: AgentView[]): AgentView[] {
   return [...agents].sort((a, b) => {
@@ -25,434 +30,807 @@ export function sortFleetAgents(agents: AgentView[]): AgentView[] {
   });
 }
 
-/** Fleet-wide token limit: the sum of each selected agent's learned soft limit (null if any is still warming up). */
-export function fleetLimit(agents: AgentView[]): number | null {
-  if (agents.length === 0) return null;
-  let sum = 0;
-  for (const a of agents) {
-    const l = a.baseline?.tokens_per_min?.limit;
-    if (!l) return null;
-    sum += l;
-  }
-  return sum;
-}
+/* ───────── Live multi-series chart: token burn velocity (area) vs circuit-breaker savings (bars) ───────── */
+const HERO_W = 640;
+const HERO_H = 340;
+const HERO_PAD = { l: 8, r: 14, t: 14, b: 22 };
 
-const money2 = (v: number) => `$${v.toFixed(2)}`;
-const tok = (v: number) => (v >= 1000 ? fmtCompact(v) : String(Math.round(v)));
-const fmtRoi = (x: number) => (x >= 1000 ? `${(x / 1000).toFixed(1)}k` : x.toFixed(1));
-const WINDOWS = [
-  { value: 2, label: '2 min' },
-  { value: 5, label: '5 min' },
-  { value: 15, label: '15 min' },
-];
+const HeroChart = React.memo<{ burn: number[]; saves: number[] }>(({ burn, saves }) => {
+  const innerW = HERO_W - HERO_PAD.l - HERO_PAD.r;
+  const innerH = HERO_H - HERO_PAD.t - HERO_PAD.b;
+  const baseY = HERO_PAD.t + innerH;
+  const n = burn.length;
+  if (n < 2) return <div style={{ height: HERO_H }} />;
 
-const STATE_COLORS: Record<string, string> = {
-  healthy: 'var(--color-state-healthy)',
-  probation: 'var(--color-state-probation)',
-  suspicious: 'var(--chart-amber)',
-  paused: 'var(--chart-violet)',
-  killed: 'var(--chart-red)',
-};
+  const burnMax = Math.max(1, ...burn) * 1.15;
+  const saveMax = Math.max(1e-9, ...saves);
+  const xAt = (i: number) => HERO_PAD.l + (i / (n - 1)) * innerW;
+  const pts = burn.map((v, i) => ({ x: xAt(i), y: baseY - (v / burnMax) * innerH }));
+  const line = smoothPath(pts);
+  const last = pts[pts.length - 1];
+  const barW = Math.max(4, innerW / n - 4);
+
+  return (
+    <svg
+      viewBox={`0 0 ${HERO_W} ${HERO_H}`}
+      role="img"
+      aria-label="Fleet token burn velocity versus circuit-breaker savings"
+      data-testid="fleet-hero-chart"
+      style={{ width: '100%', height: 'auto', display: 'block', overflow: 'visible' }}
+    >
+      <defs>
+        <linearGradient id="heroBurn" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.42" />
+          <stop offset="100%" stopColor="#06B6D4" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="heroSave" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#34D399" />
+          <stop offset="100%" stopColor="#10B981" stopOpacity="0.35" />
+        </linearGradient>
+      </defs>
+      {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+        <line
+          key={f}
+          x1={HERO_PAD.l}
+          x2={HERO_W - HERO_PAD.r}
+          y1={baseY - f * innerH}
+          y2={baseY - f * innerH}
+          stroke="rgba(255,255,255,0.07)"
+          strokeDasharray={f === 0 ? undefined : '3 5'}
+        />
+      ))}
+      {saves.map((v, i) => {
+        if (v <= 0) return null;
+        const h = Math.max(6, (v / saveMax) * innerH * 0.8);
+        return (
+          <rect
+            key={i}
+            className="bar-rise"
+            x={xAt(i) - barW / 2}
+            y={baseY - h}
+            width={barW}
+            height={h}
+            rx={2}
+            fill="url(#heroSave)"
+          />
+        );
+      })}
+      <path d={areaFromLine(line, last, pts[0], baseY)} fill="url(#heroBurn)" />
+      <path
+        d={line}
+        fill="none"
+        stroke="#22D3EE"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+      <circle className="live-dot" cx={last.x} cy={last.y} r="4" fill="#22D3EE" opacity="0.6" />
+      <circle cx={last.x} cy={last.y} r="4.5" fill="#22D3EE" stroke="#05070B" strokeWidth="2" />
+      <text x={HERO_PAD.l} y={HERO_H - 4} fontSize="10" fontFamily="var(--font-mono)" fill="#94A3B8">
+        −{n}s
+      </text>
+      <text
+        x={HERO_W - HERO_PAD.r}
+        y={HERO_H - 4}
+        fontSize="10"
+        textAnchor="end"
+        fontFamily="var(--font-mono)"
+        fill="#94A3B8"
+      >
+        NOW
+      </text>
+      <text
+        x={last.x - 10}
+        y={Math.max(11, last.y - 10)}
+        fontSize="11"
+        textAnchor="end"
+        fontWeight="700"
+        fontFamily="var(--font-mono)"
+        fill="#67E8F9"
+      >
+        {fmtCompact(burn[n - 1])} tok/min
+      </text>
+    </svg>
+  );
+});
+
+/* ───────── Live node comparison: Tokens/min vs Loop Score per agent ───────── */
+const NodeComparison = React.memo<{ agents: AgentView[] }>(({ agents }) => {
+  const W = 520;
+  const H = 190;
+  const padB = 26;
+  const padT = 20;
+  const innerH = H - padB - padT;
+  const list = agents.slice(0, 4);
+  const maxTokens = Math.max(1, ...list.map((a) => a.tokens_per_min));
+  const slot = W / Math.max(1, list.length);
+  const barW = Math.min(30, slot / 3.2);
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label="Tokens per minute and loop score by agent"
+      data-testid="node-comparison-chart"
+      style={{ width: '100%', height: 'auto', display: 'block' }}
+    >
+      {[0, 0.5, 1].map((f) => (
+        <line
+          key={f}
+          x1={0}
+          x2={W}
+          y1={padT + innerH - f * innerH}
+          y2={padT + innerH - f * innerH}
+          stroke="rgba(255,255,255,0.07)"
+          strokeDasharray={f === 0 ? undefined : '3 5'}
+        />
+      ))}
+      {list.map((a, i) => {
+        const cx = slot * i + slot / 2;
+        const halted = a.state === 'killed' || a.state === 'paused';
+        const tokH = Math.max(3, (a.tokens_per_min / maxTokens) * innerH);
+        const loop = Math.max(0, Math.min(1, a.loop_score));
+        const loopH = Math.max(3, loop * innerH);
+        const tokColor = halted ? '#F43F5E' : '#06B6D4';
+        const loopColor = loop >= 0.6 ? '#F43F5E' : loop >= 0.4 ? '#F59E0B' : '#818CF8';
+        return (
+          <g key={a.agent_id}>
+            <rect
+              className="bar-rise"
+              style={{ animationDelay: `${i * 110}ms` }}
+              x={cx - barW - 2}
+              y={padT + innerH - tokH}
+              width={barW}
+              height={tokH}
+              rx={3}
+              fill={tokColor}
+              fillOpacity={0.9}
+            />
+            <rect
+              className="bar-rise"
+              style={{ animationDelay: `${i * 110 + 60}ms` }}
+              x={cx + 2}
+              y={padT + innerH - loopH}
+              width={barW}
+              height={loopH}
+              rx={3}
+              fill={loopColor}
+              fillOpacity={0.9}
+            />
+            <text
+              x={cx - barW / 2 - 2}
+              y={padT + innerH - tokH - 5}
+              fontSize="10"
+              fontWeight="700"
+              textAnchor="middle"
+              fontFamily="var(--font-mono)"
+              fill={tokColor}
+            >
+              {fmtCompact(a.tokens_per_min)}
+            </text>
+            <text
+              x={cx + barW / 2 + 2}
+              y={padT + innerH - loopH - 5}
+              fontSize="10"
+              fontWeight="700"
+              textAnchor="middle"
+              fontFamily="var(--font-mono)"
+              fill={loopColor}
+            >
+              {loop.toFixed(2)}
+            </text>
+            <text
+              x={cx}
+              y={H - 8}
+              fontSize="11"
+              fontWeight="600"
+              textAnchor="middle"
+              fontFamily="var(--font-mono)"
+              fill="#E2E8F0"
+            >
+              {a.agent_id.toUpperCase()}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+});
+
+const Legend: React.FC<{ items: { color: string; label: string }[] }> = ({ items }) => (
+  <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+    {items.map((it) => (
+      <span
+        key={it.label}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          color: 'var(--color-text-secondary)',
+        }}
+      >
+        <span style={{ width: 10, height: 10, borderRadius: 2, background: it.color }} />
+        {it.label}
+      </span>
+    ))}
+  </div>
+);
 
 export const FleetView: React.FC = () => {
   const navigate = useNavigate();
-  const [filterState, setFilterState] = useState<AgentState | 'all' | 'over'>('all');
+  const [filterState, setFilterState] = useState<AgentState | 'all'>('all');
   const [byNode, setByNode] = useState(false);
-  const [minutes, setMinutes] = useState(5);
-  const [focus, setFocus] = useState<string>('all');
 
-  const fleetQ = useQuery({ queryKey: ['fleet'], queryFn: api.getFleet, refetchInterval: livePoll });
-  const roiQ = useQuery({ queryKey: ['roi'], queryFn: api.getRoi, refetchInterval: livePoll });
-  const { data: metricsData } = useQuery({ queryKey: ['metrics', minutes], queryFn: () => api.getMetrics(minutes), refetchInterval: livePoll });
-  const { data: calls } = useQuery({ queryKey: ['tool-calls', 'pending'], queryFn: () => api.getToolCalls('pending'), refetchInterval: livePoll });
-  const { data: heals } = useQuery({ queryKey: ['heal-proposals', 'pending'], queryFn: () => api.getHealProposals('pending'), refetchInterval: livePoll });
+  // Fetch live fleet data
+  const {
+    data: fleetData,
+    isLoading: loadingFleet,
+    error: errorFleet,
+    refetch: refetchFleet,
+    dataUpdatedAt: fleetStamp,
+  } = useQuery({
+    queryKey: ['fleet'],
+    queryFn: api.getFleet,
+    refetchInterval: 1000,
+  });
 
-  const agents = fleetQ.data?.agents || [];
-  const roi = roiQ.data;
+  // Fetch live ROI telemetry
+  const {
+    data: roiData,
+    isLoading: loadingRoi,
+    error: errorRoi,
+    refetch: refetchRoi,
+  } = useQuery({
+    queryKey: ['roi'],
+    queryFn: api.getRoi,
+    refetchInterval: 1000,
+  });
+
+  const agents = fleetData?.agents || [];
   const totalBurnRate = agents.reduce((sum, a) => sum + (a.usd_per_min || 0), 0);
-  const totalSpend = roi?.total_spend_usd ?? agents.reduce((sum, a) => sum + (a.spend_usd || 0), 0);
-  const totalSaved = roi?.saved_usd ?? 0;
-  const interventions = roi?.interventions ?? 0;
-  const savedShown = useCountUp(totalSaved);
+  const totalTokensPerMin = agents.reduce((sum, a) => sum + (a.tokens_per_min || 0), 0);
+  const totalSpend =
+    roiData?.total_spend_usd ?? agents.reduce((sum, a) => sum + (a.spend_usd || 0), 0);
+  const totalSaved = roiData?.saved_usd ?? 0;
+  const interventions = roiData?.interventions ?? 0;
 
-  const metrics = metricsData?.metrics ?? [];
-  const focusMetrics = useMemo(() => (focus === 'all' ? metrics : metrics.filter((m) => m.agent_id === focus)), [metrics, focus]);
-  const burn = useMemo(() => aggregateField(focusMetrics, 'tokens_per_min'), [focusMetrics]);
-  const spendSeries = useMemo(() => aggregateField(metrics, 'spend_usd').values, [metrics]);
-  const usdSeries = useMemo(() => aggregateField(metrics, 'usd_per_min').values, [metrics]);
-  const points = useMemo(() => {
-    const p = downsample(burn.values, burn.labels, 14);
-    if (p.length) p[p.length - 1] = { ...p[p.length - 1], label: 'Now' };
-    return p.map((x, i) => (i === p.length - 1 ? x : { ...x, label: x.label.replace(/:\d\d(\s?[AP]M)?$/, '$1') }));
-  }, [burn]);
-  const limit = fleetLimit(focus === 'all' ? agents : agents.filter((a) => a.agent_id === focus));
-  const peak = points.reduce((m, p) => (p.value > m.value ? p : m), { value: 0, label: '' });
-  const above = limit ? points.filter((p) => p.value > limit).length : 0;
+  // Live rolling telemetry: seeded history, then one real sample per refresh
+  const burnSeries = useRollingSeries(
+    agents.length ? totalTokensPerMin : undefined,
+    fleetStamp,
+    'fleet-burn'
+  );
+  const prevSaved = useRef<number | undefined>(undefined);
+  const savedDelta = prevSaved.current === undefined ? 0 : Math.max(0, totalSaved - prevSaved.current);
+  const saveSeries = useRollingSeries(
+    roiData ? savedDelta : undefined,
+    fleetStamp,
+    'fleet-saves',
+    36,
+    'spikes'
+  );
+  useEffect(() => {
+    if (roiData) prevSaved.current = totalSaved;
+  }, [fleetStamp, roiData, totalSaved]);
 
+  // Breakdown by state
   const stateCounts = agents.reduce<Record<string, number>>((acc, a) => {
     acc[a.state] = (acc[a.state] || 0) + 1;
     return acc;
   }, {});
+
   const sortedAgents = sortFleetAgents(agents);
-  const isOver = (a: AgentView) => a.budget_usd > 0 && a.spend_usd / a.budget_usd >= 0.8;
   const displayedAgents =
-    filterState === 'all' ? sortedAgents : filterState === 'over' ? sortedAgents.filter(isOver) : sortedAgents.filter((a) => a.state === filterState);
-  const pending = [...(calls?.items ?? []).map((c) => ({ kind: 'tool' as const, id: c.id, agent: c.agent_id, title: c.tool_name, sub: c.value_usd > 0 ? `$${c.value_usd.toFixed(0)} at stake` : c.reason, at: c.created_at })), ...(heals?.items ?? []).map((h) => ({ kind: 'heal' as const, id: h.id, agent: h.agent_id, title: 'Memory fix proposed', sub: `${Math.round(h.confidence * 100)}% confidence`, at: h.created_at }))];
-  const budgetLeft = agents.reduce((s, a) => s + Math.max(0, a.budget_usd - a.spend_usd), 0);
-  const overBudget = agents.filter((a) => a.budget_usd > 0 && a.spend_usd / a.budget_usd >= 0.8);
-  const watch = sortedAgents.filter((a) => a.state !== 'healthy' || (a.budget_usd > 0 && a.spend_usd / a.budget_usd >= 0.8)).slice(0, 4);
-  const spenders = [...agents].sort((a, b) => b.spend_usd - a.spend_usd).slice(0, 5);
-  const maxSpend = Math.max(1e-9, ...spenders.map((a) => a.spend_usd));
-  const tasksTotal = roi?.tasks_total ?? 0;
-  const tasksOk = roi?.tasks_succeeded ?? 0;
-  const running = agents.filter((a) => a.state !== 'killed' && a.state !== 'paused').length;
+    filterState === 'all' ? sortedAgents : sortedAgents.filter((a) => a.state === filterState);
 
-  const refreshAll = () => {
-    fleetQ.refetch();
-    roiQ.refetch();
+  const handleRefreshAll = () => {
+    refetchFleet();
+    refetchRoi();
   };
 
-  const row = (agent: AgentView) => {
-    const ratio = agent.budget_usd > 0 ? agent.spend_usd / agent.budget_usd : 0;
-    const median = agent.baseline?.tokens_per_min?.median;
-    const last = agent.last_verdict ? `[${agent.last_verdict.action}] ${agent.last_verdict.reason}` : 'Operating within baseline limits';
-    const open = () => navigate(`/agents/${agent.agent_id}`);
-    return (
-      <tr
-        key={agent.agent_id}
-        data-testid={`agent-card-${agent.agent_id}`}
-        tabIndex={0}
-        aria-label={`Inspect agent ${agent.agent_id}, state ${agent.state}`}
-        onClick={open}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            open();
-          }
-        }}
-      >
-        <td style={{ maxWidth: 240 }}>
-          <span>{agent.agent_id}</span>
-          <span className="sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={last}>
-            {agent.runtime} · {ago(agent.updated_at)} · {last}
-          </span>
-        </td>
-        <td className="num">
-          {tok(agent.tokens_per_min)}
-          {median ? <span className="sub">{(agent.tokens_per_min / median).toFixed(1)}× normal</span> : null}
-        </td>
-        <td style={{ minWidth: 150 }}>
-          ${agent.spend_usd.toFixed(2)} <span className="muted">/ ${agent.budget_usd.toFixed(2)}</span>
-          <span style={{ display: 'block', height: 4, borderRadius: 2, background: 'var(--color-fill)', marginTop: 6 }}>
-            <span className="meter-fill" style={{ display: 'block', height: '100%', borderRadius: 2, width: `${Math.min(100, ratio * 100)}%`, background: ratio >= 0.8 ? 'var(--chart-red)' : 'var(--chart-violet)' }} />
-          </span>
-        </td>
-        <td className="num" style={{ color: agent.loop_score >= 0.4 ? 'var(--color-state-killed)' : undefined }}>
-          {agent.loop_score.toFixed(2)}
-        </td>
-        <td>
-          <StateBadge state={agent.state} />
-        </td>
-        <td className="num">
-          <span className="btn btn-sm" aria-hidden="true">
-            Inspect <ArrowRight size={13} />
-          </span>
-        </td>
-      </tr>
-    );
-  };
+  const lastUpdated = agents[0]?.updated_at
+    ? new Date(agents[0].updated_at).toLocaleTimeString()
+    : new Date().toLocaleTimeString();
+
+  const hot = totalBurnRate > 0.05;
+  const segs: { key: string; color: string }[] = [
+    { key: 'healthy', color: 'var(--color-state-healthy)' },
+    { key: 'probation', color: 'var(--color-state-probation)' },
+    { key: 'suspicious', color: 'var(--color-state-suspicious)' },
+    { key: 'paused', color: 'var(--color-state-paused)' },
+    { key: 'killed', color: 'var(--color-state-killed)' },
+  ];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: '100%' }}>
-      <PageHeader
-        eyebrow={`${greeting()}, operator`}
-        title="Fleet Telemetry Control"
-        summary={`${money2(totalSaved)} saved by ${interventions} interventions · ${running} of ${agents.length} agents running · ${pending.length} waiting for a human.`}
-        actions={
-          <>
-            <button type="button" className="btn" onClick={refreshAll} aria-label="Refresh telemetry data">
-              Refresh
-            </button>
-            <Link to="/approvals" className="btn-primary">
-              <ShieldAlert size={15} /> Approvals
-            </Link>
-          </>
-        }
-      />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', width: '100%' }}>
+      {/* Header */}
+      <div
+        className="glass"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 'var(--space-4)',
+          padding: 'var(--space-4) var(--space-6)',
+        }}
+      >
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <h1
+              style={{
+                fontSize: 'var(--type-title-sm-size)',
+                lineHeight: 'var(--type-title-sm-lh)',
+                fontWeight: 600,
+                letterSpacing: '-0.01em',
+                color: 'var(--color-text-primary)',
+              }}
+            >
+              Fleet Telemetry Control
+            </h1>
+            <span
+              className="chip"
+              style={{
+                backgroundColor: 'var(--color-state-healthy-bg)',
+                color: 'var(--color-state-healthy)',
+                border: '1px solid var(--color-state-healthy-border)',
+              }}
+            >
+              <span
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--color-state-healthy)',
+                  boxShadow: '0 0 6px var(--color-state-healthy)',
+                }}
+              />
+              LIVE POLLING (1 HZ)
+            </span>
+          </div>
+          <p style={{ color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
+            Autonomous circuit breaker monitoring, real-time token burn attribution, and incident
+            quarantine.
+          </p>
+        </div>
 
-      <div className="bento" style={{ alignItems: 'start' }}>
-        {/* ── left column ── */}
-        <div className="col-span-8" style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 1fr 1fr 1fr', gap: 18 }}>
-            <HeroCard
-              testId="kpi-saved"
-              to="/cost"
-              label="Total $ saved"
-              icon={<DollarSign size={15} />}
-              value={`$${savedShown.toFixed(4)}`}
-              foot={`${fmtRoi(totalSpend > 0 ? totalSaved / totalSpend : 0)}× return on ${money2(totalSpend)} spent`}
-              progress={totalSaved + totalSpend > 0 ? totalSaved / (totalSaved + totalSpend) : 0}
-            />
-            <KpiCard to="/cost" label="Fleet spend" icon={<Coins size={15} />} value={`$${totalSpend.toFixed(4)}`} spark={spendSeries} delta={deltaPct(spendSeries)} goodWhenUp={false} />
-            <KpiCard label="Burn rate" icon={<Activity size={15} />} value={`$${totalBurnRate.toFixed(4)}/min`} spark={usdSeries} delta={deltaPct(usdSeries)} goodWhenUp={false} />
-            <KpiCard
-              to="/incidents"
-              label="Interventions"
-              icon={<ShieldAlert size={15} />}
-              value={interventions}
-              foot={<span className="chip" style={{ background: 'var(--color-fill)', color: 'var(--color-text-secondary)' }}>{roi?.tool_calls_held || 0} held at the gate</span>}
-            />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              fontSize: 'var(--type-micro-size)',
+              fontFamily: 'var(--font-mono)',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            <span>
+              <span style={{ color: 'var(--color-accent)' }}>API:</span> :8000
+            </span>
+            <span>·</span>
+            <span>
+              Updated: <span style={{ color: 'var(--color-text-primary)' }}>{lastUpdated}</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleRefreshAll}
+            aria-label="Refresh telemetry data"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-4)',
+              backgroundColor: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--type-body-sm-size)',
+              fontWeight: 600,
+            }}
+          >
+            <RefreshCw size={13} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Asymmetric telemetry deck */}
+      <div className="bento">
+        {/* Hero (col-span-5): the three headline KPIs + live multi-series graph */}
+        <div
+          className="glass col-span-5"
+          style={{
+            padding: 'var(--space-5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-4)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <div className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                TOTAL $ SAVED <DollarSign size={13} color="var(--color-state-healthy)" />
+              </div>
+              <div
+                className="kpi-value"
+                style={{
+                  fontSize: 38,
+                  lineHeight: 1.15,
+                  color: 'var(--color-state-healthy)',
+                  textShadow: '0 0 24px rgba(16, 185, 129, 0.35)',
+                }}
+              >
+                ${totalSaved.toFixed(4)}
+              </div>
+              <div style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)' }}>
+                Saved via {interventions} automated stops
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', textAlign: 'right' }}>
+              <div>
+                <div className="kpi-label">TOTAL FLEET SPEND</div>
+                <div className="kpi-value" style={{ fontSize: 20 }}>
+                  ${totalSpend.toFixed(4)}
+                </div>
+              </div>
+              <div>
+                <div className="kpi-label" style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                  FLEET BURN RATE
+                  <Activity size={13} color={hot ? 'var(--color-state-suspicious)' : 'var(--color-text-muted)'} />
+                </div>
+                <div
+                  className="kpi-value"
+                  style={{ fontSize: 20, color: hot ? 'var(--color-state-suspicious)' : 'var(--color-cyan)' }}
+                >
+                  ${totalBurnRate.toFixed(4)}/min
+                </div>
+              </div>
+            </div>
           </div>
 
-          <section className="card card-pad" aria-label="Token burn against the limit">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <h2 className="card-title">Token burn against the limit</h2>
-                <p className="card-sub">Tokens per minute across the fleet — red means a sample went over the learned limit</p>
-              </div>
-              <Segmented label="Time window" options={WINDOWS} value={minutes} onChange={setMinutes} />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap', margin: '18px 0 8px' }}>
-              <div style={{ display: 'flex', gap: 28, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                <div>
-                  <div className="stat-label">Now</div>
-                  <div style={{ fontSize: 34, fontWeight: 600, letterSpacing: '-0.02em', lineHeight: 1.05 }}>{fmtCompact(burn.values[burn.values.length - 1] ?? 0)}<span className="muted" style={{ fontSize: 15 }}>/min</span></div>
-                </div>
-                <div>
-                  <div className="stat-label">Over the limit</div>
-                  <div className="stat-value">{limit ? `${above} of ${points.length}` : '—'} <span className="muted" style={{ fontSize: 12.5 }}>samples</span></div>
-                </div>
-                <div>
-                  <div className="stat-label"><span style={{ color: 'var(--color-state-killed)' }}>- -</span> Limit</div>
-                  <div className="stat-value">{limit ? `${fmtCompact(limit)}/min` : 'learning'}</div>
-                </div>
-                <div>
-                  <div className="stat-label">Peak</div>
-                  <div className="stat-value">{fmtCompact(peak.value)} <span className="muted" style={{ fontSize: 12.5 }}>{peak.label}</span></div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['all', ...agents.map((a) => a.agent_id)].map((id) => (
-                  <button key={id} type="button" className="filter-chip" aria-pressed={focus === id} aria-label={`Show ${id === 'all' ? 'all agents' : id}`} onClick={() => setFocus(id)}>
-                    {id === 'all' ? 'All' : <><span style={{ width: 8, height: 8, borderRadius: 3, background: STATE_COLORS[agents.find((a) => a.agent_id === id)?.state ?? 'healthy'] }} />{id.toUpperCase()}</>}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {points.length >= 2 && Math.max(...points.map((p) => p.value)) > 0 ? (
-              <Lollipop testId="fleet-burn-chart" points={points} limit={limit} format={(v) => fmtCompact(v)} />
-            ) : (
-              <p className="muted" style={{ padding: '48px 0' }}>No token flow to chart yet: it appears once running agents report a few samples.</p>
-            )}
-          </section>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-            <section className="card card-pad" aria-label="Agent states">
-              <CardHeader title="Agent states" sub="Where every agent is in the circuit breaker" to="/incidents" toLabel="Open incidents" />
-              <StageBars
-                stages={[
-                  { label: 'Healthy', value: stateCounts.healthy || 0, color: 'var(--color-state-healthy)' },
-                  { label: 'Probation', value: stateCounts.probation || 0, color: 'var(--chart-cyan)' },
-                  { label: 'Suspicious', value: stateCounts.suspicious || 0, color: 'var(--chart-amber)' },
-                  { label: 'Paused', value: stateCounts.paused || 0, color: 'var(--chart-violet)' },
-                  { label: 'Killed', value: stateCounts.killed || 0, color: 'var(--chart-red)' },
+          <div style={{ marginTop: 'auto' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 6,
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <span className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <TrendingUp size={13} color="var(--color-cyan)" /> Token Burn Velocity vs Circuit-Breaker Savings
+              </span>
+              <Legend
+                items={[
+                  { color: '#06B6D4', label: 'Burn velocity' },
+                  { color: '#10B981', label: 'Savings' },
                 ]}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20, paddingTop: 14, borderTop: '1px solid var(--color-border)' }}>
-                <span className="muted" style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Clock size={13} /> {agents.length} Total · polled every second
-                </span>
-                <Link to="/incidents" className="btn btn-sm">Open incidents</Link>
-              </div>
-            </section>
+            </div>
+            <HeroChart burn={burnSeries} saves={saveSeries} />
+          </div>
+        </div>
 
-            <section className="card card-pad" aria-label="Top spenders">
-              <CardHeader title="Top spenders" sub="Agents ranked by spend so far" to="/cost" toLabel="Open cost and ROI" />
-              <ol style={{ listStyle: 'none', display: 'flex', flexDirection: 'column' }}>
-                {spenders.map((a, i) => (
-                  <li key={a.agent_id} style={{ display: 'grid', gridTemplateColumns: '16px 32px 1fr auto', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: i ? '1px solid var(--color-border)' : undefined }}>
-                    <span className="muted" style={{ fontSize: 12 }}>{i + 1}</span>
-                    <span className="icon-tile"><Cpu size={15} /></span>
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ fontWeight: 600 }}>{a.agent_id.toUpperCase()}</span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span className="muted" style={{ fontSize: 12 }}>{tok(a.tokens_per_min)} tokens/min</span>
-                        <span style={{ width: 56, height: 3, borderRadius: 2, background: 'var(--color-fill)' }}>
-                          <span className="meter-fill" style={{ display: 'block', height: '100%', borderRadius: 2, width: `${(a.spend_usd / maxSpend) * 100}%`, background: 'var(--chart-violet)' }} />
-                        </span>
-                      </span>
-                    </span>
-                    <span style={{ fontWeight: 700 }}>{money2(a.spend_usd)}</span>
-                  </li>
-                ))}
-              </ol>
-            </section>
+        {/* Right staggered stack (col-span-7) */}
+        <div className="col-span-7 bento" style={{ gridTemplateRows: 'auto 1fr', alignContent: 'stretch' }}>
+          {/* Interventions */}
+          <div
+            className="glass col-span-5"
+            style={{ padding: 'var(--space-4) var(--space-5)', display: 'flex', flexDirection: 'column', gap: 6 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="kpi-label">INTERVENTIONS</span>
+              <ShieldAlert size={16} color="var(--color-telemetry-cyan)" />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <div className="kpi-value" style={{ fontSize: 34, color: 'var(--color-telemetry-cyan)' }}>
+                {interventions}
+              </div>
+              <span
+                className="chip"
+                style={{ backgroundColor: 'rgba(6,182,212,0.14)', color: 'var(--color-telemetry-cyan)' }}
+              >
+                CIRCUIT TRIPPED
+              </span>
+            </div>
+            <div style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-secondary)' }}>
+              {roiData?.tool_calls_held || 0} tool calls held at gate
+            </div>
           </div>
 
-          <div id="agents-table">
-            <Panel
-              title="Fleet Node Telemetry"
-              subtitle="Every monitored agent — halted first, then by burn rate"
-              loading={fleetQ.isLoading || roiQ.isLoading}
-              error={fleetQ.error || roiQ.error}
-              empty={agents.length === 0}
-              emptyTitle="No Agents Running"
-              emptyMessage="No agents yet: start one with python -m brain --fake"
-              onRetry={refreshAll}
-              actions={
-                <>
+          {/* Agents by state */}
+          <div
+            className="glass col-span-7"
+            style={{ padding: 'var(--space-4) var(--space-5)', display: 'flex', flexDirection: 'column', gap: 8 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span className="kpi-label">AGENTS BY STATE</span>
+              <Cpu size={16} color="var(--color-text-secondary)" />
+            </div>
+            <div className="kpi-value" style={{ fontSize: 34 }}>
+              {agents.length} Total
+            </div>
+            <div
+              style={{
+                height: 8,
+                width: '100%',
+                display: 'flex',
+                borderRadius: 4,
+                overflow: 'hidden',
+                backgroundColor: 'rgba(255,255,255,0.07)',
+                gap: 2,
+              }}
+            >
+              {segs.map((s) => (
+                <div
+                  key={s.key}
+                  className="meter-fill"
+                  style={{
+                    width: `${((stateCounts[s.key] || 0) / (agents.length || 1)) * 100}%`,
+                    backgroundColor: s.color,
+                  }}
+                />
+              ))}
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                fontFamily: 'var(--font-mono)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <span style={{ color: 'var(--color-state-healthy)' }}>{stateCounts.healthy || 0} healthy</span>
+              <span style={{ color: 'var(--color-state-suspicious)' }}>
+                {stateCounts.suspicious || 0} suspicious
+              </span>
+              <span style={{ color: 'var(--color-state-paused)' }}>{stateCounts.paused || 0} paused</span>
+              <span style={{ color: 'var(--color-state-killed)' }}>{stateCounts.killed || 0} killed</span>
+            </div>
+          </div>
+
+          {/* Live node comparison */}
+          <div
+            className="glass col-span-12"
+            style={{ padding: 'var(--space-4) var(--space-5)', display: 'flex', flexDirection: 'column', gap: 8 }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span className="kpi-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <BarChart2 size={14} color="var(--color-accent)" /> Node Burn &amp; Loop Comparison
+              </span>
+              <Legend
+                items={[
+                  { color: '#06B6D4', label: 'Tokens/min' },
+                  { color: '#818CF8', label: 'Loop Score' },
+                  { color: '#F43F5E', label: 'Paused / runaway' },
+                ]}
+              />
+            </div>
+            <NodeComparison agents={agents} />
+          </div>
+        </div>
+      </div>
+
+      {/* Fleet matrix (col-span-8) + quarantine rail (col-span-4) */}
+      <div className="bento" style={{ alignItems: 'stretch' }}>
+        <div className="col-span-8" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <Panel
+            title="Fleet Node Telemetry"
+            icon={<Cpu size={18} />}
+            loading={loadingFleet || loadingRoi}
+            error={errorFleet || errorRoi}
+            empty={agents.length === 0}
+            emptyTitle="No Agents Running"
+            emptyMessage="No agents yet: start one with python -m brain --fake"
+            onRetry={handleRefreshAll}
+            actions={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <Filter size={14} color="var(--color-text-muted)" />
+                <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
                   {hasNodes(agents) && (
-                    <button type="button" className="filter-chip" aria-label="Group agents by node" aria-pressed={byNode} onClick={() => setByNode((v) => !v)}>
+                    <button
+                      type="button"
+                      aria-label="Group agents by node"
+                      aria-pressed={byNode}
+                      onClick={() => setByNode((v) => !v)}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--type-micro-size)',
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: byNode ? 700 : 500,
+                        backgroundColor: byNode ? 'rgba(6,182,212,0.18)' : 'transparent',
+                        color: byNode ? 'var(--color-telemetry-cyan)' : 'var(--color-text-muted)',
+                        border: byNode ? '1px solid var(--color-border-accent)' : '1px solid rgba(255,255,255,0.08)',
+                        cursor: 'pointer',
+                      }}
+                    >
                       BY NODE
-                    </button>
-                  )}
-                  {overBudget.length > 0 && (
-                    <button type="button" className="filter-chip" aria-pressed={filterState === 'over'} onClick={() => setFilterState('over')} aria-label="Filter by over 80% of budget">
-                      Over 80% ({overBudget.length})
                     </button>
                   )}
                   {(['all', 'healthy', 'suspicious', 'paused', 'killed'] as const).map((st) => {
                     const count = st === 'all' ? agents.length : stateCounts[st] || 0;
+                    const isSelected = filterState === st;
                     return (
-                      <button key={st} type="button" className="filter-chip" aria-pressed={filterState === st} onClick={() => setFilterState(st)} aria-label={`Filter by ${st}`} style={{ textTransform: 'capitalize' }}>
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setFilterState(st)}
+                        aria-label={`Filter by ${st}`}
+                        style={{
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: 'var(--type-micro-size)',
+                          fontFamily: 'var(--font-mono)',
+                          fontWeight: isSelected ? 700 : 500,
+                          backgroundColor: isSelected ? 'rgba(6,182,212,0.14)' : 'transparent',
+                          color: isSelected ? 'var(--color-text-primary)' : 'var(--color-text-muted)',
+                          border: isSelected
+                            ? '1px solid var(--color-border-accent)'
+                            : '1px solid transparent',
+                          textTransform: 'uppercase',
+                        }}
+                      >
                         {st} ({count})
                       </button>
                     );
                   })}
-                </>
-              }
-            >
-              <div data-testid="fleet-agent-grid" style={{ overflowX: 'auto', margin: '0 -8px' }}>
-                <table className="ui-table" aria-label="Agents">
-                  <thead>
-                    <tr>
-                      <th>Agent</th>
-                      <th className="num">Tokens/min</th>
-                      <th>Spend / budget</th>
-                      <th className="num">Loop</th>
-                      <th>State</th>
-                      <th className="num" aria-label="Action" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {byNode && hasNodes(agents)
-                      ? groupByNode(displayedAgents).flatMap((g) => [
-                          <tr key={`node-${g.node}`} aria-label={`Node ${g.node}`}>
-                            <td colSpan={6} className="muted" style={{ background: 'var(--color-fill)', fontSize: 12 }}>
-                              node: {g.node} · {g.agents.length} agent{g.agents.length === 1 ? '' : 's'}
-                            </td>
-                          </tr>,
-                          ...g.agents.map(row),
-                        ])
-                      : displayedAgents.map(row)}
-                  </tbody>
-                </table>
+                </div>
               </div>
-            </Panel>
-          </div>
+            }
+          >
+            <div
+              data-testid="fleet-agent-grid"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 'var(--space-4)',
+              }}
+            >
+              {byNode && hasNodes(agents)
+                ? groupByNode(displayedAgents).map((g) => (
+                    <div
+                      key={`node-${g.node}`}
+                      style={{
+                        gridColumn: '1 / -1',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-3)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 'var(--type-micro-size)',
+                          fontFamily: 'var(--font-mono)',
+                          fontWeight: 700,
+                          color: 'var(--color-telemetry-cyan)',
+                          padding: 'var(--space-1) var(--space-3)',
+                          backgroundColor: 'rgba(6, 182, 212, 0.08)',
+                          border: '1px solid var(--color-border-accent)',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      >
+                        node: {g.node} · {g.agents.length} agent{g.agents.length === 1 ? '' : 's'}
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                          gap: 'var(--space-4)',
+                        }}
+                      >
+                        {g.agents.map((agent) => (
+                          <AgentCard
+                            key={agent.agent_id}
+                            agent={agent}
+                            onClick={() => navigate(`/agents/${agent.agent_id}`)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                : displayedAgents.map((agent) => (
+                    <AgentCard
+                      key={agent.agent_id}
+                      agent={agent}
+                      onClick={() => navigate(`/agents/${agent.agent_id}`)}
+                    />
+                  ))}
+            </div>
+          </Panel>
         </div>
 
-        {/* ── right column ── */}
-        <div className="col-span-4" style={{ display: 'flex', flexDirection: 'column', gap: 18, minWidth: 0 }}>
-          <section className="card card-pad" aria-label="Budget">
-            <CardHeader title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Wallet size={16} color="var(--color-accent-text)" /> Budget</span>} to="/cost" toLabel="Open cost and ROI" />
-            <div className="stat-label">Left to spend across the fleet</div>
-            <div style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-0.02em', margin: '2px 0 10px' }}>{money2(budgetLeft)}</div>
-            {spendSeries.length > 1 && <MiniSpark data={spendSeries} color="var(--chart-violet)" id="budget-spend" height={56} />}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, margin: '14px 0 16px' }}>
-              <div>
-                <div className="stat-label">Spent</div>
-                <div style={{ fontWeight: 700 }}>{money2(agents.reduce((s, a) => s + a.spend_usd, 0))}</div>
-              </div>
-              <div>
-                <div className="stat-label">Wasted in loops</div>
-                <div style={{ fontWeight: 700 }}>{money2(roi?.wasted_usd ?? 0)}</div>
-              </div>
-            </div>
-            <Link to="/cost" className="btn-primary btn-block">
-              <DollarSign size={15} /> Open cost report
-            </Link>
-            {overBudget.length > 0 ? (
-              <button type="button" className="btn-warn btn-block" style={{ marginTop: 8 }} onClick={() => {
-                  setFilterState('over');
-                  document.getElementById('agents-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }}>
-                <AlertTriangle size={14} /> {overBudget.length} agent{overBudget.length === 1 ? '' : 's'} over 80% of budget
-              </button>
-            ) : (
-              <p className="muted" style={{ fontSize: 12.5, textAlign: 'center', marginTop: 10 }}>Every agent is under 80% of its budget</p>
-            )}
-          </section>
+        {/* Quarantine & decision feed */}
+        <div
+          className="glass col-span-4"
+          style={{ padding: 'var(--space-4) var(--space-5)', display: 'flex', flexDirection: 'column' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
+            <Terminal size={15} color="var(--color-telemetry-cyan)" />
+            <span className="kpi-label" style={{ color: 'var(--color-text-primary)' }}>
+              Quarantine &amp; Decision Feed
+            </span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontFamily: 'var(--font-mono)', flex: 1 }}>
+            {displayedAgents.map((ag) => {
+              let badgeText = 'NOMINAL';
+              let badgeColor = 'var(--color-state-healthy)';
+              let msg = 'Operating within baseline limits';
 
-          <section className="card card-pad" aria-label="Task success">
-            <CardHeader title="Task success" sub="Tasks resolved in the ROI window" />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
-              <TickGauge value={tasksTotal > 0 ? tasksOk / tasksTotal : 0} center={`${tasksTotal > 0 ? Math.round((tasksOk / tasksTotal) * 100) : 0}%`} caption={`${tasksOk} of ${tasksTotal}`} label="Task success rate" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <div className="stat-label">Resolved</div>
-                  <div style={{ fontWeight: 700, color: 'var(--color-state-healthy)' }}>{tasksOk}</div>
-                </div>
-                <div>
-                  <div className="stat-label">Not resolved</div>
-                  <div style={{ fontWeight: 700 }}>{Math.max(0, tasksTotal - tasksOk)}</div>
-                </div>
-                <div>
-                  <div className="stat-label">Cost per success</div>
-                  <div style={{ fontWeight: 700 }}>${(roi?.cost_per_successful_task_usd ?? 0).toFixed(4)}</div>
-                </div>
-              </div>
-            </div>
-          </section>
+              if (ag.last_verdict) {
+                badgeText = ag.last_verdict.action;
+                badgeColor =
+                  ag.last_verdict.action === 'KILL'
+                    ? 'var(--color-state-killed)'
+                    : 'var(--color-state-paused)';
+                msg = ag.last_verdict.reason;
+              } else if (ag.state === 'paused') {
+                badgeText = 'PAUSED';
+                badgeColor = 'var(--color-state-paused)';
+                msg = 'Circuit breaker quarantine active';
+              } else if (ag.state === 'killed') {
+                badgeText = 'KILLED';
+                badgeColor = 'var(--color-state-killed)';
+                msg = 'Terminated by hard limit policy';
+              }
 
-          <section className="card card-pad" aria-label="Needs a human">
-            <CardHeader title="Needs a human" sub="Tool calls and memory fixes held for a decision" right={<Link to="/approvals" style={{ color: 'var(--color-accent-text)', fontWeight: 600, fontSize: 13 }}>Approvals</Link>} />
-            {pending.length === 0 ? (
-              <p className="muted" style={{ fontSize: 13 }}>Nothing waiting for a human right now.</p>
-            ) : (
-              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {pending.slice(0, 4).map((p) => {
-                  const d = new Date(p.at);
-                  return (
-                    <li key={`${p.kind}-${p.id}`} style={{ display: 'grid', gridTemplateColumns: '44px 1fr auto', alignItems: 'center', gap: 12 }}>
-                      <span style={{ width: 44, height: 48, borderRadius: 12, boxShadow: 'var(--ring)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderLeft: '3px solid var(--color-accent)' }}>
-                        <strong style={{ fontSize: 14 }}>{Number.isFinite(d.getTime()) ? d.getHours().toString().padStart(2, '0') : '--'}</strong>
-                        <span className="muted" style={{ fontSize: 10.5 }}>{Number.isFinite(d.getTime()) ? `:${d.getMinutes().toString().padStart(2, '0')}` : ''}</span>
-                      </span>
-                      <span style={{ minWidth: 0 }}>
-                        <span style={{ fontWeight: 600, display: 'block' }}>{p.title}</span>
-                        <span className="sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.sub}</span>
-                      </span>
-                      <span className="avatar" title={p.agent}>{p.agent.slice(0, 2).toUpperCase()}</span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-
-          <section className="card card-pad" aria-label="Watch list">
-            <CardHeader title="Watch list" sub="Halted, suspicious, or near the budget" />
-            {watch.length === 0 ? (
-              <p className="muted" style={{ fontSize: 13 }}>Every agent is healthy and under budget.</p>
-            ) : (
-              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column' }}>
-                {watch.map((a, i) => (
-                  <li key={a.agent_id} style={{ display: 'grid', gridTemplateColumns: '32px 1fr auto', alignItems: 'center', gap: 12, padding: '10px 0', borderTop: i ? '1px solid var(--color-border)' : undefined }}>
-                    <span className="icon-tile" style={{ color: a.state === 'killed' ? 'var(--color-state-killed)' : 'var(--color-accent-text)' }}><Cpu size={15} /></span>
-                    <span style={{ minWidth: 0 }}>
-                      <span style={{ fontWeight: 600 }}>{a.agent_id.toUpperCase()}</span>
-                      <span className="sub">
-                        {a.state !== 'healthy' ? `${a.state} · loop ${a.loop_score.toFixed(2)}` : `${Math.round((a.spend_usd / a.budget_usd) * 100)}% of budget`}
-                      </span>
+              return (
+                <div
+                  key={ag.agent_id}
+                  style={{
+                    flex: 1,
+                    justifyContent: 'center',
+                    padding: 'var(--space-2) var(--space-3)',
+                    backgroundColor: 'rgba(5,7,11,0.55)',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 8,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: 700, fontSize: 12, color: 'var(--color-text-primary)' }}>
+                      Node: {ag.agent_id.toUpperCase()}
                     </span>
-                    <Link to={`/agents/${a.agent_id}`} className="btn btn-sm">Inspect</Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <p className="muted" style={{ fontSize: 12, marginTop: 12 }}>Updated {new Date().toLocaleTimeString()}</p>
-          </section>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        padding: '1px 6px',
+                        borderRadius: 3,
+                        fontWeight: 700,
+                        backgroundColor: `color-mix(in srgb, ${badgeColor} 14%, transparent)`,
+                        color: badgeColor,
+                        border: `1px solid color-mix(in srgb, ${badgeColor} 40%, transparent)`,
+                      }}
+                    >
+                      {badgeText}
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      color: 'var(--color-text-secondary)',
+                      fontSize: 11,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={msg}
+                  >
+                    {msg}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>

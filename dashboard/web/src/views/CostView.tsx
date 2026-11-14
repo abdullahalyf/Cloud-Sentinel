@@ -1,19 +1,10 @@
-import { livePoll } from '../utils/live';
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { DollarSign, Download, ChevronRight, Coins, Target, AlertTriangle } from 'lucide-react';
+import { DollarSign, RotateCcw, ChevronRight } from 'lucide-react';
 import { api } from '../api/client';
 import type { RoiReport } from '../api/types';
 import { Panel } from '../components/Panel';
-import { CardHeader, HeroCard, KpiCard, PageHeader, Tabs } from '../components/ui';
-import { Heatmap } from '../components/vizExtra';
-import { burnHeatmap } from '../utils/burn';
-import { fmtCompact } from '../components/charts';
-import { LineAreaChart } from '../components/viz';
-import { BudgetBurnDown } from '../components/BudgetBurnDown';
-import { useCountUp } from '../utils/useCountUp';
-import { taskRowsByWasted } from '../utils/burndown';
-import { hashString, mulberry32 } from '../components/charts';
+import { areaFromLine, hashString, mulberry32, smoothPath } from '../components/charts';
 
 /* ───────── helpers ───────── */
 const money = (v: number, d = 4) => `$${v.toFixed(d)}`;
@@ -48,14 +39,17 @@ function makeAxis(max: number, floorRef: number): Axis {
   };
 }
 
-const INK = 'var(--color-text-primary)';
-const MUTED = 'var(--color-text-muted)';
-const ROSE = 'var(--color-state-killed)';
-const CYAN = 'var(--color-state-probation)';
-const MINT = 'var(--color-state-healthy)';
-const AMBER = 'var(--color-state-suspicious)';
+const INK = '#E6EDF6';
+const MUTED = '#8A97AB';
+const ROSE = '#FB7185';
+const CYAN = '#22D3EE';
+const MINT = '#34D399';
+const AMBER = '#FBBF24';
 
-/* ───────── Burn-down chart (area-line, shared with the Fleet page) ───────── */
+/* ───────── Burn-down chart ───────── */
+const BD_W = 760;
+const BD_H = 400;
+const BD = { l: 54, r: 16, t: 16, b: 30 };
 const N = 40;
 
 interface BurnModel {
@@ -91,28 +85,136 @@ function buildBurnModel(roi: RoiReport): BurnModel {
 
 const BurnDownChart = React.memo<{ roi: RoiReport }>(({ roi }) => {
   const model = useMemo(() => buildBurnModel(roi), [roi]);
+  const [hover, setHover] = useState<number | null>(null);
+  const innerW = BD_W - BD.l - BD.r;
+  const innerH = BD_H - BD.t - BD.b;
+  const baseY = BD.t + innerH;
   const protEnd = model.prot[N - 1] || 0;
   const axis = makeAxis(Math.max(model.unprot[N - 1], protEnd), protEnd);
-  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => ({ value: axis.inv(f), label: moneyShort(axis.inv(f)) }));
-  const markers = model.marks.map((m) => ({ index: m.idx, label: m.label }));
+  const xAt = (i: number) => BD.l + (i / (N - 1)) * innerW;
+  const yAt = (v: number) => baseY - axis.norm(v) * innerH;
+  const protPts = model.prot.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+  const unprotPts = model.unprot.map((v, i) => ({ x: xAt(i), y: yAt(v) }));
+  const protLine = smoothPath(protPts);
+  const unprotLine = smoothPath(unprotPts);
+  const T = roi.horizon_minutes || 60;
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * BD_W;
+    const i = Math.round(((vx - BD.l) / innerW) * (N - 1));
+    setHover(Math.max(0, Math.min(N - 1, i)));
+  };
+
   return (
-    <div>
-      <LineAreaChart
-        testId="burndown-chart"
-        series={[
-          { name: 'Without Cloud-Sentinel', color: 'var(--chart-indigo)', values: model.unprot },
-          { name: 'Protected spend', color: 'var(--chart-cyan)', values: model.prot },
-        ]}
-        xLabels={model.minutes.map((m) => `${m.toFixed(0)} min`)}
-        format={(v) => money(v)}
-        markers={markers}
-        scale={axis.norm}
-        ticks={ticks}
-        height={330}
-        knots={7}
-      />
-      {axis.log && (
-        <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 4 }}>Log scale: the two lines differ by more than 40x.</p>
+    <div style={{ position: 'relative' }}>
+      <svg
+        viewBox={`0 0 ${BD_W} ${BD_H}`}
+        role="img"
+        aria-label="Cumulative cost burn-down: unprotected runaway projection versus Cloud-Sentinel protected spend"
+        data-testid="burndown-chart"
+        style={{ width: '100%', height: 'auto', display: 'block' }}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHover(null)}
+      >
+        <defs>
+          <linearGradient id="bdProt" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={CYAN} stopOpacity="0.28" />
+            <stop offset="100%" stopColor={CYAN} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <g key={f}>
+            <line
+              x1={BD.l}
+              x2={BD_W - BD.r}
+              y1={baseY - f * innerH}
+              y2={baseY - f * innerH}
+              stroke="rgba(255,255,255,0.07)"
+            />
+            <text
+              x={BD.l - 8}
+              y={baseY - f * innerH + 3.5}
+              textAnchor="end"
+              fontSize="10.5"
+              fontFamily="var(--font-mono)"
+              fill={MUTED}
+            >
+              {moneyShort(axis.inv(f))}
+            </text>
+          </g>
+        ))}
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <text
+            key={f}
+            x={BD.l + f * innerW}
+            y={BD_H - 8}
+            textAnchor={f === 0 ? 'start' : f === 1 ? 'end' : 'middle'}
+            fontSize="10.5"
+            fontFamily="var(--font-mono)"
+            fill={MUTED}
+          >
+            {f === 0 ? '0 min' : `${Math.round(f * T)} min`}
+          </text>
+        ))}
+
+        <path d={unprotLine} fill="none" stroke={ROSE} strokeWidth="2" strokeDasharray="6 5" />
+        <path d={areaFromLine(protLine, protPts[N - 1], protPts[0], baseY)} fill="url(#bdProt)" />
+        <path d={protLine} fill="none" stroke={CYAN} strokeWidth="2.4" strokeLinecap="round" />
+
+        {model.marks.map((m, k) => {
+          const x = xAt(m.idx);
+          const y = yAt(model.prot[m.idx]);
+          return (
+            <g key={k}>
+              <line x1={x} x2={x} y1={BD.t} y2={baseY} stroke="rgba(251,191,36,0.4)" strokeDasharray="2 4" />
+              <circle cx={x} cy={y} r="5" fill="#05070B" stroke={AMBER} strokeWidth="2" />
+              <text
+                x={x + 7}
+                y={BD.t + 12}
+                fontSize="10.5"
+                fontWeight="700"
+                fontFamily="var(--font-mono)"
+                fill={AMBER}
+              >
+                {m.label}
+              </text>
+            </g>
+          );
+        })}
+
+        {hover !== null && (
+          <g pointerEvents="none">
+            <line x1={xAt(hover)} x2={xAt(hover)} y1={BD.t} y2={baseY} stroke="rgba(255,255,255,0.3)" />
+            <circle cx={xAt(hover)} cy={unprotPts[hover].y} r="3.5" fill={ROSE} />
+            <circle cx={xAt(hover)} cy={protPts[hover].y} r="3.5" fill={CYAN} />
+          </g>
+        )}
+      </svg>
+
+      {hover !== null && (
+        <div
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            top: 28,
+            left: `${(xAt(hover) / BD_W) * 100}%`,
+            transform: hover > N * 0.6 ? 'translateX(calc(-100% - 12px))' : 'translateX(12px)',
+            pointerEvents: 'none',
+            background: '#080C14',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: 4,
+            padding: '6px 9px',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            lineHeight: '17px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <div style={{ color: MUTED }}>{model.minutes[hover].toFixed(1)} min</div>
+          <div style={{ color: ROSE }}>without {money(model.unprot[hover])}</div>
+          <div style={{ color: CYAN }}>protected {money(model.prot[hover])}</div>
+        </div>
       )}
     </div>
   );
@@ -128,8 +230,8 @@ const Formula: React.FC<{ text: string }> = ({ text }) => {
         fontSize: 12,
         padding: '4px 9px',
         borderRadius: 4,
-        background: 'var(--color-fill)',
-        border: '1px solid var(--color-border)',
+        background: 'rgba(0,0,0,0.45)',
+        border: '1px solid rgba(255,255,255,0.09)',
         whiteSpace: 'nowrap',
         justifySelf: 'start',
       }}
@@ -138,11 +240,11 @@ const Formula: React.FC<{ text: string }> = ({ text }) => {
         const color = /^saved$/.test(t)
           ? MINT
           : /^[A-Za-z_]+$/.test(t)
-          ? 'var(--color-state-probation)'
+          ? '#67E8F9'
           : /^\d/.test(t)
           ? AMBER
           : /^[=×−+()/]$/.test(t)
-          ? 'var(--color-state-paused)'
+          ? '#A5B4FC'
           : undefined;
         return (
           <span key={i} style={{ color }}>
@@ -166,7 +268,7 @@ interface MethodRowProps {
 const MethodRow: React.FC<MethodRowProps> = ({ title, formula, detail, usd, share, color }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div style={{ borderTop: '1px solid var(--color-border)' }}>
+    <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -185,7 +287,7 @@ const MethodRow: React.FC<MethodRowProps> = ({ title, formula, detail, usd, shar
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 13, color }}>{title}</span>
         <Formula text={formula} />
         <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ flex: 1, height: 4, background: 'var(--color-border)', borderRadius: 2 }}>
+          <span style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
             <span
               style={{
                 display: 'block',
@@ -232,243 +334,315 @@ const MethodRow: React.FC<MethodRowProps> = ({ title, formula, detail, usd, shar
   );
 };
 
-type CostTab = 'overview' | 'agents' | 'method';
-
-/** CSV of the per-agent task economics (what the "Export CSV" button downloads). */
-export function taskCsv(rows: { agent: string; tasks: number; succeeded: number; failed: number; success_rate: number; spend_usd: number; cost_per_success_usd: number; wasted_usd: number }[]): string {
-  const head = 'agent,tasks,succeeded,failed,success_rate,spend_usd,cost_per_success_usd,wasted_usd';
-  return [head, ...rows.map((r) => [r.agent, r.tasks, r.succeeded, r.failed, r.success_rate, r.spend_usd, r.cost_per_success_usd, r.wasted_usd].join(','))].join('\n');
-}
+const Stat: React.FC<{ label: string; value: string; note?: string; color?: string }> = ({
+  label,
+  value,
+  note,
+  color,
+}) => (
+  <div style={{ padding: '0 var(--space-5)', minWidth: 0 }}>
+    <div className="kpi-label">{label}</div>
+    <div className="kpi-value" style={{ fontSize: 26, marginTop: 4, color: color ?? INK }}>
+      {value}
+    </div>
+    {note && <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{note}</div>}
+  </div>
+);
 
 export const CostView: React.FC = () => {
-  const [tab, setTab] = useState<CostTab>('overview');
-  const { data, isLoading, error, refetch } = useQuery({ queryKey: ['roi'], queryFn: api.getRoi, refetchInterval: livePoll });
-  const { data: metricsData } = useQuery({ queryKey: ['metrics', 30], queryFn: () => api.getMetrics(30), refetchInterval: livePoll });
-  const { data: actionsData } = useQuery({ queryKey: ['actions'], queryFn: () => api.getActions(50), refetchInterval: livePoll });
-  const { data: fleetData } = useQuery({ queryKey: ['fleet'], queryFn: api.getFleet, refetchInterval: livePoll });
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['roi'],
+    queryFn: api.getRoi,
+    refetchInterval: 1000,
+  });
 
-  const taskRows = useMemo(() => taskRowsByWasted(data?.tasks_by_agent), [data]);
-  const heat = useMemo(() => burnHeatmap(metricsData?.metrics ?? [], 8), [metricsData]);
   const totalSaved = data?.saved_usd ?? 0;
   const totalSpend = data?.total_spend_usd ?? 0;
-  const savedShown = useCountUp(totalSaved);
   const roiX = totalSpend > 0 ? totalSaved / totalSpend : 0;
   const tasksSucceeded = data?.tasks_succeeded ?? 0;
   const tasksTotal = data?.tasks_total ?? 0;
-  const horizon = data?.horizon_minutes ?? 60;
+  const successPct = tasksTotal > 0 ? (tasksSucceeded / tasksTotal) * 100 : 0;
 
   const byAction = (names: string[]) =>
-    (data?.saved_by_action ?? []).filter((a) => names.includes(a.action)).reduce((acc, a) => acc + a.usd, 0);
+    (data?.saved_by_action ?? []).filter((a) => names.includes(a.action)).reduce((s, a) => s + a.usd, 0);
   const share = (usd: number) => (totalSaved > 0 ? usd / totalSaved : 0);
   const killPause = byAction(['KILL', 'PAUSE']);
   const deny = byAction(['TOOL_DENY']);
   const rewrite = byAction(['TOOL_REWRITE']);
+  const horizon = data?.horizon_minutes ?? 60;
 
   const agentRows = useMemo(() => {
     if (!data) return [];
-    const fleet = new Map((fleetData?.agents ?? []).map((a) => [a.agent_id, a]));
     return Object.keys(data.spend_by_agent)
       .map((id) => ({
         id,
-        tasks: data.tasks_by_agent[id]?.tasks ?? 0,
+        spend: data.tasks_by_agent[id]?.spend_usd ?? data.spend_by_agent[id] ?? 0,
+        wasted: data.tasks_by_agent[id]?.wasted_usd ?? 0,
+        saved: data.saved_by_action.filter((a) => a.agent_id === id).reduce((s, a) => s + a.usd, 0),
         ok: data.tasks_by_agent[id]?.succeeded ?? 0,
-        cps: data.tasks_by_agent[id]?.cost_per_success_usd ?? 0,
-        spend: fleet.get(id)?.spend_usd ?? data.tasks_by_agent[id]?.spend_usd ?? data.spend_by_agent[id] ?? 0,
-        budget: fleet.get(id)?.budget_usd ?? 0,
-        saved: data.saved_by_action.filter((a) => a.agent_id === id).reduce((acc, a) => acc + a.usd, 0),
+        tasks: data.tasks_by_agent[id]?.tasks ?? 0,
       }))
       .sort((a, b) => b.saved - a.saved || b.spend - a.spend);
-  }, [data, fleetData]);
-
-  const exportCsv = () => {
-    const blob = new Blob([taskCsv(taskRows)], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'cloudsentinel-task-economics.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  }, [data]);
+  const maxSaved = Math.max(1e-9, ...agentRows.map((r) => r.saved));
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: '100%' }}>
-      <PageHeader
-        title="Cost Burn-Down & ROI Attribution"
-        summary="What the fleet spent, what the circuit breaker saved, and how each saved dollar is priced."
-        actions={
-          <>
-            <button type="button" className="btn" onClick={() => refetch()} aria-label="Refresh financial metrics">
-              Refresh
-            </button>
-            <button type="button" className="btn" onClick={exportCsv} aria-label="Export CSV" disabled={taskRows.length === 0}>
-              <Download size={15} /> Export CSV
-            </button>
-          </>
-        }
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 'var(--space-8)',
+        width: '100%',
+        paddingBottom: 'var(--space-8)',
+      }}
+    >
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 'var(--space-4)',
+          flexWrap: 'wrap',
+        }}
       >
-        <Tabs<CostTab>
-          label="Cost views"
-          value={tab}
-          onChange={setTab}
-          tabs={[
-            { value: 'overview', label: 'Overview' },
-            { value: 'agents', label: 'By agent', count: agentRows.length || undefined },
-            { value: 'method', label: 'Attribution' },
-          ]}
-        />
-      </PageHeader>
+        <div>
+          <h1
+            style={{
+              fontSize: 'var(--type-title-md-size)',
+              lineHeight: 'var(--type-title-md-lh)',
+              fontWeight: 600,
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Cost Burn-Down &amp; ROI Attribution
+          </h1>
+          <p style={{ color: 'var(--color-text-secondary)', marginTop: 2 }}>
+            Real-time financial return on investment, task-attributed spend, and autonomous runaway
+            prevention.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => refetch()}
+          aria-label="Refresh financial metrics"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            padding: '6px 12px',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 4,
+            color: 'var(--color-text-primary)',
+            fontWeight: 600,
+          }}
+        >
+          <RotateCcw size={13} /> Refresh
+        </button>
+      </header>
 
       {isLoading || error || !data ? (
-        <Panel title="Economic Return Summary" icon={<DollarSign size={18} />} loading={isLoading} error={error} onRetry={() => refetch()} />
-      ) : tab === 'overview' ? (
-        <>
-          <section aria-label="Economic Return Summary" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            <h2 className="kpi-label">Economic Return Summary</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr 1fr', gap: 18 }}>
-              <HeroCard
-                testId="roi-badge"
-                label="Total value saved"
-                icon={<DollarSign size={15} />}
-                value={money(savedShown)}
-                foot={`${fmtRoi(roiX)}x ROI on ${money(totalSpend, 2)} of spend · ${data.interventions} interventions`}
-                progress={totalSaved + totalSpend > 0 ? totalSaved / (totalSaved + totalSpend) : 0}
-              />
-              <KpiCard label="Total fleet spend" icon={<Coins size={15} />} value={money(totalSpend)} foot={<span className="muted" style={{ fontSize: 12 }}>{agentRows.length} agents billed</span>} />
-              <KpiCard label="Cost per success" icon={<Target size={15} />} value={money(data.cost_per_successful_task_usd)} foot={<span className="muted" style={{ fontSize: 12 }}>{tasksSucceeded} / {tasksTotal} tasks resolved</span>} />
-              <KpiCard label="Wasted spend" icon={<AlertTriangle size={15} />} value={money(data.wasted_usd)} foot={<span className="muted" style={{ fontSize: 12 }}>burned in loops</span>} />
-            </div>
-          </section>
-
-          <section className="card card-pad" aria-label="Cumulative Cost Burn-Down vs Prevented Runaway">
-            <CardHeader title="Cumulative cost burn-down vs. prevented runaway" sub={`${horizon} min horizon — amber lines mark circuit-breaker interventions`} />
-            <BurnDownChart roi={data} />
-          </section>
-
-          <div className="bento" style={{ alignItems: 'start' }}>
-            <section className="card card-pad col-span-5" aria-label="When agents burn">
-              <CardHeader title="When agents burn" sub="Average tokens per minute, last 30 minutes" />
-              {heat.rows.length && heat.cols.length ? (
-                <Heatmap testId="burn-heatmap" rows={heat.rows.map((r) => r.toUpperCase())} cols={heat.cols} values={heat.values} format={(v) => `${fmtCompact(v)}/min`} />
-              ) : (
-                <p className="muted">No metrics yet. The grid fills in once agents report spend.</p>
-              )}
-            </section>
-
-            <section className="card col-span-7" aria-label="Spend vs Value Saved by Agent" style={{ padding: '20px 0 8px' }}>
-              <div style={{ padding: '0 22px' }}>
-                <CardHeader title="Spend vs. value saved by agent" sub="Ranked by dollars saved, against each agent's budget" />
-              </div>
-              <div data-testid="agent-spend-chart" style={{ overflowX: 'auto' }}>
-                <table className="ui-table" aria-label="Agent spend and savings">
-                  <thead>
-                    <tr>
-                      <th>Agent</th>
-                      <th className="num">Tasks</th>
-                      <th className="num">Cost / success</th>
-                      <th>Against budget</th>
-                      <th className="num">Saved</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agentRows.map((r) => {
-                      const pct = r.budget > 0 ? r.spend / r.budget : 0;
-                      return (
-                        <tr key={r.id}>
-                          <td>{r.id}</td>
-                          <td className="num">{r.ok}/{r.tasks}</td>
-                          <td className="num muted">{money(r.cps)}</td>
-                          <td style={{ minWidth: 170 }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <span style={{ flex: 1, height: 5, borderRadius: 3, background: 'var(--color-fill)' }}>
-                                <span className="meter-fill" style={{ display: 'block', height: '100%', borderRadius: 3, width: `${Math.min(100, pct * 100)}%`, background: pct >= 0.8 ? 'var(--chart-red)' : 'var(--chart-violet)' }} />
-                              </span>
-                              <span style={{ fontSize: 12, width: 38, textAlign: 'right', color: pct >= 0.8 ? 'var(--color-state-killed)' : 'var(--color-state-healthy)' }}>{Math.round(pct * 100)}%</span>
-                            </span>
-                          </td>
-                          <td className="num" style={{ color: r.saved > 0 ? 'var(--color-state-healthy)' : 'var(--color-text-muted)' }}>{r.saved > 0 ? `+${moneyShort(r.saved)}` : '—'}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-        </>
-      ) : tab === 'agents' ? (
-        <>
-          <section className="card card-pad" aria-label="Budget Burn-Down by Agent">
-            <CardHeader title="Budget burn-down by agent" sub="Budget left over the last 30 min. Dashed lines project when each agent hits $0; paused agents flatten at the PAUSE marker." />
-            {(metricsData?.metrics.length ?? 0) === 0 ? (
-              <p className="muted" style={{ padding: '24px 0' }}>No metrics yet. Budget lines appear once agents report spend.</p>
-            ) : (
-              <BudgetBurnDown metrics={metricsData?.metrics ?? []} actions={actionsData?.items ?? []} agents={fleetData?.agents ?? []} />
-            )}
-          </section>
-          <section className="card" aria-label="Task Economics by Agent" style={{ padding: '20px 0 8px' }}>
-            <div style={{ padding: '0 22px' }}>
-              <CardHeader title="Task economics by agent" sub="Sorted by wasted spend" />
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="ui-table" aria-label="Task economics">
-                <thead>
-                  <tr>
-                    {['Agent', 'Tasks', 'Succeeded', 'Failed', 'Success rate', 'Spend', 'Cost / success', 'Wasted'].map((h, i) => (
-                      <th key={h} className={i ? 'num' : undefined}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {taskRows.length === 0 && (
-                    <tr><td colSpan={8} className="muted">No task data yet.</td></tr>
-                  )}
-                  {taskRows.map((r) => (
-                    <tr key={r.agent}>
-                      <td>{r.agent}</td>
-                      <td className="num">{r.tasks}</td>
-                      <td className="num">{r.succeeded}</td>
-                      <td className="num" style={{ color: r.failed > 0 ? 'var(--color-state-killed)' : undefined }}>{r.failed}</td>
-                      <td className="num">{(r.success_rate * 100).toFixed(1)}%</td>
-                      <td className="num">{money(r.spend_usd)}</td>
-                      <td className="num">{money(r.cost_per_success_usd)}</td>
-                      <td className="num" style={{ color: r.wasted_usd > 0 ? 'var(--color-state-suspicious)' : 'var(--color-text-muted)' }}>{money(r.wasted_usd)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </>
+        <Panel
+          title="Economic Return Summary"
+          icon={<DollarSign size={18} />}
+          loading={isLoading}
+          error={error}
+          onRetry={() => refetch()}
+        />
       ) : (
-        <section className="card card-pad" aria-label="Attribution Methodology">
-          <CardHeader title="Attribution methodology" sub="How each saved dollar is priced. Select a row for the reasoning." />
-          <div>
-            <MethodRow
-              title="KILL / PAUSE"
-              formula={`saved = usd_per_min × ${horizon}`}
-              detail="Priced at the agent's $/min at the moment of action, multiplied by the horizon: how long a runaway would have burned before a human noticed."
-              usd={killPause}
-              share={share(killPause)}
-              color={ROSE}
-            />
-            <MethodRow
-              title="TOOL_DENY"
-              formula="saved = value_at_stake"
-              detail="A denied tool call is credited with the full value that was at stake, such as the amount of a blocked refund or purchase."
-              usd={deny}
-              share={share(deny)}
-              color="var(--color-state-paused)"
-            />
-            <MethodRow
-              title="TOOL_REWRITE"
-              formula="saved = value × (1 − new / old)"
-              detail="A rewritten call is credited with the reduction only: the value at stake scaled by how much the amount was cut."
-              usd={rewrite}
-              share={share(rewrite)}
-              color={CYAN}
-            />
+        <>
+          {/* Hero figure + hairline ledger, no card chrome */}
+          <section
+            aria-label="Economic Return Summary"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 5fr) minmax(0, 7fr)',
+              gap: 'var(--space-8)',
+              alignItems: 'end',
+            }}
+          >
+            <div>
+              <div className="kpi-label" style={{ marginBottom: 6 }}>
+                Economic Return Summary · TOTAL VALUE SAVED
+              </div>
+              <div
+                className="kpi-value"
+                style={{
+                  fontSize: 'clamp(44px, 5.2vw, 72px)',
+                  lineHeight: 1,
+                  letterSpacing: '-0.03em',
+                  color: MINT,
+                }}
+              >
+                {money(totalSaved)}
+              </div>
+              <div style={{ marginTop: 'var(--space-3)', fontSize: 14, color: 'var(--color-text-secondary)' }}>
+                <strong
+                  data-testid="roi-badge"
+                  className="tabular-nums"
+                  style={{ color: INK, fontFamily: 'var(--font-mono)' }}
+                >
+                  {fmtRoi(roiX)}x ROI
+                </strong>{' '}
+                on {money(totalSpend)} of fleet spend, across {data.interventions} interventions.
+              </div>
+            </div>
+
+            <div>
+              <div
+                className="flat"
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                  padding: 'var(--space-4) 0',
+                }}
+              >
+                <Stat label="TOTAL FLEET SPEND" value={money(totalSpend)} note={`${agentRows.length} agents billed`} />
+                <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+                  <Stat
+                    label="COST PER SUCCESS"
+                    value={money(data.cost_per_successful_task_usd)}
+                    note="per resolved task"
+                  />
+                </div>
+                <div style={{ borderLeft: '1px solid rgba(255,255,255,0.08)' }}>
+                  <Stat label="WASTED SPEND" value={money(data.wasted_usd)} note="burned in loops" color={AMBER} />
+                </div>
+              </div>
+              <div style={{ marginTop: 'var(--space-3)' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 12,
+                    marginBottom: 5,
+                  }}
+                >
+                  <span className="tabular-nums">
+                    {tasksSucceeded} / {tasksTotal} tasks resolved
+                  </span>
+                  <span style={{ color: MUTED }}>{successPct.toFixed(0)}% success</span>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    height: 6,
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    background: 'rgba(251,113,133,0.5)',
+                  }}
+                >
+                  <div className="meter-fill" style={{ width: `${successPct}%`, background: MINT }} />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Burn-down + per-agent ledger */}
+          <div className="bento" style={{ alignItems: 'start' }}>
+            <section
+              className="col-span-8 flat"
+              aria-label="Cumulative Cost Burn-Down vs Prevented Runaway"
+              style={{ padding: 'var(--space-4) var(--space-5)', minWidth: 0 }}
+            >
+              <h2 style={{ fontSize: 15, fontWeight: 600 }}>Cumulative Cost Burn-Down vs. Prevented Runaway</h2>
+              <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
+                <span style={{ color: ROSE }}>- - -</span> without Cloud-Sentinel &nbsp;·&nbsp;
+                <span style={{ color: CYAN }}>━━</span> protected spend &nbsp;·&nbsp;
+                <span style={{ color: AMBER }}>●</span> intervention · {horizon} min horizon
+              </p>
+              <BurnDownChart roi={data} />
+            </section>
+
+            <section className="col-span-4" aria-label="Spend vs Value Saved by Agent" style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: 15, fontWeight: 600 }}>Spend vs. Value Saved by Agent</h2>
+              <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-2)' }}>Ranked by dollars saved</p>
+              <div data-testid="agent-spend-chart">
+                {agentRows.map((r, i) => (
+                  <div
+                    key={r.id}
+                    style={{
+                      padding: '12px 0',
+                      borderTop: '1px solid rgba(255,255,255,0.07)',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto',
+                      rowGap: 6,
+                    }}
+                  >
+                    <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                      <span style={{ color: MUTED, marginRight: 8 }}>{i + 1}</span>
+                      {r.id}
+                    </span>
+                    <span
+                      className="tabular-nums"
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: 13,
+                        color: r.saved > 0 ? MINT : MUTED,
+                        textAlign: 'right',
+                      }}
+                    >
+                      {r.saved > 0 ? `+${moneyShort(r.saved)} saved` : 'no saves'}
+                    </span>
+                    <span style={{ gridColumn: '1 / -1', height: 3, background: 'rgba(255,255,255,0.07)', borderRadius: 2 }}>
+                      <span
+                        style={{
+                          display: 'block',
+                          height: '100%',
+                          width: `${r.saved > 0 ? Math.max(2, (r.saved / maxSaved) * 100) : 0}%`,
+                          background: MINT,
+                          borderRadius: 2,
+                        }}
+                      />
+                    </span>
+                    <span
+                      className="tabular-nums"
+                      style={{ gridColumn: '1 / -1', fontFamily: 'var(--font-mono)', fontSize: 11.5, color: MUTED }}
+                    >
+                      spend {money(r.spend)} · wasted{' '}
+                      <span style={{ color: r.wasted > 0 ? AMBER : MUTED }}>{money(r.wasted)}</span> · {r.ok}/
+                      {r.tasks} tasks
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
           </div>
-        </section>
+
+          {/* Attribution ledger */}
+          <section aria-label="Attribution Methodology">
+            <h2 style={{ fontSize: 15, fontWeight: 600 }}>Attribution Methodology</h2>
+            <p style={{ fontSize: 12.5, color: MUTED, margin: '2px 0 var(--space-3)' }}>
+              How each saved dollar is priced. Select a row for the reasoning.
+            </p>
+            <div className="flat" style={{ padding: '0 var(--space-4)' }}>
+              <MethodRow
+                title="KILL / PAUSE"
+                formula={`saved = usd_per_min × ${horizon}`}
+                detail="Priced at the agent's $/min at the moment of action, multiplied by the horizon: how long a runaway would have burned before a human noticed."
+                usd={killPause}
+                share={share(killPause)}
+                color={ROSE}
+              />
+              <MethodRow
+                title="TOOL_DENY"
+                formula="saved = value_at_stake"
+                detail="A denied tool call is credited with the full value that was at stake, such as the amount of a blocked refund or purchase."
+                usd={deny}
+                share={share(deny)}
+                color="#A5B4FC"
+              />
+              <MethodRow
+                title="TOOL_REWRITE"
+                formula="saved = value × (1 − new / old)"
+                detail="A rewritten call is credited with the reduction only: the value at stake scaled by how much the amount was cut."
+                usd={rewrite}
+                share={share(rewrite)}
+                color={CYAN}
+              />
+            </div>
+          </section>
+        </>
       )}
     </div>
   );
