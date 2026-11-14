@@ -27,7 +27,7 @@ def call(method: str, path: str, body: dict | None = None):
 def command(agent: str, cmd: str, **params) -> None:
     call("POST", f"/v1/agents/{agent}/commands", {"command": cmd, "params": params, "requested_by": "terminal",
                                                   "reason": f"{cmd.lower()} from terminal"})
-    print(f"{cmd} → {agent} (runs within ~1 s)")
+    print(f"{cmd} -> {agent} (runs within ~1 s)")
 
 
 def fix(agent: str) -> None:

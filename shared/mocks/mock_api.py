@@ -41,7 +41,37 @@ from shared.contracts import (AUDIT_GENESIS, COMMAND_TYPES, CONTRACT_VERSION, HE
                               tool_risk_from_history, tool_risk_view, utc_now_iso)
 
 AGENTS = ["alpha", "beta", "gamma", "delta"]
-BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2}
+# The policy file the mock serves (CONTRACTS §11). The mock shows the *real* rules,
+# so the dashboard development experience matches what the brain does.
+POLICY_SOURCE = "brain/policies.yaml"
+# The fallback budgets, used only when the real policy file cannot be read.
+_FALLBACK_BUDGETS = {"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.5}
+
+
+def _policy_budgets() -> dict:
+    """The per-agent budgets the *real* brain would use, read from `brain/policies.yaml`.
+
+    The mock's fleet view and its `/v1/policy` endpoint must never disagree: a dashboard
+    that shows delta with a $0.20 budget while the policy endpoint says $0.50 is a mock
+    that lies. So both read the same file. Falls back to the hardcoded numbers when the
+    file is missing or unreadable (the mock has to work without a checkout).
+    """
+    try:
+        import yaml
+
+        data = yaml.safe_load(Path(POLICY_SOURCE).read_text(encoding="utf-8")) or {}
+        defaults = (data.get("defaults") or {}).get("budget_usd", 0.5)
+        agents = data.get("agents") or {}
+        out = {}
+        for agent in AGENTS:
+            override = (agents.get(agent) or {}).get("budget_usd")
+            out[agent] = float(override if override is not None else defaults)
+        return out
+    except Exception:
+        return dict(_FALLBACK_BUDGETS)
+
+
+BUDGETS = _policy_budgets()
 # The teams the agents belong to (B4). The budget tree is org → team → agent,
 # and every level is the sum of the level below it — so one runaway agent eats
 # its own team's share, not the whole fleet's money.
@@ -49,7 +79,9 @@ TEAMS = {"alpha": "core", "beta": "core", "gamma": "ml", "delta": "ml"}
 # The org budget is the sum of the team budgets, which are themselves the sum
 # of their agents'. It is *computed*, never hand-set: a hand-set org budget
 # would let the tree disagree with itself, and the tree is the whole point.
-ORG_BUDGET = sum(BUDGETS.values())
+def _org_budget() -> float:
+    """Recomputed on every read, so a policy change is never half-applied."""
+    return sum(BUDGETS.values())
 T0 = time.time()
 OVERRIDE_SECONDS = 20.0
 OVERRIDES: dict[str, tuple[str, float]] = {}   # agent → (state, until) set by commands
@@ -105,7 +137,7 @@ def seed() -> None:
     """(Re)fill the fake data in place. Called at import and by POST /v1/mock/reset (and tests)."""
     for coll in (MEMORY, TOOL_CALLS, HEAL_PROPOSALS, COMMANDS, ACTIONS, ALERTS, OVERRIDES):
         coll.clear()
-    BUDGETS.update({"alpha": 0.5, "beta": 0.5, "gamma": 1.0, "delta": 0.2})
+    BUDGETS.update(_policy_budgets())
     MEMORY["beta"] = [{"id": 1, "agent_id": "beta", "version": 1, "edited_by": "agent", "reason": "",
                        "created_at": utc_now_iso(),
                        "content": {"order_4471": "orders API returned 500 - retry until success"}}]
@@ -455,7 +487,6 @@ def _policy(tool_name: str, args: dict) -> tuple[str, str]:
 
 
 # ── policy (CONTRACTS §6, added 8 Nov) ──
-POLICY_SOURCE = "brain/policies.yaml"
 
 
 def _policy_view() -> dict:
@@ -707,9 +738,10 @@ def budgets() -> dict:
                                  forecast=budget_forecast(budget, spend, 0.002 * len(members))))
 
     org_spend = sum(float(row.get("spend_usd") or 0.0) for row in fleet.values())
-    org = budget_node("org", "org", ORG_BUDGET, org_spend,
+    org_budget = _org_budget()
+    org = budget_node("org", "org", org_budget, org_spend,
                       children=[t["id"] for t in teams],
-                      forecast=budget_forecast(ORG_BUDGET, org_spend, 0.002 * len(AGENTS)))
+                      forecast=budget_forecast(org_budget, org_spend, 0.002 * len(AGENTS)))
     return budget_report(org, teams, agents, as_of=now)
 
 

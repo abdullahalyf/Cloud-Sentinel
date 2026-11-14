@@ -97,9 +97,19 @@ class AgentWindow:
         self.memory_mb, self.memory_pct = mb, pct
 
     def reset_activity(self) -> None:
-        """After a resume/restart, judge the agent on fresh behaviour only."""
+        """After a resume/restart, judge the agent on fresh behaviour only.
+
+        The budget is a *session* budget (CONTRACTS §11), and a restart begins a new
+        session — so the spend of the old one must not count against the new one.
+        Without this, an agent killed for spending too much is killed again the
+        instant it is restarted, for money it had already spent, and can never be
+        revived. The token count goes with it for the same reason: it feeds the
+        token-rate hard limit, and a fresh session must not inherit the old one's.
+        """
         self.chats.clear()
         self.tools.clear()
+        self.spend_usd = 0.0
+        self.total_tokens = 0
 
     def _prune(self, now: float) -> None:
         for dq in (self.chats, self.tools):
@@ -108,12 +118,38 @@ class AgentWindow:
 
     def snapshot(self, now: float, budget_usd: float) -> Snapshot:
         self._prune(now)
-        rate = [c for c in self.chats if float(c["start_ts"]) >= now - RATE_WINDOW]
-        tokens = sum(int(c.get("input_tokens") or 0) + int(c.get("output_tokens") or 0) for c in rate)
-        usd = sum(float(c.get("cost_usd") or 0) for c in rate)
-        recent_calls = sum(1 for c in self.chats if float(c["start_ts"]) >= now - CALLS_WINDOW)
-        prompts = [c.get("prompt_preview") or "" for c in self.chats]
-        repeats = Counter(c.get("prompt_hash") for c in self.chats if c.get("prompt_hash"))
+        # B9: one pass over the chats instead of four.
+        #
+        # The tick calls this once per agent, so at 1000 agents the walks below were
+        # walked 4,000 times a second-and-a-bit. The old code made four passes over
+        # the same deque — one for the rate window, one for the tokens, one for the
+        # dollars, one for the recent calls — and then two more for the prompts and
+        # the repeat counter. Each pass re-read `start_ts` and re-did the float()
+        # coercion the span was already coerced for when it was added.
+        #
+        # The two windows are nested (CALLS_WINDOW is inside RATE_WINDOW), so one
+        # walk can serve both: a chat older than the rate window counts for
+        # neither, a chat inside the calls window counts for both, and a chat in
+        # between counts only for the rate. The numbers are the same numbers; they
+        # are just arrived at once.
+        rate_cutoff = now - RATE_WINDOW
+        calls_cutoff = now - CALLS_WINDOW
+        tokens = 0
+        usd = 0.0
+        recent_calls = 0
+        prompts: list[str] = []
+        repeats: Counter = Counter()
+        for chat in self.chats:
+            ts = float(chat["start_ts"])
+            if ts >= rate_cutoff:
+                tokens += int(chat.get("input_tokens") or 0) + int(chat.get("output_tokens") or 0)
+                usd += float(chat.get("cost_usd") or 0)
+                if ts >= calls_cutoff:
+                    recent_calls += 1
+            prompts.append(chat.get("prompt_preview") or "")
+            prompt_hash = chat.get("prompt_hash")
+            if prompt_hash:
+                repeats[prompt_hash] += 1
         tool_names = [t.get("tool_name") or "" for t in self.tools]
         recent = prompts[-12:]
         injection_score, injection_hits = self._injection_scores(recent)

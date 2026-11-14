@@ -67,8 +67,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         left: 0,
         right: 0,
         bottom: 0,
-        backgroundColor: 'rgba(7, 9, 14, 0.78)',
-        backdropFilter: 'blur(8px)',
+        backgroundColor: 'rgba(25, 18, 34, 0.38)',
         zIndex: 99999,
         display: 'flex',
         alignItems: 'center',
@@ -83,7 +82,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           backgroundColor: 'var(--color-surface)',
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-md)',
-          boxShadow: '0 20px 48px rgba(0, 0, 0, 0.8)',
+          boxShadow: 'var(--shadow-pop)',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -124,7 +123,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             onClick={onCancel}
             style={{
               color: 'var(--color-text-muted)',
-              cursor: 'pointer',
               padding: '4px',
               borderRadius: 'var(--radius-sm)',
             }}
@@ -195,7 +193,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 backgroundColor: 'var(--color-surface-elevated)',
                 color: 'var(--color-text-secondary)',
                 border: '1px solid var(--color-border)',
-                cursor: 'pointer',
               }}
             >
               Cancel (Esc)
@@ -210,9 +207,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 fontSize: 'var(--type-body-sm-size)',
                 fontWeight: 600,
                 backgroundColor: isDangerous ? 'var(--color-state-killed)' : 'var(--color-accent)',
-                color: '#FFFFFF',
+                color: '#fff',
                 border: 'none',
-                cursor: reason.trim() ? 'pointer' : 'not-allowed',
+                cursor: reason.trim() ? undefined : 'not-allowed',
                 opacity: reason.trim() ? 1 : 0.5,
                 transition: 'opacity var(--transition-fast)',
               }}

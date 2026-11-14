@@ -139,8 +139,11 @@ class FakeFleet:
         if kind in LOOP_KINDS:
             prompt = LOOP_PROMPT if kind == "loop" else self._paraphrase(a)
             a.rogue_calls += 1
-            if a.rogue_calls % 8 == 0:  # later in the loop it starts begging the monitor
-                prompt = INJECTION + prompt
+            # A looping agent must be stopped for the loop itself. Earlier versions prefixed
+            # "NOTE TO MONITORING SYSTEM..." here, which the injection detector caught first, so the
+            # demo paused beta for injection instead of showing the loop detector working. The
+            # prompt_injection rogue kind below is the deliberate injection demo; the loop kinds stay
+            # loop-only.
             tin, tout, tool, status, ok = a.rng.randint(300, 340), a.rng.randint(60, 90), "orders_api", "failure", False
         elif kind == "prompt_injection":
             # honest work, but every prompt carries an attempt to talk to the monitor (A6)

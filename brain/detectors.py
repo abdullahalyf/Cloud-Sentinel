@@ -63,10 +63,10 @@ def evaluate(s: Snapshot, cfg: Settings, strict: bool = False, baseline=None) ->
     # ── L1 soft limits ──
     token_limit = _adaptive(baseline, "tokens_per_min", cfg.soft_tokens_per_min)
     call_limit = _adaptive(baseline, "calls_per_sec", cfg.soft_calls_per_sec)
-    if s.tokens_per_min >= token_limit * k:
+    if _over(s.tokens_per_min, token_limit, baseline, "tokens_per_min", k):
         f.add(Level.SUSPICIOUS, "token_spike", _reason(s.tokens_per_min, baseline, "tokens_per_min",
                                                       f"{s.tokens_per_min:,} tokens/min ≥ soft limit"))
-    if s.calls_per_sec >= call_limit * k:
+    if _over(s.calls_per_sec, call_limit, baseline, "calls_per_sec", k):
         f.add(Level.SUSPICIOUS, "call_spike", _reason(s.calls_per_sec, baseline, "calls_per_sec",
                                                       f"{s.calls_per_sec:.1f} calls/s ≥ soft limit"))
     if s.memory_pct >= cfg.soft_memory_pct:
@@ -97,6 +97,45 @@ def _adaptive(baseline, metric: str, fixed_soft: float) -> float:
         return fixed_soft
     limit = baseline.limit(metric)
     return limit if limit is not None else fixed_soft
+
+
+def _over(value: float, limit: float, baseline, metric: str, k: float) -> bool:
+    """
+    Is `value` over the soft limit for this metric? `k` is 0.5 on probation, 1.0 otherwise.
+
+    Without a baseline this is the plain comparison against the fixed soft limit (halved
+    on probation) — the behaviour the warmup has always had.
+
+    With a baseline the naive halving is wrong. The learned limit is derived from the
+    agent's own healthy windows (median plus a spread term), so it sits only a little
+    above the agent's normal rate — roughly 2.5x the median for a stable agent. Halving
+    it puts the limit BELOW rates the agent reached while perfectly healthy, and an agent
+    that comes back from a pause and does its ordinary work is then killed for behaving
+    normally. That broke the demo path (rogue → paused → fix the memory → resume →
+    healthy): the correctly-healed agent was killed on probation instead of healing.
+
+    So on probation the limit is the halved limit, but never below the biggest rate the
+    agent actually reached while it was healthy. Probation tightens how far the agent may
+    stray from its normal; it does not redefine normal as something the agent can never
+    reach. A runaway still trips — it has to be well past the agent's own healthy peak,
+    which is exactly what a runaway looks like.
+
+    The floor is inclusive: a rate the agent has already reached while healthy is normal
+    for it, so reaching exactly that peak is not a finding — only going PAST it is.
+    """
+    if k >= 1.0:
+        return value >= limit
+    strict = limit * k
+    if baseline is None:
+        return value >= strict
+    observed_max = baseline.observed_max(metric)
+    if observed_max is None:
+        return value >= strict
+    floor = max(strict, observed_max)
+    if floor == observed_max:
+        # the agent's own healthy peak is the bar: it may reach it again, not pass it
+        return value > floor
+    return value >= floor
 
 
 def _reason(value: float, baseline, metric: str, fallback: str) -> str:

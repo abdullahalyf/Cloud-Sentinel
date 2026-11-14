@@ -1,3 +1,4 @@
+import { livePoll } from '../utils/live';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,8 +27,12 @@ import {
 import { api, ApiError } from '../api/client';
 import type { ToolCallRow } from '../api/types';
 import { Panel } from '../components/Panel';
+import { PageHeader, ago } from '../components/ui';
 import { StateBadge } from '../components/StateBadge';
 import { JsonEditor } from '../components/JsonEditor';
+import { GraphFlow } from '../components/GraphFlow';
+import { GanttReplay } from '../components/viz';
+import { nodesToBars, spansToBars } from '../utils/replay';
 import { DiffView } from '../components/DiffView';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
@@ -68,14 +73,14 @@ export const AgentDetailView: React.FC = () => {
   } = useQuery({
     queryKey: ['agent', id],
     queryFn: () => api.getAgent(id),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Query Execution Graph Nodes
   const { data: nodesData } = useQuery({
     queryKey: ['agent-nodes', id],
     queryFn: () => api.getAgentNodes(id),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Query Memory History
@@ -89,7 +94,7 @@ export const AgentDetailView: React.FC = () => {
   const { data: toolCallsData, refetch: refetchToolCalls } = useQuery({
     queryKey: ['tool-calls'],
     queryFn: () => api.getToolCalls(),
-    refetchInterval: 1000,
+    refetchInterval: livePoll,
   });
 
   // Initialize Memory Editor once agent memory is loaded
@@ -359,110 +364,25 @@ export const AgentDetailView: React.FC = () => {
       {/* ───────────────────────────────────────────────────────────────────────────── */}
       {/* Top Header & Navigation */}
       {/* ───────────────────────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 'var(--space-4)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <Link
-            to="/fleet"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--space-1)',
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-text-secondary)',
-              fontSize: 'var(--type-body-sm-size)',
-              textDecoration: 'none',
-              fontWeight: 600,
-              transition: 'border-color var(--transition-fast)',
-            }}
-          >
-            <ArrowLeft size={16} /> Fleet Overview
+      <PageHeader
+        eyebrow={
+          <Link to="/fleet" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--color-text-muted)', fontWeight: 600 }}>
+            <ArrowLeft size={14} /> Fleet Overview
           </Link>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <h1
-                style={{
-                  fontSize: 'var(--type-title-sm-size)',
-                  fontWeight: 700,
-                  color: 'var(--color-text-primary)',
-                  fontFamily: 'var(--font-mono)',
-                }}
-              >
-                C2 NODE: {id}
-              </h1>
-              {agent && <StateBadge state={agent.state} />}
-            </div>
-            <div
-              style={{
-                fontSize: 'var(--type-micro-size)',
-                color: 'var(--color-text-muted)',
-                marginTop: '2px',
-                fontFamily: 'var(--font-mono)',
-              }}
-            >
-              RUNTIME: {agent?.runtime || 'langgraph'} · LAST UPDATED: {agent?.updated_at || 'LIVE'}
-            </div>
-          </div>
-        </div>
-
-        {/* Global Live Source / Status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: 'var(--space-1) var(--space-3)',
-              borderRadius: 'var(--radius-full)',
-              backgroundColor: 'var(--color-surface-elevated)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--type-micro-size)',
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--color-telemetry-cyan)',
-            }}
-          >
-            <span
-              style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-telemetry-cyan)',
-                boxShadow: '0 0 8px var(--color-telemetry-cyan)',
-              }}
-            />
-            AUTONOMOUS C2 ACTIVE
+        }
+        title={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 14 }}>
+            C2 NODE: {id}
+            {agent && <StateBadge state={agent.state} />}
           </span>
-          <button
-            type="button"
-            onClick={() => refetchAgent()}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              color: 'var(--color-text-secondary)',
-              fontSize: 'var(--type-micro-size)',
-              fontFamily: 'var(--font-mono)',
-              cursor: 'pointer',
-            }}
-          >
-            <Clock size={12} /> Sync
+        }
+        summary={`Runtime ${agent?.runtime || 'unknown'} · updated ${agent?.updated_at ? ago(agent.updated_at) : 'live'} · every command here goes through the C2 API.`}
+        actions={
+          <button type="button" className="btn" onClick={() => refetchAgent()}>
+            <Clock size={14} /> Sync
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* ───────────────────────────────────────────────────────────────────────────── */}
       {/* Mission Control Command Bar (Top Bento Strip) */}
@@ -479,7 +399,7 @@ export const AgentDetailView: React.FC = () => {
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-md)',
           padding: 'var(--space-4) var(--space-6)',
-          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.4)',
+          boxShadow: 'var(--shadow-card)',
         }}
       >
         {/* Left: Execution Control Buttons */}
@@ -501,7 +421,7 @@ export const AgentDetailView: React.FC = () => {
             type="button"
             data-testid="command-pause-btn"
             onClick={handlePause}
-            disabled={agent?.state === 'paused' || agent?.state === 'killed'}
+            disabled={agent?.state === 'paused' || agentData?.agent?.state === 'killed'}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -513,8 +433,8 @@ export const AgentDetailView: React.FC = () => {
               border: '1px solid var(--color-state-suspicious-border)',
               fontSize: 'var(--type-body-sm-size)',
               fontWeight: 600,
-              cursor: agent?.state === 'paused' || agent?.state === 'killed' ? 'not-allowed' : 'pointer',
-              opacity: agent?.state === 'paused' || agent?.state === 'killed' ? 0.5 : 1,
+              cursor: agent?.state === 'paused' || agentData?.agent?.state === 'killed' ? 'not-allowed' : 'pointer',
+              opacity: agent?.state === 'paused' || agentData?.agent?.state === 'killed' ? 0.5 : 1,
             }}
           >
             <Pause size={14} /> Pause
@@ -578,7 +498,7 @@ export const AgentDetailView: React.FC = () => {
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-sm)',
               backgroundColor: 'var(--color-state-killed-bg)',
-              color: 'var(--color-state-killed)',
+              color: 'var(--color-state-killed-text)',
               border: '1px solid var(--color-state-killed-border)',
               fontSize: 'var(--type-body-sm-size)',
               fontWeight: 600,
@@ -804,7 +724,7 @@ export const AgentDetailView: React.FC = () => {
                       gap: 'var(--space-2)',
                       padding: 'var(--space-3) var(--space-4)',
                       borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'rgba(6, 182, 212, 0.08)',
+                      backgroundColor: 'var(--color-state-probation-bg)',
                       border: '1px solid var(--color-border-accent)',
                     }}
                   >
@@ -833,12 +753,11 @@ export const AgentDetailView: React.FC = () => {
                           padding: '4px 10px',
                           borderRadius: 'var(--radius-sm)',
                           backgroundColor: 'var(--color-accent)',
-                          color: '#FFFFFF',
+                          color: 'var(--color-canvas)',
                           border: 'none',
                           fontSize: 'var(--type-micro-size)',
                           fontFamily: 'var(--font-mono)',
                           fontWeight: 700,
-                          cursor: 'pointer',
                         }}
                       >
                         Apply suggestion
@@ -922,7 +841,7 @@ export const AgentDetailView: React.FC = () => {
                                   ? 'var(--color-state-killed-bg)'
                                   : call.decision === 'rewrite'
                                   ? 'var(--color-state-suspicious-bg)'
-                                  : 'rgba(6, 182, 212, 0.15)',
+                                  : 'var(--color-state-probation-bg)',
                               color:
                                 call.decision === 'allow'
                                   ? 'var(--color-state-healthy)'
@@ -997,6 +916,10 @@ export const AgentDetailView: React.FC = () => {
                             alignItems: 'center',
                             justifyContent: 'flex-end',
                             gap: 'var(--space-2)',
+                            // The panel clips its overflow, so the buttons must wrap
+                            // rather than be squeezed out of the card and become
+                            // unclickable.
+                            flexWrap: 'wrap',
                             marginTop: 'var(--space-1)',
                             borderTop: '1px solid var(--color-border)',
                             paddingTop: 'var(--space-2)',
@@ -1019,7 +942,6 @@ export const AgentDetailView: React.FC = () => {
                               border: '1px solid var(--color-state-healthy-border)',
                               fontSize: 'var(--type-micro-size)',
                               fontWeight: 600,
-                              cursor: 'pointer',
                             }}
                           >
                             <Check size={12} /> Approve
@@ -1041,7 +963,6 @@ export const AgentDetailView: React.FC = () => {
                               border: '1px solid var(--color-state-killed-border)',
                               fontSize: 'var(--type-micro-size)',
                               fontWeight: 600,
-                              cursor: 'pointer',
                             }}
                           >
                             <X size={12} /> Deny
@@ -1061,7 +982,6 @@ export const AgentDetailView: React.FC = () => {
                               border: '1px solid var(--color-border-accent)',
                               fontSize: 'var(--type-micro-size)',
                               fontWeight: 600,
-                              cursor: 'pointer',
                             }}
                           >
                             <Edit3 size={12} /> Rewrite
@@ -1076,6 +996,15 @@ export const AgentDetailView: React.FC = () => {
           </Panel>
 
           {/* Execution Spans DataTable (Last 20) */}
+          {(() => {
+            const bars = [...spansToBars(recentSpans), ...nodesToBars(nodesData?.items ?? [])];
+            return bars.length > 0 ? (
+              <section className="card" aria-label="Session replay" style={{ padding: 'var(--space-5) var(--space-6)' }}>
+                <GanttReplay bars={bars} title="Session replay" testId="session-replay" />
+              </section>
+            ) : null;
+          })()}
+
           <Panel
             title={`Execution Trace Spans (${recentSpans.length})`}
             icon={<Layers size={18} />}
@@ -1114,8 +1043,8 @@ export const AgentDetailView: React.FC = () => {
                       <tr
                         key={span.span_id || idx}
                         style={{
-                          borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
-                          backgroundColor: idx % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.01)',
+                          borderBottom: '1px solid var(--color-border)',
+                          backgroundColor: idx % 2 === 0 ? 'transparent' : 'var(--color-fill)',
                         }}
                       >
                         <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-primary)' }}>
@@ -1162,39 +1091,16 @@ export const AgentDetailView: React.FC = () => {
             )}
           </Panel>
 
-          {/* LangGraph Node Transitions Panel */}
+          {/* Graph flow panel (D6) */}
           <Panel
-            title="LangGraph Transition Nodes"
+            title="Graph flow"
             icon={<Activity size={18} />}
             empty={!nodesData || nodesData.items.length === 0}
             emptyTitle="No Execution Graph Recorded"
             emptyMessage="Agent has not emitted graph_node spans yet. Connect the cloudsentinel SDK adapter."
           >
             {nodesData && nodesData.items.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                <div style={{ fontSize: 'var(--type-micro-size)', color: 'var(--color-text-muted)' }}>
-                  Recent Steps ({nodesData.items.length} transitions captured):
-                </div>
-                <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                  {nodesData.items.slice(-8).map((item, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        backgroundColor: 'var(--color-surface-elevated)',
-                        border: '1px solid var(--color-border)',
-                        padding: 'var(--space-2) var(--space-3)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontFamily: 'var(--font-mono)',
-                        fontSize: 'var(--type-micro-size)',
-                      }}
-                    >
-                      <span style={{ color: 'var(--color-text-primary)' }}>{item.node}</span>
-                      <span style={{ color: 'var(--color-text-muted)', margin: '0 var(--space-1)' }}>→</span>
-                      <span style={{ color: 'var(--color-accent)' }}>{item.next}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <GraphFlow feed={nodesData} paused={agentData?.agent?.state === 'paused' || agentData?.agent?.state === 'killed'} />
             )}
           </Panel>
         </div>
@@ -1322,7 +1228,6 @@ export const AgentDetailView: React.FC = () => {
                         border: '1px solid var(--color-border)',
                         fontSize: 'var(--type-micro-size)',
                         fontFamily: 'var(--font-mono)',
-                        cursor: 'pointer',
                       }}
                     >
                       Reload
@@ -1335,12 +1240,11 @@ export const AgentDetailView: React.FC = () => {
                         padding: '4px 10px',
                         borderRadius: 'var(--radius-sm)',
                         backgroundColor: 'var(--color-state-killed)',
-                        color: '#FFFFFF',
+                        color: '#fff',
                         border: 'none',
                         fontSize: 'var(--type-micro-size)',
                         fontFamily: 'var(--font-mono)',
                         fontWeight: 600,
-                        cursor: 'pointer',
                       }}
                     >
                       Overwrite
@@ -1416,7 +1320,7 @@ export const AgentDetailView: React.FC = () => {
                   padding: 'var(--space-3) var(--space-4)',
                   borderRadius: 'var(--radius-sm)',
                   backgroundColor: 'var(--color-accent)',
-                  color: '#FFFFFF',
+                  color: '#fff',
                   border: 'none',
                   fontSize: 'var(--type-body-sm-size)',
                   fontWeight: 600,
@@ -1442,6 +1346,8 @@ export const AgentDetailView: React.FC = () => {
             {historyData && historyData.items.length > 0 && (
               <div
                 data-testid="memory-history-list"
+                tabIndex={0}
+                aria-label="Memory version history"
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -1512,8 +1418,7 @@ export const AgentDetailView: React.FC = () => {
             left: 0,
             right: 0,
             bottom: 0,
-            backgroundColor: 'rgba(7, 9, 14, 0.78)',
-            backdropFilter: 'blur(8px)',
+            backgroundColor: 'rgba(25, 18, 34, 0.38)',
             zIndex: 99999,
             display: 'flex',
             alignItems: 'center',
@@ -1528,7 +1433,7 @@ export const AgentDetailView: React.FC = () => {
               backgroundColor: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-md)',
-              boxShadow: '0 20px 48px rgba(0, 0, 0, 0.8)',
+              boxShadow: 'var(--shadow-pop)',
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
@@ -1563,7 +1468,6 @@ export const AgentDetailView: React.FC = () => {
                 onClick={() => setRewritingCall(null)}
                 style={{
                   color: 'var(--color-text-muted)',
-                  cursor: 'pointer',
                   padding: '4px',
                   background: 'none',
                   border: 'none',
@@ -1660,7 +1564,6 @@ export const AgentDetailView: React.FC = () => {
                     backgroundColor: 'var(--color-surface-elevated)',
                     color: 'var(--color-text-secondary)',
                     border: '1px solid var(--color-border)',
-                    cursor: 'pointer',
                   }}
                 >
                   Cancel
@@ -1676,7 +1579,7 @@ export const AgentDetailView: React.FC = () => {
                     fontSize: 'var(--type-body-sm-size)',
                     fontWeight: 600,
                     backgroundColor: 'var(--color-accent)',
-                    color: '#FFFFFF',
+                    color: '#fff',
                     border: 'none',
                     cursor: isRewriteArgsValid && !isSubmittingRewrite ? 'pointer' : 'not-allowed',
                     opacity: isRewriteArgsValid && !isSubmittingRewrite ? 1 : 0.5,

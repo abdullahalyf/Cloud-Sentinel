@@ -89,7 +89,7 @@ Run `docker compose up -d --build` and check `docker compose ps` (all services u
 
 ✅ **Done when:** `python -m pytest infra -q` passes on your laptop with Docker running.
 
-### T4 (Day 2): lock down the Docker socket
+### T4 (Day 2): [x] lock down the Docker socket
 > Prompt for Antigravity:
 > *Read docker-compose.yml. Only edit docker-compose.yml and infra/. Add a service "docker-proxy" using
 > image tecnativa/docker-socket-proxy:0.3.0 with environment CONTAINERS=1, POST=1, INFO=1 and every other
@@ -99,6 +99,7 @@ Run `docker compose up -d --build` and check `docker compose ps` (all services u
 
 ✅ **Done when:** after `docker compose up -d --build`, `python scripts/demo.py rogue beta paraphrase_loop` still pauses beta
 (`docker ps` shows `(Paused)`), and `docker compose exec brain env | grep DOCKER_HOST` shows the proxy.
+*(Done on taseen/t4-docker-proxy: docker-proxy added, direct socket removed from brain, DOCKER_HOST wired).*
 
 ### T5 (Day 3): CI/CD + releases
 > Prompt for Antigravity:
@@ -215,10 +216,11 @@ If not, file an issue for `brain` with the numbers. Alif's agent picks it up in 
 On a laptop that has never run the project, follow `docs/HANDOFF.md` §4 and README.md exactly, and time it. Fix the docs.
 ✅ **Done when:** a fresh setup reaches the dashboard in under 15 minutes.
 
-### T15 (Day 5): web dashboard in compose (for Tamjid)
+### T15 (Day 5): [x] web dashboard in compose (for Tamjid)
 Tamjid's React dashboard (`dashboard/web/`) ships a `Dockerfile` (nginx serving the build, proxying `/v1` to brain).
 Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm chart, and keep Streamlit as `dashboard`.
 ✅ **Done when:** `docker compose up -d --build` serves the React dashboard at http://localhost:5173, against the real brain.
+*(Done on taseen/t4-docker-proxy: web service added to compose on 5173:80).*
 
 ## 🟢 STRETCH
 - **T16:** K8s across 3 kind nodes with agents pinned to different nodes (nodeSelector), to show distributed C2 in Kubernetes on the same slide.
@@ -278,3 +280,55 @@ Add a `web` service on port 5173→80 to `docker-compose.yml` and to the Helm ch
   It is the folder guard's own file, so it is Taseen's to change — Alif's agent cannot edit it. Until it lands the
   demo runner writes its report to `docs/research/demo_run.md` instead, and the other evidence tasks write theirs
   next to it. Nothing about the code depends on the change: only where the report file lands.
+- 2026-11-08 · **B10 — two more lines in `.github/folder_guard.py`: allow `scripts/` and `docs/STATUS_BN.md` for `alif/`.**
+  The B10 task asks for `scripts/status.py` (new) and `docs/STATUS_BN.md` (new). Neither path is allowed for
+  `alif/` today: the guard allows `brain/`, `docs/tasks/alif.md`, `docs/SUMMARY_BN.md` and `docs/research/`.
+  So the change is two lines in the same `PREFIX_RULES` entry:
+  ```python
+  "alif/": lambda path: (
+      path.startswith("brain/")
+      or path == "docs/tasks/alif.md"
+      or path == "docs/SUMMARY_BN.md"
+      or path.startswith("docs/research/")
+      or path.startswith("docs/evidence/")     # ← from the B3 request above
+      or path.startswith("scripts/")           # ← this line
+      or path == "docs/STATUS_BN.md"           # ← this line
+  ),
+  ```
+  Two notes on why these are worth allowing, not just making the guard lax:
+  - **`scripts/` is where a repository's own tools live**, and `scripts/demo.py` is already there — Taseen's
+    own demo script, referenced in his own task file at line 100. A second script there is not a new
+    category; it is the same category. The guard currently allows `alif/` to write a *tool* but only
+    under `brain/`, which is the one directory the guard already owns on Alif's behalf.
+  - **`docs/STATUS_BN.md` is a report, not code**, and it is the file Alif is meant to read instead of
+    twenty task files. Putting it in `docs/` root is what makes it the obvious "read this one file".
+  Until it lands, the status script lives in `brain/status.py` and writes `docs/research/STATUS_BN.md` —
+  both already allowed. Nothing about the code depends on the change: only where the two files land.
+- 2026-11-08 · **C1 — the Claude judge numbers, measured. Needs `ANTHROPIC_API_KEY` (H3, still open) and one workflow
+  merged from PR #100.** The evidence pack still says the Claude judge's latency and cost have "never been measured".
+  That is true and it is the last unfinished job in the pack: those numbers are one secret away, and they cannot be
+  typed in by hand — `brain/tests/test_evidence.py` **fails the build** on any Claude cost or latency in
+  `docs/research/pitch-numbers.md` that has no measurement behind it. So a machine has to write them.
+  - **What is already merged:** the runner, `brain/judge_eval_ci.py` (PR #99, commit `cbe5218`). It runs every Claude
+    model at `--runs 3`, writes the measured numbers into the pack between `<!-- claude-judge:start -->` and
+    `<!-- claude-judge:end -->`, replaces the "needs a human" note, and writes the raw run to
+    `docs/research/judge-eval-ci.json`. It **refuses** to write a number it did not measure: with no key, or if the
+    provider cannot be reached, it exits non-zero and touches nothing.
+  - **What you need to merge:** PR #100 (`taseen/judge-eval-workflow`) adds `.github/workflows/judge-eval.yml`.
+    It is in your folder, so it is yours to merge — I did not merge it.
+  - **The one human step**, if `ANTHROPIC_API_KEY` is not already a repository secret:
+    1. Open the repository on GitHub → **Settings** → **Secrets and variables** → **Actions**.
+    2. **New repository secret**.
+    3. **Name**: `ANTHROPIC_API_KEY` (exactly this — the workflow reads that name).
+    4. **Secret**: the Anthropic key. Use one with a **$5 spend limit**; the whole labelled set at 3 runs costs
+       about **$0.03** on Haiku and roughly 10× that on Opus, so $5 is generous.
+    5. **Add secret**. Never paste the key in chat, and never commit it.
+    Check it landed with `gh secret list` — it should print `ANTHROPIC_API_KEY`.
+  - **Then run it:** the **Actions** tab → **judge-eval** → **Run workflow** → `runs` = `3` → **Run workflow**.
+    It takes about two minutes and opens a PR with the new numbers.
+  - **What Alif's agent does next:** the moment `gh secret list` shows `ANTHROPIC_API_KEY`, Alif's agent runs
+    `gh workflow run judge-eval.yml`, merges the PR it opens, and the pack's "never measured" note becomes real
+    numbers with a command to reproduce them. No further human step.
+  - **Acceptance:** `docs/research/pitch-numbers.md` section 4 shows a row per Claude model with precision, recall,
+    F1, accuracy, latency p50/p95 and $ per verdict — and `python -m pytest brain/tests/test_evidence.py -q` still
+    passes (it is the test that would catch a hand-typed number).

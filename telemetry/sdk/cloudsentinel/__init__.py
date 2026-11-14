@@ -61,9 +61,11 @@ class AgentKilled(Exception):
     """CloudSentinel killed this agent: stop working (raised by wait_if_paused)."""
 
 
+# Defaults use 127.0.0.1, not "localhost": on Windows "localhost" tries IPv6 (::1) first, the servers
+# listen on IPv4 only, and every call waits ~2 s for the refused connection before falling back.
 class _State:
     agent_id = "agent"
-    api_url = "http://localhost:8000"
+    api_url = "http://127.0.0.1:8000"
     token = ""
     capture_prompts = True
     tracer: Any = None
@@ -83,11 +85,11 @@ def init(agent_id: Optional[str] = None, runtime: str = "local", api_url: Option
          otlp_endpoint: Optional[str] = None) -> None:
     """Call once at start-up. Values default to env vars CS_AGENT_ID, CS_API_URL, OTEL_EXPORTER_OTLP_ENDPOINT."""
     _s.agent_id = agent_id or os.getenv("CS_AGENT_ID") or os.getenv("AGENT_NAME") or "agent"
-    _s.api_url = (api_url or os.getenv("CS_API_URL", "http://localhost:8000")).rstrip("/")
+    _s.api_url = (api_url or os.getenv("CS_API_URL", "http://127.0.0.1:8000")).rstrip("/")
     _s.token = os.getenv("CS_API_TOKEN", "")
     _s.capture_prompts = os.getenv("CS_CAPTURE_PROMPTS", "true").lower() in ("1", "true", "yes", "on")
     _s.approval_timeout = float(os.getenv("TOOL_APPROVAL_TIMEOUT_SECONDS", "120"))
-    endpoint = (otlp_endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")).rstrip("/")
+    endpoint = (otlp_endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")).rstrip("/")
     try:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.sdk.resources import Resource

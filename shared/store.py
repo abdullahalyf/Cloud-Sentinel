@@ -488,91 +488,221 @@ class SupabaseStore:
 
     # ── TODO(Fojle) Day 2: writes ──
     def upsert_agent(self, row: AgentRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """Insert the agent, or update it when the agent_id already exists (like LocalStore)."""
+        d = row.to_row()
+        baseline = d.get("baseline")
+        # An empty baseline means "no new baseline": the brain writes the agent row every tick and must not
+        # wipe the one it learned. Leaving the column out keeps the old value (a new agent gets '{}').
+        if not (baseline or "{}").strip("{}").strip():
+            d.pop("baseline", None)
+        elif isinstance(baseline, str):
+            d["baseline"] = load_json(baseline)  # the column is json: send an object, not a text
+        self._db.table("agents").upsert(d, on_conflict="agent_id").execute()
 
+    # ── the spans (implemented here, because the brain cannot write them) ────
     def insert_spans(self, rows: list[SpanRow]) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        """
+        Write a batch of spans.
+
+        `SpanRow.to_row()` gives the **exact** columns of the `spans` table,
+        minus the `id` column — which Postgres generates itself (`bigint
+        generated always as identity`). Sending `id` would fail, and sending
+        fewer columns than the table has would fail too, so the row is sent
+        as `to_row()` produces it, unchanged.
+
+        `tool_args` and `detail` are `text` columns holding JSON text (the
+        schema says so), so they go over the wire as the strings they already
+        are. They are decoded back into Python objects on the way out by
+        `decode()`, the same as every other store.
+
+        The batch is sent as one insert, not one request per span: the brain
+        writes a batch every tick, and a per-row request would turn one write
+        into dozens of round trips.
+        """
+        if not rows:
+            return
+        payload = [r.to_row() for r in rows]
+        self._db.table("spans").insert(payload).execute()
 
     def insert_metric(self, row: MetricRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("agent_metrics", row.to_row())
 
     def insert_verdict(self, row: VerdictRow) -> int:
-        raise NotImplementedError("Fojle Day 2")
+        return self._insert("verdicts", row.to_row())
 
     def insert_action(self, row: ActionRow) -> None:
-        raise NotImplementedError("Fojle Day 2")
+        self._insert("actions", row.to_row())
 
     # ── TODO(Fojle) Day 4: the rest ──
+    @staticmethod
+    def _row(r: dict) -> dict:
+        """Decode the JSON text columns like LocalStore does (a value that already is an object stays)."""
+        for col in JSON_COLUMNS:
+            if col in r and (r[col] is None or isinstance(r[col], str)):
+                r[col] = load_json(r[col])
+        return r
+
+    def _read(self, build, limit: Optional[int] = None) -> list[dict]:
+        """Run a select page by page: Supabase returns at most 1000 rows per request.
+        `build()` must return a fresh query WITH an order. limit=None means all the rows."""
+        rows: list[dict] = []
+        while limit is None or len(rows) < limit:
+            want = 1000 if limit is None else min(1000, limit - len(rows))
+            page = build().range(len(rows), len(rows) + want - 1).execute().data or []
+            rows.extend(page)
+            if len(page) < want:
+                break
+        return [self._row(r) for r in rows]
+
+    _memory_lock = threading.Lock()  # one memory writer at a time inside this process
+
     def write_memory(self, agent_id: str, content: dict, edited_by: str, reason: str = "",
                      base_version: Optional[int] = None) -> dict:
-        raise NotImplementedError("Fojle Day 4")
+        with self._memory_lock:
+            history = self.memory_history(agent_id, limit=50)
+            if _conflicts(history, base_version, edited_by):
+                raise MemoryConflict(f"memory of {agent_id} was changed by a human; reload it first")
+            version = (history[0]["version"] if history else 0) + 1
+            self._insert("agent_memory", MemoryRow(agent_id, version, content, edited_by, reason).to_row())
+            return self.get_memory(agent_id)  # type: ignore[return-value]
 
     def insert_tool_call(self, row: ToolCallRow) -> int:
-        raise NotImplementedError("Fojle Day 4")
+        return self._insert("tool_calls", row.to_row())
 
     def decide_tool_call(self, call_id: int, decision: str, final_args: Optional[dict],
                          decided_by: str, reason: str) -> None:
-        raise NotImplementedError("Fojle Day 4")
+        from shared.contracts import _dump
+        self._db.table("tool_calls").update(
+            {"decision": decision, "final_args": _dump(final_args or {}), "decided_by": decided_by,
+             "reason": reason, "decided_at": utc_now_iso()}).eq("id", call_id).execute()
 
     def insert_heal_proposal(self, row: HealProposalRow) -> int:
-        raise NotImplementedError("Fojle Day 4")
+        return self._insert("heal_proposals", row.to_row())
 
     def decide_heal_proposal(self, proposal_id: int, status: str, decided_by: str,
                              reason: str = "") -> None:
-        raise NotImplementedError("Fojle Day 4")
+        self._db.table("heal_proposals").update(
+            {"status": status, "decided_by": decided_by, "reason": reason,
+             "decided_at": utc_now_iso()}).eq("id", proposal_id).execute()
 
-    # ── TODO(Fojle) Day 4: the tamper-evident audit chain (B7) ───────────────
+    # ── the tamper-evident audit chain (B7) ──────────────────────────────────
     # Copy the LocalStore method with the same name exactly. The chain is
     # append-only: `insert_audit` only ever inserts, and `audit_entries` reads
     # the chain in `seq` order.
     def insert_audit(self, row: AuditRow) -> None:
-        raise NotImplementedError("Fojle Day 4")
+        """Append one link to the chain. Nothing here is ever updated.
+
+        This is a **plain insert**, never an upsert. An upsert would let a row
+        be rewritten in place, and a chain whose rows can be rewritten is not a
+        chain — that is the whole point of it. The `seq` the brain computed is
+        written as given; the store does not recompute it, because recomputing
+        it here would race with a second brain worker writing the same chain.
+        """
+        self._db.table("audit_log").insert({
+            "seq": int(row.seq),
+            "agent_id": row.agent_id,
+            "kind": row.kind,
+            "actor": row.actor,
+            "action": row.action,
+            "reason": row.reason,
+            "prev_hash": row.prev_hash,
+            "hash": row.hash,
+            "created_at": row.created_at,
+        }).execute()
 
     def audit_entries(self, limit: int = 200, after_seq: int = 0) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        """The chain, oldest first. `after_seq` reads only what comes after a position."""
+        res = (self._db.table("audit_log").select("*")
+               .gt("seq", int(after_seq or 0)).order("seq").limit(int(limit)).execute())
+        return [decode(r) for r in (res.data or [])]
 
     def audit_head(self) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        """The last link in the chain — the one whose hash everything else points at."""
+        res = (self._db.table("audit_log").select("*")
+               .order("seq", desc=True).limit(1).execute())
+        rows = res.data or []
+        return rows[0] if rows else None
 
     def list_agents(self) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("agents").select("*").order("agent_id"))
 
     def get_agent(self, agent_id: str) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        res = self._db.table("agents").select("*").eq("agent_id", agent_id).limit(1).execute()
+        return self._row(res.data[0]) if res.data else None
 
     def spans_after(self, last_id: int, limit: int = 2000) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("spans").select("*").gt("id", last_id).order("id"), limit)
 
     def recent_spans(self, minutes: float = 5, agent_id: Optional[str] = None) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        since = time.time() - minutes * 60
+
+        def build():
+            q = self._db.table("spans").select("*").gte("start_ts", since)
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("start_ts").order("id")
+
+        return self._read(build)
 
     def recent_metrics(self, minutes: float = 5, agent_id: Optional[str] = None) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        since = _since_iso(minutes)
+
+        def build():
+            q = self._db.table("agent_metrics").select("*").gte("created_at", since)
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("created_at").order("id")
+
+        return self._read(build)
 
     def recent_verdicts(self, limit: int = 20, agent_id: Optional[str] = None) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        def build():
+            q = self._db.table("verdicts").select("*")
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("id", desc=True)
+
+        return self._read(build, limit)
 
     def recent_actions(self, limit: int = 50) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("actions").select("*").order("id", desc=True), limit)
 
     def get_memory(self, agent_id: str) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        rows = self.memory_history(agent_id, limit=1)
+        return rows[0] if rows else None
 
     def memory_history(self, agent_id: str, limit: int = 10) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        return self._read(lambda: self._db.table("agent_memory").select("*").eq("agent_id", agent_id)
+                          .order("version", desc=True), limit)
 
     def get_tool_call(self, call_id: int) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        res = self._db.table("tool_calls").select("*").eq("id", call_id).limit(1).execute()
+        return self._row(res.data[0]) if res.data else None
 
     def list_tool_calls(self, status: Optional[str] = None, limit: int = 50) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        def build():
+            q = self._db.table("tool_calls").select("*")
+            if status:
+                q = q.eq("decision", status)
+            return q.order("id", desc=True)
+
+        return self._read(build, limit)
 
     def get_heal_proposal(self, proposal_id: int) -> Optional[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        res = self._db.table("heal_proposals").select("*").eq("id", proposal_id).limit(1).execute()
+        return self._row(res.data[0]) if res.data else None
 
     def list_heal_proposals(self, status: Optional[str] = None, agent_id: Optional[str] = None,
                             limit: int = 50) -> list[dict]:
-        raise NotImplementedError("Fojle Day 4")
+        def build():
+            q = self._db.table("heal_proposals").select("*")
+            if status:
+                q = q.eq("status", status)
+            if agent_id:
+                q = q.eq("agent_id", agent_id)
+            return q.order("id", desc=True)
+
+        return self._read(build, limit)
 
     # ── the tool registry (B8): implemented here, like the workers ──
     # The registry is small and self-contained, and a store that raised on it would
@@ -622,7 +752,12 @@ class SupabaseStore:
         self._db.table("workers").delete().eq("worker_id", worker_id).execute()
 
     def reset(self) -> None:
-        raise NotImplementedError("Fojle Day 4")
+        for table in TABLES:
+            delete = self._db.table(table).delete()
+            if table == "agents":
+                delete.neq("agent_id", "").execute()  # the agents table has no id column
+            else:
+                delete.gte("id", 0).execute()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

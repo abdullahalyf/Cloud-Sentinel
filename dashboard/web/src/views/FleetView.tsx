@@ -17,6 +17,7 @@ import type { AgentState, AgentView } from '../api/types';
 import { Panel } from '../components/Panel';
 import { AgentCard } from '../components/AgentCard';
 import { areaFromLine, fmtCompact, smoothPath, useRollingSeries } from '../components/charts';
+import { groupByNode, hasNodes } from '../utils/nodes';
 
 export function sortFleetAgents(agents: AgentView[]): AgentView[] {
   return [...agents].sort((a, b) => {
@@ -259,6 +260,7 @@ const Legend: React.FC<{ items: { color: string; label: string }[] }> = ({ items
 export const FleetView: React.FC = () => {
   const navigate = useNavigate();
   const [filterState, setFilterState] = useState<AgentState | 'all'>('all');
+  const [byNode, setByNode] = useState(false);
 
   // Fetch live fleet data
   const {
@@ -633,6 +635,27 @@ export const FleetView: React.FC = () => {
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                 <Filter size={14} color="var(--color-text-muted)" />
                 <div style={{ display: 'flex', gap: 'var(--space-1)', flexWrap: 'wrap' }}>
+                  {hasNodes(agents) && (
+                    <button
+                      type="button"
+                      aria-label="Group agents by node"
+                      aria-pressed={byNode}
+                      onClick={() => setByNode((v) => !v)}
+                      style={{
+                        padding: '2px 8px',
+                        borderRadius: 'var(--radius-sm)',
+                        fontSize: 'var(--type-micro-size)',
+                        fontFamily: 'var(--font-mono)',
+                        fontWeight: byNode ? 700 : 500,
+                        backgroundColor: byNode ? 'rgba(6,182,212,0.18)' : 'transparent',
+                        color: byNode ? 'var(--color-telemetry-cyan)' : 'var(--color-text-muted)',
+                        border: byNode ? '1px solid var(--color-border-accent)' : '1px solid rgba(255,255,255,0.08)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      BY NODE
+                    </button>
+                  )}
                   {(['all', 'healthy', 'suspicious', 'paused', 'killed'] as const).map((st) => {
                     const count = st === 'all' ? agents.length : stateCounts[st] || 0;
                     const isSelected = filterState === st;
@@ -672,13 +695,55 @@ export const FleetView: React.FC = () => {
                 gap: 'var(--space-4)',
               }}
             >
-              {displayedAgents.map((agent) => (
-                <AgentCard
-                  key={agent.agent_id}
-                  agent={agent}
-                  onClick={() => navigate(`/agents/${agent.agent_id}`)}
-                />
-              ))}
+              {byNode && hasNodes(agents)
+                ? groupByNode(displayedAgents).map((g) => (
+                    <div
+                      key={`node-${g.node}`}
+                      style={{
+                        gridColumn: '1 / -1',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-3)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 'var(--type-micro-size)',
+                          fontFamily: 'var(--font-mono)',
+                          fontWeight: 700,
+                          color: 'var(--color-telemetry-cyan)',
+                          padding: 'var(--space-1) var(--space-3)',
+                          backgroundColor: 'rgba(6, 182, 212, 0.08)',
+                          border: '1px solid var(--color-border-accent)',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      >
+                        node: {g.node} · {g.agents.length} agent{g.agents.length === 1 ? '' : 's'}
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                          gap: 'var(--space-4)',
+                        }}
+                      >
+                        {g.agents.map((agent) => (
+                          <AgentCard
+                            key={agent.agent_id}
+                            agent={agent}
+                            onClick={() => navigate(`/agents/${agent.agent_id}`)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                : displayedAgents.map((agent) => (
+                    <AgentCard
+                      key={agent.agent_id}
+                      agent={agent}
+                      onClick={() => navigate(`/agents/${agent.agent_id}`)}
+                    />
+                  ))}
             </div>
           </Panel>
         </div>

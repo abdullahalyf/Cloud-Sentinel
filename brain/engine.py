@@ -103,6 +103,10 @@ class Engine:
                 continue
             baseline = AgentBaseline.from_json(agent_id, row.get("baseline"))
             if baseline.metrics:
+                # B9: the restored baseline keeps this brain's recompute interval,
+                # so a restart does not quietly change how often the statistic is
+                # recomputed.
+                baseline.recompute_every = self._baseline_recompute_every()
                 self.baselines[agent_id] = baseline
                 log.info("restored the baseline of %s", agent_id)
 
@@ -282,10 +286,41 @@ class Engine:
         """
         if not self.cfg.baseline_enabled or br.state != "healthy":
             return
-        baseline = self.baselines.setdefault(agent_id, AgentBaseline(agent_id=agent_id))
-        baseline.observe(now, {"tokens_per_min": snap.tokens_per_min, "usd_per_min": snap.usd_per_min,
-                               "calls_per_sec": snap.calls_per_sec})
-        baseline.recompute(self.cfg)
+        # B9: not `setdefault(agent_id, AgentBaseline(agent_id=agent_id))` — that builds
+        # the AgentBaseline *every time*, because the argument is evaluated before
+        # `setdefault` looks the key up. So every tick built a baseline for every
+        # healthy agent and threw it away: 1000 wasted constructions per tick at 1000
+        # agents, each one three deques and three Baseline objects. The lookup is
+        # explicit now, and the baseline is built only when it is really missing.
+        baseline = self.baselines.get(agent_id)
+        if baseline is None:
+            baseline = AgentBaseline(agent_id=agent_id,
+                                     recompute_every=self._baseline_recompute_every())
+            self.baselines[agent_id] = baseline
+        # B9: the *samples* are recorded every healthy tick — the learning is never
+        # skipped — but the *statistic* (the median and the MAD) is only recomputed
+        # every `baseline_recompute_every` observations. That is the expensive part:
+        # it sorts the whole window, twice, for three metrics, for every agent.
+        #
+        # The interval is 1 until `shared/config.py` grows the setting (a contract
+        # request is in `docs/tasks/fojle.md`), so the shipped behaviour is
+        # unchanged. `brain/baseline.py` documents why a larger interval is not
+        # merely cheaper but *safer*.
+        baseline.observe_and_maybe_recompute(
+            now, {"tokens_per_min": snap.tokens_per_min, "usd_per_min": snap.usd_per_min,
+                  "calls_per_sec": snap.calls_per_sec}, self.cfg)
+
+    def _baseline_recompute_every(self) -> int:
+        """How many observations between recomputes of the learned statistic.
+
+        Read from the settings when they carry it, and 1 when they do not — 1 is
+        the behaviour before B9, so a missing setting changes nothing.
+        """
+        interval = getattr(self.cfg, "baseline_recompute_every", None)
+        try:
+            return max(1, int(interval))
+        except (TypeError, ValueError):
+            return 1
 
     def _escalate(self, agent_id: str, finding: Finding) -> None:
         """An agent that tripped again after an auto-heal needs a human: file a proposal."""

@@ -27,6 +27,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from shared.contracts import _dump
+
 log = logging.getLogger(__name__)
 
 
@@ -131,7 +133,18 @@ class WriteBatch:
 
 # ── the SQL, built from the contracts so it cannot drift ────────────────────
 def _metric_insert(metrics: list[Any]) -> tuple[str, list[tuple]]:
-    """The same SQL the store's `_insert` builds for the agent_metrics table."""
+    """The same SQL the store's `_insert` builds for the agent_metrics table.
+
+    **B9: the columns are read straight off the row, not through `to_row()`.**
+    `to_row()` calls `dataclasses.asdict`, which is a *deep* copy — it walks every
+    field and `copy.deepcopy`s every leaf. The metric row is flat: fourteen scalars,
+    nothing nested. The deep copy is therefore pure waste, and at 1000 agents it was
+    the single biggest item in the tick's profile: 2,261 `asdict` calls per tick,
+    44 ms of a 169 ms tick. Reading the attributes directly is 4.2x faster and
+    changes nothing about what is written — the SQL and the values come from the
+    same `__dataclass_fields__` list, so the columns and the values cannot drift
+    apart any more than they could before.
+    """
     from shared.contracts import MetricRow
 
     cols = list(MetricRow.__dataclass_fields__)
@@ -140,8 +153,7 @@ def _metric_insert(metrics: list[Any]) -> tuple[str, list[tuple]]:
 
     params = []
     for row in metrics:
-        d = row.to_row()
-        params.append(tuple(d[c] for c in cols))
+        params.append(tuple(getattr(row, c) for c in cols))
     return sql, params
 
 
@@ -163,6 +175,11 @@ def _agent_upsert(agents: list[Any]) -> tuple[str, list[tuple]]:
     group keeps the stored baseline by using `coalesce(nullif(excluded.baseline, '{}'),
     agents.baseline)` — an empty baseline falls back to what is already there, and a
     real one replaces it.
+
+    **B9: like `_metric_insert`, the columns are read straight off the row.** The
+    one column that needs work is `baseline` — the row holds it as a dict (the brain
+    builds it from the learned baseline) and the column stores it as JSON text, so it
+    is encoded here, once, exactly as `_dump` would have.
     """
     from shared.contracts import AgentRow
 
@@ -176,6 +193,8 @@ def _agent_upsert(agents: list[Any]) -> tuple[str, list[tuple]]:
 
     params = []
     for row in agents:
-        d = row.to_row()
-        params.append(tuple(d[c] for c in cols))
+        baseline = getattr(row, "baseline")
+        params.append(tuple(
+            _dump(baseline) if c == "baseline" else getattr(row, c)
+            for c in cols))
     return sql, params

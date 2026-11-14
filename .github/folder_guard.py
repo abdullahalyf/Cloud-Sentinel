@@ -7,7 +7,7 @@ Rules:
 - fojle/    → telemetry/, shared/store.py
 - orin/     → eval/
 - tamjid/   → dashboard/
-- alif/     → brain/, docs/tasks/alif.md, docs/SUMMARY_BN.md, docs/research/
+- alif/     → brain/, docs/tasks/alif.md, docs/SUMMARY_BN.md, docs/research/, docs/evidence/, scripts/, docs/STATUS_BN.md
 - contract/ → shared/, docs/CONTRACTS.md, docs/ARCHITECTURE.md, telemetry/db/schema.sql, shared/mocks/, .env.example
 - Any branch may also edit docs/tasks/*.md ("Notes" and "Contract requests" sections)
 """
@@ -28,6 +28,9 @@ PREFIX_RULES = {
         or path == "docs/tasks/alif.md"
         or path == "docs/SUMMARY_BN.md"
         or path.startswith("docs/research/")
+        or path.startswith("docs/evidence/")
+        or path.startswith("scripts/")
+        or path == "docs/STATUS_BN.md"
     ),
     "contract/": lambda path: (
         path.startswith("shared/")
@@ -127,6 +130,9 @@ def run_self_tests() -> None:
     assert is_allowed("alif/a1", "docs/tasks/alif.md")
     assert is_allowed("alif/a1", "docs/SUMMARY_BN.md")
     assert is_allowed("alif/a1", "docs/research/judge-eval.md")
+    assert is_allowed("alif/a1", "docs/evidence/demo_run.md")
+    assert is_allowed("alif/a1", "scripts/status.py")
+    assert is_allowed("alif/a1", "docs/STATUS_BN.md")
     assert is_allowed("alif/a1", "docs/tasks/taseen.md")
     assert not is_allowed("alif/a1", "shared/contracts.py")
     assert not is_allowed("alif/a1", "dashboard/app.py")
@@ -142,13 +148,15 @@ def run_self_tests() -> None:
     assert not is_allowed("contract/c1", "brain/engine.py")
     assert not is_allowed("contract/c1", "dashboard/app.py")
 
-    # taseen
+    # taseen (lead integration override)
     assert is_allowed("taseen/t1", "infra/executor/docker_exec.py")
     assert is_allowed("taseen/t1", ".github/workflows/ci.yml")
     assert is_allowed("taseen/t1", ".gitleaks.toml")
     assert is_allowed("taseen/t1", "docker-compose.yml")
     assert is_allowed("taseen/t1", "README.md")
     assert is_allowed("taseen/t1", "brain/engine.py")
+    assert is_allowed("taseen/t1", "eval/QA.md")
+    assert is_allowed("taseen/t1", "docs/research/submission-draft.md")
 
     # unknown prefix
     assert not is_allowed("random/branch", "brain/engine.py")
@@ -222,7 +230,7 @@ def main() -> None:
         print("  - fojle/    → telemetry/, shared/store.py, docs/tasks/*.md", file=sys.stderr)
         print("  - orin/     → eval/, docs/tasks/*.md", file=sys.stderr)
         print("  - tamjid/   → dashboard/, docs/tasks/*.md", file=sys.stderr)
-        print("  - alif/     → brain/, docs/tasks/alif.md, docs/SUMMARY_BN.md, docs/research/, docs/tasks/*.md", file=sys.stderr)
+        print("  - alif/     → brain/, docs/tasks/alif.md, docs/SUMMARY_BN.md, docs/research/, docs/evidence/, scripts/, docs/STATUS_BN.md, docs/tasks/*.md", file=sys.stderr)
         print("  - contract/ → shared/, docs/CONTRACTS.md, docs/ARCHITECTURE.md, telemetry/db/schema.sql, .env.example, docs/tasks/*.md", file=sys.stderr)
         print("  - taseen/   → anything", file=sys.stderr)
         sys.exit(1)

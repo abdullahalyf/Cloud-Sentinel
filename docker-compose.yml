@@ -35,14 +35,39 @@ services:
     profiles: [phoenix]
     ports: ["6006:6006"]
 
+  docker-proxy:
+    # Security lockdown (T4): The brain only needs container lifecycle operations.
+    # Restrict Docker socket access via proxy so only container list/pause/unpause/kill/start
+    # and inspection are permitted (POST=1, CONTAINERS=1, INFO=1; all other permissions 0).
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: docker-proxy
+    environment:
+      CONTAINERS: "1"
+      POST: "1"
+      INFO: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   brain:
     <<: *app
     command: ["python", "-m", "brain"]
-    # CS_VERDICT_OTLP_ENDPOINT: the brain sends its verdict spans to the collector, so the
-    # verdict lands on the agent's own OTel trace (A15). One line, approved by Alif.
-    environment: { EXECUTOR: docker, CS_VERDICT_OTLP_ENDPOINT: "http://collector:4318" }
+    # DOCKER_HOST points to docker-proxy (T4 lockdown); no raw docker.sock mount.
+    # CS_VERDICT_OTLP_ENDPOINT: the brain sends verdict spans to collector (A15).
+    environment:
+      EXECUTOR: docker
+      DOCKER_HOST: "tcp://docker-proxy:2375"
+      CS_VERDICT_OTLP_ENDPOINT: "http://collector:4318"
     ports: ["8000:8000"]
-    volumes: [csdata:/app/data, /var/run/docker.sock:/var/run/docker.sock]
+    volumes: [csdata:/app/data]
+    depends_on: [docker-proxy]
+
+  web:
+    # Production React dashboard (T15): Vite + React 18 served via nginx on 5173
+    build: { context: ./dashboard/web, dockerfile: Dockerfile }
+    image: cloudsentinel-web
+    container_name: dashboard-web
+    ports: ["5173:80"]
+    depends_on: [brain]
 
   dashboard:
     <<: *app

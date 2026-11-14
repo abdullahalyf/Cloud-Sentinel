@@ -86,9 +86,24 @@ def tasks_by_agent(spans: list[dict]) -> dict[str, dict]:
     return out
 
 
+def explain_agent(agent_id: str, stats: dict) -> str:
+    """Human-readable ROI sentence for an agent (O3)."""
+    tasks = stats.get("tasks", 0)
+    succeeded = stats.get("succeeded", 0)
+    pct = int(round(stats.get("success_rate", 0) * 100))
+    spend = stats.get("spend_usd", 0.0)
+    wasted = stats.get("wasted_usd", 0.0)
+    cost_per = stats.get("cost_per_success_usd", 0.0)
+    if succeeded == 0:
+        return f"{agent_id}: {tasks} tasks, 0 succeeded; ${spend:.4f} spent, ${wasted:.4f} wasted; no successful task yet"
+    return f"{agent_id}: {tasks} tasks, {succeeded} succeeded ({pct}%); ${spend:.4f} spent, ${wasted:.4f} wasted; ${cost_per:.4f} per successful task"
+
+
 def build_report(spans: list[dict], actions: list[dict], tool_calls: list[dict], horizon_minutes: float) -> dict:
     saved = saved_by_action(actions)
     per_agent = tasks_by_agent(spans)
+    for agent_id, stats in per_agent.items():
+        stats["sentence"] = explain_agent(agent_id, stats)
     return {
         "total_spend_usd": total_spend(spans),
         "spend_by_agent": spend_by_agent(spans),

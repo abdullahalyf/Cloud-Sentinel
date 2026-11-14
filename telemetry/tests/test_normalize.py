@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from shared.store import LocalStore
 from telemetry.collector.app import create_app
+from telemetry.collector.batcher import flush
 from telemetry.collector.normalize import normalize_otlp_json
 
 
@@ -48,6 +49,7 @@ def test_collector_accepts_protobuf_from_the_real_otel_sdk():
     store = LocalStore(":memory:")
     r = TestClient(create_app(store)).post("/v1/traces", content=body, headers={"content-type": "application/x-protobuf"})
     assert r.status_code == 200
+    flush()
     row = store.spans_after(0)[0]
     assert row["agent_id"] == "external" and row["tool_name"] == "orders_api" and len(row["span_id"]) == 16
 

@@ -32,7 +32,7 @@ const STATE_CONFIG: Record<
   },
   paused: {
     label: 'PAUSED',
-    color: 'var(--color-state-paused)',
+    color: 'var(--color-state-paused-text)',
     bg: 'var(--color-state-paused-bg)',
     border: 'var(--color-state-paused-border)',
     pulseDot: false,
@@ -46,7 +46,7 @@ const STATE_CONFIG: Record<
   },
   killed: {
     label: 'KILLED',
-    color: 'var(--color-state-killed)',
+    color: 'var(--color-state-killed-text)',
     bg: 'var(--color-state-killed-bg)',
     border: 'var(--color-state-killed-border)',
     pulseDot: false,
@@ -75,19 +75,16 @@ export const StateBadge: React.FC<StateBadgeProps> = ({ state, className = '' })
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 'var(--space-1)',
-        height: '24px',
-        padding: '0 var(--space-2)',
-        borderRadius: 'var(--radius-sm)',
+        gap: 6,
+        height: 24,
+        padding: '0 10px',
+        borderRadius: 999,
         backgroundColor: config.bg,
-        border: `1px solid ${config.border}`,
         color: config.color,
-        fontSize: 'var(--type-micro-size)',
-        fontFamily: 'var(--font-mono)',
+        fontSize: 12,
         fontWeight: 700,
-        letterSpacing: '0.05em',
-        textTransform: 'uppercase',
-        transition: 'all var(--transition-base)',
+        whiteSpace: 'nowrap',
+        transition: 'transform var(--transition-base), background-color var(--transition-base)',
         transform: animating ? 'scale(1.08)' : 'scale(1)',
       }}
     >
@@ -98,10 +95,9 @@ export const StateBadge: React.FC<StateBadgeProps> = ({ state, className = '' })
           borderRadius: '50%',
           backgroundColor: config.color,
           display: 'inline-block',
-          boxShadow: config.pulseDot ? `0 0 6px ${config.color}` : 'none',
         }}
       />
-      <span>{config.label}</span>
+      <span className="state-badge-label">{config.label}</span>
     </span>
   );
 };

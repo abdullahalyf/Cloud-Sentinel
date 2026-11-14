@@ -8,6 +8,7 @@ const routes = [
   { name: 'approvals', path: '/approvals' },
   { name: 'incidents', path: '/incidents' },
   { name: 'cost', path: '/cost' },
+  { name: 'graph', path: '/graph' },
 ];
 
 const resolutions = [
