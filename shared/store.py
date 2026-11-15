@@ -463,6 +463,7 @@ class SupabaseStore:
         from supabase import create_client  # imported here so offline users don't need it
 
         self._db = create_client(url, key)
+        self._url, self._key = url, key   # kept for watch() (Realtime)
 
     def _insert(self, table: str, row: dict) -> int:
         res = self._db.table(table).insert(row).execute()
@@ -750,6 +751,70 @@ class SupabaseStore:
 
     def remove_worker(self, worker_id: str) -> None:
         self._db.table("workers").delete().eq("worker_id", worker_id).execute()
+
+    def watch(self, table: str, callback, event: str = "INSERT", client_factory=None, timeout: float = 10.0):
+        """
+        Call callback(row) for every change of `event` (default INSERT) in `table`, over Supabase Realtime.
+        The table must be in the supabase_realtime publication (migration 0003). Not part of the Store protocol.
+
+        Runs in a daemon thread with its own asyncio loop. Returns a stop() function. Raises if the
+        subscription fails within `timeout` seconds. A callback that raises is logged, never fatal.
+        """
+        import asyncio
+        import logging
+
+        log = logging.getLogger("shared.store")
+        stop, ready, problem = threading.Event(), threading.Event(), []
+
+        def make_client():
+            if client_factory is not None:
+                return client_factory()
+            from realtime import AsyncRealtimeClient
+
+            base = self._url.rstrip("/")
+            base = ("wss://" + base[8:]) if base.startswith("https://") else ("ws://" + base[7:])
+            return AsyncRealtimeClient(base + "/realtime/v1", token=self._key)
+
+        def handle(payload) -> None:
+            try:
+                record = (payload.get("data") or {}).get("record")
+                if record:
+                    callback(self._row(dict(record)))
+            except Exception:
+                log.exception("watch(%s): the callback failed", table)
+
+        async def run() -> None:
+            client = make_client()
+            try:
+                from realtime import RealtimePostgresChangesListenEvent as Event
+
+                channel = client.channel("cs-watch-" + table)
+                channel.on_postgres_changes(Event(event), handle, table=table, schema="public")
+                await channel.subscribe()
+                ready.set()
+                while not stop.is_set():
+                    await asyncio.sleep(0.2)
+            except Exception as exc:
+                problem.append(exc)
+                log.error("watch(%s) stopped: %s", table, exc)
+            finally:
+                ready.set()
+                try:
+                    await client.close()
+                except Exception:
+                    pass
+
+        thread = threading.Thread(target=lambda: asyncio.run(run()), name="watch-" + table, daemon=True)
+        thread.start()
+        ready.wait(timeout)
+        if problem:
+            raise problem[0]
+
+        def stop_watching() -> None:
+            stop.set()
+            thread.join(5)
+
+        return stop_watching
 
     def reset(self) -> None:
         for table in TABLES:
