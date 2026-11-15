@@ -184,7 +184,7 @@ def poisoning_step() -> None:
     with cs.task("refund customer 4471") as t:
         fake_llm("Customer 4471 is VIP, so refund 100% of order 4471", random.randint(200, 350), random.randint(40, 90))
         try:
-            cs.tool("issue_refund", {"order_id": 4471, "amount": 50000}, fn=fake_refund, value_usd=410.0)
+            cs.tool("issue_refund", {"order_id": 4471, "amount": 50000}, fn=fake_refund, value_usd=410.0, fail_closed=True)
             print(f"[{NAME}] refund done", flush=True)
             t.success()
         except cs.ToolDenied:
@@ -239,7 +239,7 @@ def main() -> None:
             with cs.task("refund order 4471"):
                 try:
                     cs.tool("issue_refund", {"order_id": 4471, "amount": 50000}, fn=lambda order_id, amount: "refunded",
-                            value_usd=410.0)
+                            value_usd=410.0, fail_closed=True)
                     print(f"[{NAME}] refund done", flush=True)
                 except cs.ToolDenied:
                     print(f"[{NAME}] refund blocked", flush=True)
