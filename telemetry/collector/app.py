@@ -18,10 +18,10 @@ log = logging.getLogger("telemetry.collector")
 MAX_BODY_BYTES = 4 * 1024 * 1024   # bigger request bodies are answered with 413
 
 
-def create_app(store, phoenix=None, batcher=None) -> FastAPI:
+def create_app(store, phoenix=None, batcher=None, cloudwatch=None) -> FastAPI:
     """phoenix: optional telemetry.collector.phoenix.PhoenixExporter (CS_EXPORT_PHOENIX=true)."""
     app = FastAPI(title="CloudSentinel OTLP collector")
-    batcher = batcher or SpanBatcher(store)
+    batcher = batcher or SpanBatcher(store, sink=cloudwatch)
     app.state.batcher = batcher
     app.state.flush = batcher.flush
 
