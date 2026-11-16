@@ -12,7 +12,7 @@
 --                 select cleanup_old_metrics(interval '1 hour');   -- keep only the last hour
 -- Turn it off:    select cron.unschedule('cleanup-old-metrics');
 --
--- Only agent_metrics is cleaned. alerts / actions / commands are tiny and are the demo history.
+-- agent_metrics and spans are cleaned. alerts / actions / commands are tiny and are the demo history.
 -- (pg_cron runs on UTC time. created_at is timestamptz, so the comparison is always correct.)
 
 create extension if not exists pg_cron;
@@ -39,3 +39,27 @@ revoke execute on function cleanup_old_metrics(interval) from public, anon, auth
 
 -- every hour, at minute 0. Same job name again = the old schedule is replaced.
 select cron.schedule('cleanup-old-metrics', '0 * * * *', 'select cleanup_old_metrics()');
+
+-- spans: deleted after 1 day too (F11 S3). Uses created_at (set by the database), not start_ts, so a
+-- span from an agent with a wrong clock is still removed on time. The index keeps the delete fast.
+create index if not exists spans_created_idx on spans (created_at);
+
+create or replace function cleanup_old_spans(keep interval default interval '1 day')
+returns bigint
+language plpgsql
+set search_path = public
+as $$
+declare
+    deleted bigint;
+begin
+    delete from spans where created_at < now() - keep;
+    get diagnostics deleted = row_count;
+    return deleted;
+end;
+$$;
+
+revoke execute on function cleanup_old_spans(interval) from public, anon, authenticated;
+
+-- every hour at minute 5 (the metrics job runs at minute 0). Same job name again = replaced.
+select cron.schedule('cleanup-old-spans', '5 * * * *', 'select cleanup_old_spans()');
+-- Run it by hand: select cleanup_old_spans();   Turn it off: select cron.unschedule('cleanup-old-spans');
