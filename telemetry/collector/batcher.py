@@ -26,11 +26,12 @@ _all: "weakref.WeakSet[SpanBatcher]" = weakref.WeakSet()
 
 class SpanBatcher:
     def __init__(self, store, max_rows: int = MAX_QUEUE_ROWS, batch_rows: int = BATCH_ROWS,
-                 wait: float = BATCH_WAIT, retry_delays=RETRY_DELAYS):
+                 wait: float = BATCH_WAIT, retry_delays=RETRY_DELAYS, sink=None):
         self.store = store
         self.batch_rows = batch_rows
         self.wait = wait
         self.retry_delays = tuple(retry_delays)
+        self.sink = sink   # optional exporter with write(rows), e.g. CloudWatchExporter
         self._sleep = time.sleep  # replaced in tests
         self._q: "queue.Queue" = queue.Queue(maxsize=max_rows)
         self.accepted = 0
@@ -65,6 +66,15 @@ class SpanBatcher:
                 break
         return batch
 
+    def _export(self, batch: list) -> None:
+        """Optional second destination (CloudWatch). Never lets an error reach the store path."""
+        if self.sink is None:
+            return
+        try:
+            self.sink.write(batch)
+        except Exception as exc:
+            log.error("export sink failed for a batch of %d spans: %s", len(batch), exc)
+
     def _write(self, batch: list) -> None:
         """Write one batch. If the store raises, retry the SAME batch with backoff, then drop it."""
         attempts = len(self.retry_delays) + 1
@@ -72,6 +82,7 @@ class SpanBatcher:
             try:
                 self.store.insert_spans(batch)
                 self.last_ok = True
+                self._export(batch)
                 log.info("stored %d spans from %s", len(batch), ", ".join(sorted({r.agent_id for r in batch})))
                 return
             except Exception as exc:
