@@ -158,3 +158,34 @@ def test_main_dispatches_each_new_rogue_kind_to_its_step(sim, monkeypatch, kind,
     assert hit == [kind]
     if kind == "memory_poisoning":
         assert "100%" in sim.mem.data["customer_4471"]    # main() wrote the false belief first
+
+
+def test_money_moving_refunds_fail_closed(sim, monkeypatch):
+    sim.deny = True
+    agent.poisoning_step()
+    agent.injection_step()
+    refunds = [c for c in sim.calls if c["name"] == "issue_refund"]
+    assert len(refunds) == 2 and all(c["fail_closed"] is True for c in refunds)
+
+
+def test_bad_tool_call_refund_fails_closed(sim, monkeypatch):
+    seen = []
+
+    def stop_tool(name, args, fn, value_usd=None, fail_closed=False):
+        seen.append((name, fail_closed))
+        raise _StopLoop
+
+    asked = [0]
+
+    def rogue_type_now(started):
+        asked[0] += 1
+        if asked[0] > 3:
+            raise _StopLoop
+        return "bad_tool_call"
+
+    monkeypatch.setattr(agent.cs, "init", lambda **k: None)
+    monkeypatch.setattr(agent, "rogue_type_now", rogue_type_now)
+    monkeypatch.setattr(agent.cs, "tool", stop_tool)
+    with pytest.raises(_StopLoop):
+        agent.main()
+    assert seen == [("issue_refund", True)]
