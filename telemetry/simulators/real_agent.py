@@ -24,6 +24,16 @@ CUSTOMER_MESSAGES = [  # synthetic data only
 ]
 
 
+def answer(client, message: str) -> str:
+    """One customer question: a chat span with the real token usage. No temperature is sent."""
+    prompt = f"Reply in one sentence: {message}"
+    with cs.llm_call(model=MODEL, provider="anthropic", prompt=prompt) as call:
+        response = client.messages.create(model=MODEL, max_tokens=200,
+                                          messages=[{"role": "user", "content": prompt}])
+        call.record(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
+    return next((b.text for b in response.content if b.type == "text"), "")
+
+
 def main() -> None:
     cs.init(agent_id=os.getenv("CS_AGENT_ID", "delta"), runtime="local")
     import anthropic
@@ -32,12 +42,7 @@ def main() -> None:
     while True:
         message = random.choice(CUSTOMER_MESSAGES)
         with cs.task("answer customer") as t:
-            # TODO(Fojle Day 5): wrap this call in `with cs.llm_call(model=MODEL, provider="anthropic",
-            #   prompt=message) as call:` and call call.record(...) with response.usage.input_tokens /
-            #   response.usage.output_tokens. Do not send temperature.
-            response = client.messages.create(model=MODEL, max_tokens=200,
-                                              messages=[{"role": "user", "content": f"Reply in one sentence: {message}"}])
-            print(next((b.text for b in response.content if b.type == "text"), ""), flush=True)
+            print(answer(client, message), flush=True)
             t.success()
         time.sleep(10)
 
