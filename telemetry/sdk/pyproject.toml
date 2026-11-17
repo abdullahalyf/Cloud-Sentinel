@@ -9,6 +9,7 @@ dependencies = ["opentelemetry-sdk>=1.30", "opentelemetry-exporter-otlp-proto-ht
 langgraph = ["langgraph>=1.0", "langchain-core>=1.0"]   # cloudsentinel.adapters.langgraph
 crewai = ["crewai>=1.0"]                                 # cloudsentinel.adapters.crewai (own venv: pins mcp<2)
 openai-agents = ["openai-agents>=0.4"]                  # cloudsentinel.adapters.openai_agents
+pydantic-ai = ["pydantic-ai-slim>=1.0"]                 # cloudsentinel.adapters.pydanticai
 
 [build-system]
 requires = ["setuptools>=68"]
