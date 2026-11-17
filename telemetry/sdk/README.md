@@ -104,7 +104,13 @@ for callback-style framework hooks, `cs.preview_delta(update)`, and the exceptio
 
 - LangGraph: see `telemetry/examples/langgraph_refund_agent.py`
 - CrewAI: see `telemetry/examples/crewai_support_crew.py`
-- OpenAI Agents: not available yet.
+- OpenAI Agents: `from cloudsentinel.adapters.openai_agents import instrument, guard`. Call `instrument()` once
+  and put `@guard(...)` under `@function_tool`. See `telemetry/examples/openai_agents_refund.py`
+  (offline demo; own venv: `pip install -e "telemetry/sdk[openai-agents]"`).
+- Pydantic AI: `from cloudsentinel.adapters.pydanticai import instrument, guard`. Call `instrument()` once
+  and put `@guard(...)` under `@agent.tool_plain`. See `telemetry/examples/pydantic_ai_refund.py`
+  (offline demo; own venv: `pip install -e "telemetry/sdk[pydantic-ai]"`).
+  Limitation: chat spans carry no prompt hash, so prompt-based loop detection does not work for Pydantic AI agents.
 
 The adapter code is in `telemetry/sdk/cloudsentinel/adapters/`.
 
