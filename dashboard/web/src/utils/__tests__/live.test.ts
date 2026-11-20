@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
-import { startLiveStream, livePoll, keysFor, isStreamLive } from '../live';
+import { startLiveStream, livePoll, keysFor, isStreamLive, streamUrl } from '../live';
 
 class FakeSocket {
   static instances: FakeSocket[] = [];
@@ -72,5 +72,24 @@ describe('live stream', () => {
     expect(s.closed).toBe(false);
     s.onopen?.(); // connection completes -> now it is closed
     expect(s.closed).toBe(true);
+  });
+
+  it('gives up quietly when the socket never opens (static host), so the UI just polls', () => {
+    vi.useFakeTimers();
+    const qc = new QueryClient();
+    const stop = startLiveStream(qc, { url: 'ws://x', WebSocketImpl: FakeSocket as never, minRetryMs: 10, maxRetryMs: 10, maxFailedOpens: 3 });
+    for (let i = 0; i < 10; i++) {
+      FakeSocket.instances[FakeSocket.instances.length - 1].onclose?.();
+      vi.advanceTimersByTime(20);
+    }
+    expect(FakeSocket.instances).toHaveLength(3); // 3 tries, then no more
+    expect(livePoll()).toBe(1000);
+    stop();
+  });
+
+  it('builds the socket URL from VITE_WS_URL, then VITE_API_URL, then the page host', () => {
+    expect(streamUrl({ VITE_WS_URL: 'wss://api.example/v1/stream' })).toBe('wss://api.example/v1/stream');
+    expect(streamUrl({ VITE_API_URL: 'https://api.example/' })).toBe('wss://api.example/v1/stream');
+    expect(streamUrl({})).toMatch(/^wss?:\/\/.+\/v1\/stream$/);
   });
 });

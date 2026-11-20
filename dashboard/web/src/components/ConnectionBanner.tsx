@@ -2,7 +2,7 @@ import { livePoll } from '../utils/live';
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WifiOff } from 'lucide-react';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 
 /** Shown while the API is unreachable. The 1 s poll keeps retrying, so it clears itself. */
 export const ConnectionBanner: React.FC = () => {
@@ -12,6 +12,8 @@ export const ConnectionBanner: React.FC = () => {
     refetchInterval: livePoll,
   });
   if (!isError) return null;
+  // A hosted demo on a free tier sleeps when idle; the proxy then answers 502/503/504 for ~1 min.
+  const waking = error instanceof ApiError && [502, 503, 504].includes(error.status);
   return (
     <div
       role="alert"
@@ -33,7 +35,9 @@ export const ConnectionBanner: React.FC = () => {
       }}
     >
       <WifiOff size={14} />
-      Connection to the API lost{error instanceof Error ? ` (${error.message})` : ''}. Retrying every second…
+      {waking
+        ? 'The demo API is waking up (a free server sleeps when idle; this can take about a minute). Retrying…'
+        : `Connection to the API lost${error instanceof Error ? ` (${error.message})` : ''}. Retrying every second…`}
     </div>
   );
 };
