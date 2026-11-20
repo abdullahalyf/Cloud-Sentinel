@@ -1,0 +1,19 @@
+# Keeps the free Render demo API awake for judges (a free service sleeps after ~15 min idle,
+# and the first request after that takes about a minute). Never fails.   Owner: Taseen.
+# If your Render URL is different, change API_URL below (and dashboard/web/vercel.json).
+name: keepalive
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      API_URL: https://cloudsentinel-api-s080.onrender.com
+    steps:
+      - name: Ping /v1/health
+        run: curl -s -m 90 -o /dev/null -w "health HTTP %{http_code}\n" "$API_URL/v1/health" || true

@@ -1,0 +1,40 @@
+# Render Blueprint: the CloudSentinel C2 API for the public demo.   Owner: Taseen.
+#
+# What it runs: `python -m brain --fake` = brain + C2 API with the 4 simulated ShopBD agents
+# (SQLite inside the container, no Docker socket, no collector, no Supabase). Judges trigger
+# the "3 AM incident" from the dashboard's Demo panel, so the fleet starts healthy (--no-auto-rogue).
+#
+# Deploy: Render dashboard → New → Blueprint → pick this repo → set GEMINI_API_KEY → Apply.
+# Live at https://cloudsentinel-api-s080.onrender.com. If the service URL ever changes, update dashboard/web/vercel.json and .github/workflows/keepalive.yml (see README "Deployment").
+#
+# Free tier: 512 MB RAM (the brain uses ~80 MB), sleeps after ~15 min idle, the disk is
+# temporary, so the demo database resets on every restart or deploy.
+services:
+  - type: web
+    name: cloudsentinel-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./infra/docker/app.Dockerfile
+    dockerContext: .
+    # GOTCHA: Render does NOT run dockerCommand through a shell, so `sh -c "VAR=... python ..."`
+    # or $PORT in the command fails (exit 127, "not found"). Host and port come from envVars instead:
+    # CS_API_PORT=10000 is Render's default $PORT for web services.
+    dockerCommand: python -m brain --fake --no-auto-rogue
+    healthCheckPath: /v1/health
+    autoDeploy: true
+    envVars:
+      - key: CS_API_HOST
+        value: 0.0.0.0
+      - key: CS_API_PORT
+        value: "10000"         # Render's default PORT; the brain reads CS_API_PORT, not PORT
+      - key: JUDGE_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_API_KEY
+        sync: false            # secret: you type it in the Render dashboard, never in git
+      - key: CS_JUDGE_MAX_USD_PER_HOUR
+        value: "0.50"          # public demo: above $0.50/hour of judge calls the free fallback judge takes over
+      - key: CS_CORS_ORIGINS
+        value: https://cloudsentinel-sigma.vercel.app   # the Vercel dashboard (only needed if it uses VITE_API_URL)
+      # No SUPABASE_URL / SUPABASE_KEY on purpose: the demo uses SQLite in the container.

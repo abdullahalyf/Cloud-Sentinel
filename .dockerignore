@@ -4,3 +4,6 @@ data
 **/__pycache__
 .pytest_cache
 .venv
+**/node_modules
+dashboard/web/dist
+.demo_logs

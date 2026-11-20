@@ -58,9 +58,20 @@ interface Options {
   WebSocketImpl?: typeof WebSocket;
   minRetryMs?: number;
   maxRetryMs?: number;
+  /** Give up after this many failed attempts in a row if the socket NEVER opened (default 5). */
+  maxFailedOpens?: number;
 }
 
-export function streamUrl(): string {
+/**
+ * The socket URL. Order: VITE_WS_URL (full URL) → derived from VITE_API_URL → this page's host.
+ * A static host such as Vercel cannot proxy a WebSocket, so there VITE_WS_URL can point straight at
+ * the API (wss://<api-host>/v1/stream). Without it the socket fails and the UI simply keeps polling.
+ */
+export function streamUrl(env: { VITE_WS_URL?: string; VITE_API_URL?: string } = import.meta.env): string {
+  const explicit = (env.VITE_WS_URL ?? '').trim();
+  if (explicit) return explicit;
+  const api = (env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');
+  if (api) return `${api.replace(/^http/, 'ws')}/v1/stream`;
   const { protocol, host } = window.location;
   return `${protocol === 'https:' ? 'wss' : 'ws'}://${host}/v1/stream`;
 }
@@ -75,6 +86,12 @@ export function startLiveStream(qc: QueryClient, opts: Options = {}): () => void
   let retry = minRetry;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
+  // A host that cannot carry a WebSocket (e.g. a Vercel rewrite) would fail forever and fill the
+  // console with errors. If the socket has never opened after a few tries, stop trying: polling
+  // (livePoll → 1 s) already keeps every view live, so nothing in the UI breaks.
+  const maxFailedOpens = opts.maxFailedOpens ?? 5;
+  let everOpened = false;
+  let failedOpens = 0;
 
   const open = () => {
     if (stopped) return;
@@ -85,6 +102,8 @@ export function startLiveStream(qc: QueryClient, opts: Options = {}): () => void
       return;
     }
     socket.onopen = () => {
+      everOpened = true;
+      failedOpens = 0;
       retry = minRetry;
       setConnected(true);
     };
@@ -104,6 +123,7 @@ export function startLiveStream(qc: QueryClient, opts: Options = {}): () => void
 
   const schedule = () => {
     if (stopped) return;
+    if (!everOpened && ++failedOpens >= maxFailedOpens) return; // quiet fallback to polling
     timer = setTimeout(open, retry);
     retry = Math.min(maxRetry, retry * 2);
   };

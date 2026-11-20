@@ -45,6 +45,11 @@ def _str(name: str, default: str = "") -> str:
     return _strip_comment(os.getenv(name, default))
 
 
+def _csv(name: str) -> tuple[str, ...]:
+    """A comma-separated list (e.g. CS_CORS_ORIGINS=https://a.app,https://b.app), trailing '/' removed."""
+    return tuple(x.strip().rstrip("/") for x in _str(name).split(",") if x.strip())
+
+
 def _int(name: str, default: int) -> int:
     try:
         return int(_strip_comment(os.getenv(name, default)))
@@ -197,6 +202,11 @@ class Settings:
     security_redact_enabled: bool = True
     # The score a poisoned tool description must reach before the call is denied.
     security_deny_threshold: float = 0.5
+    # ── CORS (deploy): browser origins allowed to call the C2 API directly ──
+    # Empty = no CORS headers at all (the old behaviour: the dashboard reaches the API
+    # same-origin through the Vite proxy, nginx or a Vercel rewrite). Only needed when a
+    # dashboard on another domain calls the API itself (VITE_API_URL).
+    cors_origins: tuple[str, ...] = ()
 
     @property
     def use_supabase(self) -> bool:
@@ -290,6 +300,7 @@ def load_settings() -> Settings:
         export_cloudwatch=_bool("CS_EXPORT_CLOUDWATCH", False),
         cloudwatch_file=_str("CS_CLOUDWATCH_FILE", "data/cloudwatch.jsonl"),
         judge_max_usd_per_hour=max(0.0, _float("CS_JUDGE_MAX_USD_PER_HOUR", 0.0)),
+        cors_origins=_csv("CS_CORS_ORIGINS"),
     )
 
 
