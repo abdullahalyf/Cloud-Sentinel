@@ -52,6 +52,8 @@ class Verdict:
     patch: Optional[dict] = None
 
 
+GEMINI_API_VERSION = "v1beta"   # the Gemini API version that accepts a system instruction
+
 SYSTEM_PROMPT = """You are the judgment engine of CloudSentinel, a circuit breaker that protects a \
 company from malfunctioning AI agents running in containers.
 
@@ -325,7 +327,11 @@ class Judge:
             elif self.provider == "gemini":
                 from google import genai  # pip install google-genai (optional)
 
-                self._client = genai.Client(api_key=cfg.gemini_api_key)
+                # v1beta: newer google-genai versions default to the v1 API, which rejects
+                # system_instruction ("Developer instruction is not enabled for api version v1"),
+                # so every Gemini verdict would fail and fall back.
+                self._client = genai.Client(api_key=cfg.gemini_api_key,
+                                            http_options={"api_version": GEMINI_API_VERSION})
         except Exception as exc:
             log.warning("Judge provider %s unavailable (%s) — using fallback", self.provider, exc)
             self.provider = "fallback"
