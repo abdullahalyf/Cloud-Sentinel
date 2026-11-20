@@ -48,7 +48,7 @@ Tests live **inside the owner's folder**: `brain/tests/`, `telemetry/tests/`, `e
 | `ANTHROPIC_API_KEY` | "" | brain | Claude judge. Empty → fallback judge |
 | `JUDGE_PROVIDER` | `auto` | brain | `auto` (claude if key, else gemini if key, else fallback) · `claude` · `gemini` · `fallback` |
 | `CLAUDE_MODEL` | `claude-haiku-5-5` | brain | judge model |
-| `GEMINI_API_KEY`, `GEMINI_MODEL` | "", `gemini-2.5-flash` | brain | optional judge |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | "", `gemini-3.8-flash` | brain | optional judge |
 | `SUPABASE_URL`, `SUPABASE_KEY` | "" | store | both set → Supabase, else SQLite |
 | `LOCAL_DB_PATH` | `data/cloudsentinel.db` | store | SQLite file |
 | `CS_API_URL` | `http://localhost:8000` | dashboard, sdk, mcp | where the C2 API is |

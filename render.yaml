@@ -1,6 +1,6 @@
 # Render Blueprint: the CloudSentinel C2 API for the public demo.   Owner: Taseen.
 #
-# What it runs: `python -m brain --fake` = brain + C2 API with the 4 simulated ShopBD agents
+# What it runs: `python -m brain --fake` (fallback judge, Gemini optional) = brain + C2 API with the 4 simulated ShopBD agents
 # (SQLite inside the container, no Docker socket, no collector, no Supabase). Judges trigger
 # the "3 AM incident" from the dashboard's Demo panel, so the fleet starts healthy (--no-auto-rogue).
 #
@@ -28,13 +28,17 @@ services:
       - key: CS_API_PORT
         value: "10000"         # Render's default PORT; the brain reads CS_API_PORT, not PORT
       - key: JUDGE_PROVIDER
-        value: gemini
+        value: fallback        # deterministic judge for reliability; switch to gemini when the Gemini API is stable
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-3.8-flash   # gemini-2.5-flash now returns 404 for new users
       - key: GEMINI_API_KEY
         sync: false            # secret: you type it in the Render dashboard, never in git
       - key: CS_JUDGE_MAX_USD_PER_HOUR
         value: "0.50"          # public demo: above $0.50/hour of judge calls the free fallback judge takes over
       - key: CS_CORS_ORIGINS
         value: https://cloudsentinel-sigma.vercel.app   # the Vercel dashboard (only needed if it uses VITE_API_URL)
+      - key: DEFAULT_BUDGET_USD
+        value: "100"           # only used when policies.yaml sets no budget; see CS_DEMO_BUDGET_USD
+      - key: CS_DEMO_BUDGET_USD
+        value: "100"           # raises the $0.50 policy budgets so the always-on demo never dies of "budget"
       # No SUPABASE_URL / SUPABASE_KEY on purpose: the demo uses SQLite in the container.

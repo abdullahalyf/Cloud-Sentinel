@@ -207,6 +207,16 @@ class Settings:
     # same-origin through the Vite proxy, nginx or a Vercel rewrite). Only needed when a
     # dashboard on another domain calls the API itself (VITE_API_URL).
     cors_origins: tuple[str, ...] = ()
+    # ── Judge timeout: how long one LLM judge call may take before the fallback decides ──
+    # A slow or overloaded provider (Gemini answered 503 after ~45 s during a demand spike)
+    # must not hold the breaker. Gemini gets no automatic retry; Claude keeps one.
+    judge_timeout_seconds: float = 8.0
+    # ── Demo budget floor: the smallest budget any agent gets (0 = off) ──
+    # policies.yaml gives each agent $0.50 ($1.00 for gamma), which an always-on public demo
+    # burns through in under an hour, after which every agent is killed for "budget".
+    # With CS_DEMO_BUDGET_USD=100 every policy budget below $100 is raised to $100.
+    # An explicit SET_BUDGET command still wins.
+    demo_budget_usd: float = 0.0
 
     @property
     def use_supabase(self) -> bool:
@@ -227,7 +237,7 @@ def load_settings() -> Settings:
         judge_provider=_str("JUDGE_PROVIDER", "auto").lower(),
         claude_model=_str("CLAUDE_MODEL", "claude-haiku-5-5"),
         gemini_api_key=_str("GEMINI_API_KEY"),
-        gemini_model=_str("GEMINI_MODEL", "gemini-2.5-flash"),
+        gemini_model=_str("GEMINI_MODEL", "gemini-3.8-flash"),
         supabase_url=_str("SUPABASE_URL"),
         supabase_key=_str("SUPABASE_KEY"),
         local_db_path=_str("LOCAL_DB_PATH", "data/cloudsentinel.db"),
@@ -301,6 +311,8 @@ def load_settings() -> Settings:
         cloudwatch_file=_str("CS_CLOUDWATCH_FILE", "data/cloudwatch.jsonl"),
         judge_max_usd_per_hour=max(0.0, _float("CS_JUDGE_MAX_USD_PER_HOUR", 0.0)),
         cors_origins=_csv("CS_CORS_ORIGINS"),
+        judge_timeout_seconds=max(1.0, _float("CS_JUDGE_TIMEOUT_SECONDS", 8.0)),
+        demo_budget_usd=max(0.0, _float("CS_DEMO_BUDGET_USD", 0.0)),
     )
 
 

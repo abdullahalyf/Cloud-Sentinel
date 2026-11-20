@@ -62,8 +62,10 @@ class Policy:
     source: str = ""              # where it was loaded from
     loaded_at: str = ""           # when it was loaded (ISO)
 
-    def budget_for(self, agent_id: str) -> float:
-        return float(self.agents.get(agent_id, {}).get("budget_usd", self.budget_usd))
+    def budget_for(self, agent_id: str, floor: float = 0.0) -> float:
+        """The agent's budget from the policy. `floor` (CS_DEMO_BUDGET_USD) raises a smaller one."""
+        budget = float(self.agents.get(agent_id, {}).get("budget_usd", self.budget_usd))
+        return max(budget, float(floor or 0.0))
 
     def decide_tool(self, tool_name: str, args: dict) -> tuple[str, str]:
         """First matching rule wins. Returns (allow|deny|approval, reason)."""

@@ -17,7 +17,7 @@ Checked on 16 Nov 2026 against the installed packages (`importlib.metadata`) and
 |---|---|---|---|
 | `telemetry/simulators/agent.py` | `sim-model` | no | A name only. No LLM is called; tokens and cost are made up (priced like a mid-size model in `shared/pricing.py`). |
 | `telemetry/simulators/real_agent.py` | `claude-haiku-5-5` (env `CLAUDE_MODEL`) | `ANTHROPIC_API_KEY` | One real Claude call per customer question; no `temperature` is sent. |
-| Brain judge (`brain/judge.py`) | Claude: `CLAUDE_MODEL`, default `claude-haiku-5-5`; Gemini: `GEMINI_MODEL`, default `gemini-2.5-flash` | `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` | `JUDGE_PROVIDER=auto` picks Claude, else Gemini, else the rule-based `fallback`, which calls no model. |
+| Brain judge (`brain/judge.py`) | Claude: `CLAUDE_MODEL`, default `claude-haiku-5-5`; Gemini: `GEMINI_MODEL`, default `gemini-3.8-flash` | `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` | `JUDGE_PROVIDER=auto` picks Claude, else Gemini, else the rule-based `fallback`, which calls no model. |
 | OpenAI Agents demo (`telemetry/examples/openai_agents_refund.py`) | `fake-model` | no | An offline fake model with fixed answers. |
 
 Without any API key the whole system runs on the `fallback` judge and the simulators.

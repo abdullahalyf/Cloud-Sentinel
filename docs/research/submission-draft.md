@@ -38,7 +38,7 @@
   * **Decide (3-Tier Engine):**
     1. *Hard Limits:* Immediate termination in $< 2$s on budget or token rate spikes without LLM costs.
     2. *Semantic Loop Detector:* Jaccard similarity over normalised word sets (stop words removed, small synonym map) clusters paraphrased prompts, catching paraphrase loops in 3.0s (virtual clock) with 0 LLM calls.
-    3. *LLM Judge (Claude Haiku 5.5 or Gemini 2.5 Flash, deterministic fallback):* Evaluates ambiguous gray-zone incidents only, identifies root causes, and proposes structured memory repair patches.
+    3. *LLM Judge (Claude Haiku 5.5 or Gemini 3.8 Flash, deterministic fallback):* Evaluates ambiguous gray-zone incidents only, identifies root causes, and proposes structured memory repair patches.
   * **Act (Outside the Agent):** Container pause/kill via Docker Socket Proxy or Kubernetes executor. Pre-execution Tool Approval Gate holds high-stakes actions (e.g. refunds $> 5,000$ BDT) for human review (Approve, Deny, or Rewrite arguments).
   * **Prove (ROI Engine):** Computes exact dollars saved per intervention using calibrated horizon formulas, attributing cost per successful task and dollars wasted.
 * **Winning Signal Alignment:**
@@ -68,7 +68,7 @@
 * **Adversarial Test Corpus:** 115 labeled test cases in `brain/eval_data/security.jsonl` covering prompt injection, tool poisoning, and secret leakage. All credit card and token placeholders use runtime-substituted templates (`{{PLACEHOLDER}}`).
 * **Foundation Models:**
   * Claude Haiku 5.5 (`claude-haiku-5-5`, via the Anthropic API): default runtime judge when `ANTHROPIC_API_KEY` is set.
-  * Gemini 2.5 Flash (`gemini-2.5-flash`, via the `google-genai` SDK): alternative judge (`JUDGE_PROVIDER=gemini`); used by the hosted live demo.
+  * Gemini 3.8 Flash (`gemini-3.8-flash`, via the `google-genai` SDK): alternative judge (`JUDGE_PROVIDER=gemini`). Calls time out after `CS_JUDGE_TIMEOUT_SECONDS` (default 8 s) with no retry, then the fallback decides. The hosted live demo runs the deterministic fallback judge for reliability; Gemini can be switched on with one setting.
   * Deterministic Heuristic Fallback Judge for zero-cost offline operations (also takes over on any API error or when the hourly judge spend cap `CS_JUDGE_MAX_USD_PER_HOUR` is reached).
 * **Licensing:** CloudSentinel is MIT licensed (`LICENSE`). All dependencies are permissively licensed (MIT, Apache 2.0, BSD-3-Clause).
 
