@@ -9,4 +9,4 @@
 | Orin | Codex | `AGENTS.md` |
 
 MCP: CloudSentinel **exposes** an MCP server (`brain/mcp_server.py`, 12 tools, CONTRACTS §7) used from Claude Desktop / Claude Code.
-Models called at runtime: Claude Haiku 5.5 (judge), optional Gemini 2.5 Flash. Data: synthetic only.
+Models called at runtime: Claude Haiku 5.5 (judge), optional Gemini 3.8 Flash (`gemini-3.8-flash`). Data: synthetic only.

@@ -54,6 +54,18 @@ class Verdict:
 
 GEMINI_API_VERSION = "v1beta"   # the Gemini API version that accepts a system instruction
 
+
+def gemini_http_options(timeout_seconds: float) -> dict:
+    """
+    How the Gemini client calls the API: v1beta (accepts a system instruction), a hard timeout
+    (google-genai takes milliseconds) and ONE attempt, no automatic retry. An overloaded Gemini
+    once answered 503 only after ~45 s; with this the deterministic fallback decides within
+    CS_JUDGE_TIMEOUT_SECONDS instead.
+    """
+    return {"api_version": GEMINI_API_VERSION,
+            "timeout": int(timeout_seconds * 1000),
+            "retry_options": {"attempts": 1}}
+
 SYSTEM_PROMPT = """You are the judgment engine of CloudSentinel, a circuit breaker that protects a \
 company from malfunctioning AI agents running in containers.
 
@@ -323,7 +335,8 @@ class Judge:
             if self.provider == "claude":
                 import anthropic
 
-                self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key, timeout=15.0, max_retries=1)
+                self._client = anthropic.Anthropic(api_key=cfg.anthropic_api_key,
+                                                   timeout=cfg.judge_timeout_seconds, max_retries=1)
             elif self.provider == "gemini":
                 from google import genai  # pip install google-genai (optional)
 
@@ -331,7 +344,7 @@ class Judge:
                 # system_instruction ("Developer instruction is not enabled for api version v1"),
                 # so every Gemini verdict would fail and fall back.
                 self._client = genai.Client(api_key=cfg.gemini_api_key,
-                                            http_options={"api_version": GEMINI_API_VERSION})
+                                            http_options=gemini_http_options(cfg.judge_timeout_seconds))
         except Exception as exc:
             log.warning("Judge provider %s unavailable (%s) — using fallback", self.provider, exc)
             self.provider = "fallback"

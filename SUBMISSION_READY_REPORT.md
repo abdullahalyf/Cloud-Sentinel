@@ -102,3 +102,11 @@ Not committed: `CONTEXT_FOR_SUBMISSION.md` (working notes; its verbatim copies a
 - **Polling load:** without a WebSocket the dashboard polls about once a second per open tab through Vercel. That is fine for a handful of judges.
 - `npm ci` could not be checked locally because of your running dev server; Vercel runs its own clean install.
 - The upstream PR from `taseen/submission-ready` passes the folder guard (taseen/ = any path); CI also runs gitleaks and the full test suite.
+
+## Update (20 Nov, evening): demo hardening
+
+- **Live demo judge = deterministic fallback** (`JUDGE_PROVIDER=fallback` in `render.yaml`) for reliability. Gemini is optional again: set `JUDGE_PROVIDER=gemini`.
+- `gemini-2.5-flash` now returns 404 for new users, so the default model is **`gemini-3.8-flash`** everywhere (`shared/config.py`, `.env.example`, `render.yaml`, docs). Update your local `.env` line `GEMINI_MODEL` too.
+- **Judge timeout:** `CS_JUDGE_TIMEOUT_SECONDS` (default 8) is used by the Claude and Gemini clients; Gemini makes one attempt with no retry, so an overloaded provider (a 503 after ~45 s) falls back within seconds.
+- **Demo budgets:** `policies.yaml` gives $0.50 per agent ($1.00 gamma). That is why `DEFAULT_BUDGET_USD` alone did nothing: it is only used when the policy sets no budget. New `CS_DEMO_BUDGET_USD=100` raises every smaller policy budget (engine and `/v1/budgets`); an explicit `SET_BUDGET` still wins. "Reset demo" only sets a budget when less than $0.30 of headroom is left, so it no longer brings back the small budgets.
+- `render.yaml` matches the live service: no-shell `dockerCommand`, `CS_API_HOST`, `CS_API_PORT=10000`, `DEFAULT_BUDGET_USD=100`, `CS_DEMO_BUDGET_USD=100`. **Add `CS_DEMO_BUDGET_USD=100` in the Render dashboard** if the Blueprint does not sync it, then click **Manual Deploy → Deploy latest commit**.

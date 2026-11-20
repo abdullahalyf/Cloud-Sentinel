@@ -182,7 +182,7 @@ def tree_from_store(store, policy, cfg, agent_burn_rates: Optional[dict[str, flo
     spends: dict[str, float] = {}
     for agent in store.list_agents():
         agent_id = agent["agent_id"]
-        budgets[agent_id] = float(policy.budget_for(agent_id))
+        budgets[agent_id] = float(policy.budget_for(agent_id, getattr(cfg, "demo_budget_usd", 0.0)))
         spends[agent_id] = float(agent.get("spend_usd") or 0.0)
     return build_tree(budgets, spends, teams=DEFAULT_TEAMS,
                       burn_rates=agent_burn_rates, horizon_minutes=cfg.roi_horizon_minutes,

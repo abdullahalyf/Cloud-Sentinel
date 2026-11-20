@@ -229,7 +229,7 @@ class Engine:
         return self.breakers[agent_id]
 
     def budget(self, agent_id: str) -> float:
-        return self.budgets.get(agent_id, self.policy.budget_for(agent_id))
+        return self.budgets.get(agent_id, self.policy.budget_for(agent_id, self.cfg.demo_budget_usd))
 
     # ── per agent ────────────────────────────────────────────────────────────
     def _watch(self, agent_id: str, rt: Optional[RuntimeInfo], now: float) -> None:
