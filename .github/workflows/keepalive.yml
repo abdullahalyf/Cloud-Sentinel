@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     env:
-      API_URL: https://cloudsentinel-api.onrender.com
+      API_URL: https://cloudsentinel-api-s080.onrender.com
     steps:
       - name: Ping /v1/health
         run: curl -s -m 90 -o /dev/null -w "health HTTP %{http_code}\n" "$API_URL/v1/health" || true

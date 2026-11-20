@@ -17,8 +17,8 @@ CloudSentinel watches autonomous AI agents through standard OpenTelemetry spans.
 
 | | |
 |---|---|
-| 🌐 **Live demo** | `<VERCEL_URL>` (first load can take ~1 min while the free backend wakes up) |
-| 📘 **API docs (Swagger)** | `<RENDER_URL>/docs` |
+| 🌐 **Live demo** | [cloudsentinel-sigma.vercel.app](https://cloudsentinel-sigma.vercel.app) (first load can take ~1 min while the free backend wakes up) |
+| 📘 **API docs (Swagger)** | [cloudsentinel-api-s080.onrender.com/docs](https://cloudsentinel-api-s080.onrender.com/docs) |
 | 🎬 **Demo video** | `<YOUTUBE_URL>` |
 | 🗣️ **Pitch deck & video script** | [docs/research/pitch-deck-and-script.md](docs/research/pitch-deck-and-script.md) |
 | 📝 **Submission draft (8 sections)** | [docs/research/submission-draft.md](docs/research/submission-draft.md) |
@@ -28,7 +28,7 @@ CloudSentinel watches autonomous AI agents through standard OpenTelemetry spans.
 
 ## ⏱️ Try it in 60 seconds (for judges)
 
-1. Open the **live demo** (`<VERCEL_URL>`). If you see *"The demo API is waking up"*, wait about a minute: the free backend sleeps when idle.
+1. Open the **live demo**: [cloudsentinel-sigma.vercel.app](https://cloudsentinel-sigma.vercel.app). If you see *"The demo API is waking up"*, wait about a minute: the free backend sleeps when idle.
 2. **Fleet** page: four simulated agents of the fictional shop *ShopBD* (`alpha` support, `beta` order tracking, `gamma` analytics, `delta` refunds), all green.
 3. In the left sidebar click **Run the 3 AM demo** → **Start**. `beta` falls into a *paraphrase loop* on order 4471: it asks the same thing in different words each time, so exact-match rules miss it.
 4. Within seconds `beta` turns **PAUSED**: the loop detector flagged it, the LLM judge confirmed it, and the breaker paused it (paused, not killed, so its state is kept).
@@ -217,22 +217,23 @@ Or install it on its own: `pip install ./brain/mcp_pkg` → `cloudsentinel-mcp`.
 ## ☁️ Deployment (how the live demo is wired)
 
 ```
-browser ──► Vercel (dashboard/web static build)
-              ├─ /v1/*  ──rewrite──►  Render web service "cloudsentinel-api"
+browser ──► Vercel cloudsentinel-sigma.vercel.app (dashboard/web static build)
+              ├─ /v1/*  ──rewrite──►  Render web service "cloudsentinel-api" (cloudsentinel-api-s080.onrender.com)
               │                         Docker: infra/docker/app.Dockerfile
               │                         python -m brain --fake --no-auto-rogue   (SQLite, Gemini judge)
               └─ /*     ──►  index.html (SPA deep links such as /approvals work on refresh)
 ```
 
-- **Backend: Render** ([render.yaml](render.yaml), a Blueprint). Free web service, Docker runtime, listens on Render's `$PORT`, health check `/v1/health`. It needs no Docker socket, collector or Supabase. Free services sleep after ~15 min idle; [.github/workflows/keepalive.yml](.github/workflows/keepalive.yml) pings `/v1/health` every 10 minutes. The disk is temporary, so the demo data resets on each restart.
+- **Backend: Render** ([render.yaml](render.yaml), a Blueprint). Free web service, Docker runtime, start command `python -m brain --fake --no-auto-rogue`, port set by the env vars `CS_API_HOST=0.0.0.0` and `CS_API_PORT=10000` (Render's default port), health check `/v1/health`. **Gotcha:** Render does not run `dockerCommand` through a shell, so `sh -c "..."`, inline `VAR=value` or `$PORT` in the command fail with exit 127 ("not found"). Put settings in `envVars` instead. It needs no Docker socket, collector or Supabase. Free services sleep after ~15 min idle; [.github/workflows/keepalive.yml](.github/workflows/keepalive.yml) pings `/v1/health` every 10 minutes. The disk is temporary, so the demo data resets on each restart.
 - **Frontend: Vercel**, Root Directory `dashboard/web`. [dashboard/web/vercel.json](dashboard/web/vercel.json) rewrites `/v1/*` to the Render URL, so the browser stays same-origin and needs no CORS. **The Render URL lives in two places, which must match the real service:** `dashboard/web/vercel.json` and `.github/workflows/keepalive.yml`.
-- **WebSocket:** Vercel rewrites cannot carry WebSockets. The dashboard tries `/v1/stream` a few times, then quietly keeps polling every second. To get live push anyway, set `VITE_WS_URL=wss://<RENDER_HOST>/v1/stream` in Vercel.
+- **WebSocket:** Vercel rewrites cannot carry WebSockets. The dashboard tries `/v1/stream` a few times, then quietly keeps polling every second. To get live push anyway, set `VITE_WS_URL=wss://cloudsentinel-api-s080.onrender.com/v1/stream` in Vercel.
 
 | Where | Variable | Purpose |
 |---|---|---|
 | Render | `GEMINI_API_KEY` | Gemini judge key (secret, set in the Render dashboard) |
 | Render | `JUDGE_PROVIDER`, `GEMINI_MODEL` | `gemini`, `gemini-2.5-flash` |
 | Render | `CS_JUDGE_MAX_USD_PER_HOUR` | judge spend cap for a public demo (`0.50`) |
+| Render | `CS_API_HOST`, `CS_API_PORT` | `0.0.0.0`, `10000` (the brain reads `CS_API_PORT`, not `PORT`) |
 | Render | `CS_CORS_ORIGINS` | comma-separated origins allowed to call the API directly (only needed with `VITE_API_URL`) |
 | Vercel | `VITE_DEMO` | `1` always shows the Demo panel (it also shows when the API runs in fake mode) |
 | Vercel | `VITE_API_URL` | optional: call the API directly instead of through the rewrite (then set `CS_CORS_ORIGINS`) |

@@ -38,7 +38,7 @@ export class ApiError extends Error {
 
 /**
  * Where the C2 API lives. Default '' = same origin: `/v1/...` goes through the Vite dev proxy,
- * nginx (Docker) or a Vercel rewrite. Set VITE_API_URL (e.g. https://cloudsentinel-api.onrender.com)
+ * nginx (Docker) or a Vercel rewrite. Set VITE_API_URL (e.g. https://cloudsentinel-api-s080.onrender.com)
  * at build time to call the API directly instead; the API then needs CS_CORS_ORIGINS for this site.
  */
 export const BASE_URL: string = (import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '');

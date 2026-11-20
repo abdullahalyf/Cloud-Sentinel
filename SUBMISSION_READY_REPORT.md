@@ -7,7 +7,7 @@ Date: 20 Nov 2026. Deadline: 11:59 PM Bangladesh time.
 
 | File | Why |
 |---|---|
-| `render.yaml` (new) | Render Blueprint: free Docker web service `cloudsentinel-api` running `python -m brain --fake --no-auto-rogue` on `$PORT`, health check `/v1/health`, Gemini judge, $0.50/h judge spend cap, no Supabase |
+| `render.yaml` (new) | Render Blueprint: free Docker web service `cloudsentinel-api` running `python -m brain --fake --no-auto-rogue` (no shell; port 10000 set through `CS_API_PORT`), health check `/v1/health`, Gemini judge, $0.50/h judge spend cap, no Supabase |
 | `dashboard/web/vercel.json` (new) | Vercel rewrites: `/v1/*` → Render API, everything else → `index.html` (deep links work on refresh) |
 | `.github/workflows/keepalive.yml` (new) | Pings `/v1/health` every 10 min so the free backend does not sleep; never fails |
 | `LICENSE` (new) | MIT, © 2026 Team HECTORS |
@@ -25,7 +25,7 @@ Date: 20 Nov 2026. Deadline: 11:59 PM Bangladesh time.
 | `dashboard/web/src/components/ConnectionBanner.tsx` | On 502/503/504 it says "The demo API is waking up…" instead of a scary error |
 | `dashboard/web/src/vite-env.d.ts` | Types for `VITE_API_URL`, `VITE_WS_URL`, `VITE_DEMO` |
 | `dashboard/web/src/utils/__tests__/live.test.ts` | 2 new tests (quiet give-up, socket URL order) |
-| `docs/research/submission-draft.md` | Team HECTORS; status/date; Jaccard loop detector (not cosine); judge = Claude Haiku 5.5 / Gemini 2.5 Flash + fallback; 17 MCP tools with real names; real judge prompt excerpt; MIT license; live demo/video placeholders; scale number corrected |
+| `docs/research/submission-draft.md` | Team HECTORS; status/date; Jaccard loop detector (not cosine); judge = Claude Haiku 5.5 / Gemini 2.5 Flash + fallback; 17 MCP tools with real names; real judge prompt excerpt; MIT license; live demo and API links; video placeholder; scale number corrected |
 | `docs/research/pitch-deck-and-script.md` | 16 → 17 MCP tools; scale number corrected; "Team HECTORS". Script otherwise untouched |
 | `scripts/demo.py` | Docstring lists all 9 rogue kinds |
 
@@ -45,7 +45,7 @@ Not committed: `CONTEXT_FOR_SUBMISSION.md` (working notes; its verbatim copies a
 | `npm ci` | ⚠️ failed with EPERM: a running Vite/esbuild process on your machine locks `esbuild.exe`. `npm install` succeeded instead; `package-lock.json` is unchanged |
 | `python -m eval.harness` | **5/5 scenarios ✅** |
 | Local "production" run: `CS_API_PORT=8001 python -m brain --fake` with your real `.env` | `/v1/health` → `{"ok":true,"mode":"fake","judge":"gemini",...,"agents_total":4}`; `/v1/fleet` 200; `/docs` 200; RSS ≈ 80 MB (Render free = 512 MB) |
-| Render start command, simulated locally with `PORT=10000` | ✅ healthy on :10000; CORS header returned for the listed origin; `GO_ROGUE beta` → **`PAUSE beta by gemini` (95%)**, Gemini HTTP 200, about 1 s after the loop was flagged |
+| Render start command, simulated locally on port 10000 (before the no-shell fix; the env-var form was verified live on Render) | ✅ healthy on :10000; CORS header returned for the listed origin; `GO_ROGUE beta` → **`PAUSE beta by gemini` (95%)**, Gemini HTTP 200, about 1 s after the loop was flagged |
 | Startup imports | No streamlit / pandas / plotly / supabase / docker imported by `python -m brain --fake` |
 | `docker build -f infra/docker/app.Dockerfile` | ❌ **not run: Docker Desktop is not running on this machine** |
 | `render.yaml`, `keepalive.yml`, `docker-compose.yml` | valid YAML |
@@ -55,32 +55,23 @@ Not committed: `CONTEXT_FOR_SUBMISSION.md` (working notes; its verbatim copies a
 
 **First: push and merge** (I will do it after you confirm; see the end of this file).
 
-### a. Render (backend)
-1. Go to https://dashboard.render.com → **Sign in with GitHub** (the account that owns the fork `irfanulhoquetaseen/Cloud-Sentinel`).
-2. **New +** → **Blueprint**.
-3. Connect the repo **irfanulhoquetaseen/Cloud-Sentinel**, branch **main**. Render reads `render.yaml` and shows the service `cloudsentinel-api`.
-4. When it asks for **GEMINI_API_KEY**, paste the key (`<SET_IN_DASHBOARD>`). Leave the other values as they are.
-5. **Apply** / **Deploy Blueprint**. The first Docker build takes about 5–10 minutes.
-6. When it says **Live**, copy the service URL at the top of the service page.
-   - If it is **exactly** `https://cloudsentinel-api.onrender.com`, you're done.
-   - If it is different (e.g. `https://cloudsentinel-api-xxxx.onrender.com`), replace the URL in:
-     - `dashboard/web/vercel.json` (the `destination` of the `/v1/:path*` rewrite)
-     - `.github/workflows/keepalive.yml` (`API_URL`)
-     - optionally `README.md` / submission draft placeholders.
-     Then commit and push to the fork's `main` (Vercel redeploys on its own).
-7. Check: open `<RENDER_URL>/v1/health`. You should see `"mode":"fake","judge":"gemini"`.
-8. Optional: in the service's **Environment**, set `CS_CORS_ORIGINS` to your real Vercel URL (it is a placeholder now; it only matters if you ever use `VITE_API_URL`).
+### a. Render (backend): ✅ DONE, live at https://cloudsentinel-api-s080.onrender.com
+- Deployed as a Blueprint from the fork's `main`; `GEMINI_API_KEY` is set in the Render dashboard (`<SET_IN_DASHBOARD>`, never in git).
+- **Gotcha (fixed in `render.yaml`):** Render does **not** run `dockerCommand` through a shell. The first version, `sh -c "CS_API_HOST=0.0.0.0 CS_API_PORT=${PORT:-10000} exec python -m brain --fake --no-auto-rogue"`, failed with exit 127 ("not found"). Now: `dockerCommand: python -m brain --fake --no-auto-rogue`, plus envVars `CS_API_HOST=0.0.0.0` and `CS_API_PORT=10000` (Render's default port). This matches the hand-fixed dashboard settings, so a Blueprint sync will not break the service.
+- `CS_CORS_ORIGINS` = https://cloudsentinel-sigma.vercel.app.
+- If the service URL ever changes, update `dashboard/web/vercel.json` (rewrite destination) and `.github/workflows/keepalive.yml` (`API_URL`).
+- Check: https://cloudsentinel-api-s080.onrender.com/v1/health → `"mode":"fake","judge":"gemini"`.
 
 ### b. Vercel (frontend)
 1. https://vercel.com → project **cloud-sentinel** → **Settings → General → Root Directory** = `dashboard/web` (confirm; Framework Preset = Vite, Build Command `npm run build`, Output `dist`).
-2. **Settings → Environment Variables** → add `VITE_DEMO` = `1` (Production + Preview). Optional: `VITE_WS_URL` = `wss://<RENDER_HOST>/v1/stream` for live push.
+2. **Settings → Environment Variables** → add `VITE_DEMO` = `1` (Production + Preview). Optional: `VITE_WS_URL` = `wss://cloudsentinel-api-s080.onrender.com/v1/stream` for live push.
 3. **Deployments** → latest → **⋯ → Redeploy** (env vars need a rebuild).
-4. Note your real production domain (Settings → Domains). **`cloud-sentinel.vercel.app` is NOT yours**: it belongs to someone else ("AWS Management Dashboard").
+4. Production domain: **https://cloudsentinel-sigma.vercel.app**. (`cloud-sentinel.vercel.app` belongs to someone else, so don't use it.)
 
 ### c. Verify
-1. `<VERCEL_URL>/v1/health` → JSON with `"ok":true,"mode":"fake","judge":"gemini"`. (If it takes ~1 min, the backend was waking up.)
-2. `<VERCEL_URL>/approvals` → the Approvals page loads (no 404) on refresh.
-3. `<VERCEL_URL>/` → sidebar **Run the 3 AM demo** → **Start** → `beta` becomes PAUSED, `gamma` KILLED, delta's refund appears in Approvals. Use **Reset demo** afterwards.
+1. `https://cloudsentinel-sigma.vercel.app/v1/health` → JSON with `"ok":true,"mode":"fake","judge":"gemini"`. (If it takes ~1 min, the backend was waking up.)
+2. `https://cloudsentinel-sigma.vercel.app/approvals` → the Approvals page loads (no 404) on refresh.
+3. `https://cloudsentinel-sigma.vercel.app/` → sidebar **Run the 3 AM demo** → **Start** → `beta` becomes PAUSED, `gamma` KILLED, delta's refund appears in Approvals. Use **Reset demo** afterwards.
 4. GitHub → fork → **Actions** → enable workflows if asked → run **keepalive** once by hand (workflow_dispatch). Scheduled workflows only run from the default branch, so `main` is required.
 
 ## 4. Submission readiness
@@ -92,15 +83,15 @@ Not committed: `CONTEXT_FOR_SUBMISSION.md` (working notes; its verbatim copies a
 | Docs consistent (submission draft, pitch deck, demo.py) | ✅ (pitch script still says "Claude confirms"; true when Claude is the judge, but the live demo uses Gemini) |
 | Tests passing | ✅ 1183 Python + 116 web |
 | Gemini judge actually working | ✅ (was broken by the API-version bug, now fixed and verified live) |
-| Live demo working | ⏳ pending your Render + Vercel steps above |
+| Live demo working | ✅ backend live on Render; ⏳ Vercel needs the `VITE_DEMO=1` redeploy and a final click-through |
 | Demo video | ❌ pending: must be **≤ 3:01** per the portal rule. The script in `pitch-deck-and-script.md` is timed for 4:00, so cut it (for example drop the token-bomb segment 02:30–03:00 and shorten the intro) |
-| Placeholders to fill | `<VERCEL_URL>`, `<RENDER_URL>`, `<YOUTUBE_URL>` in README.md and submission-draft.md |
+| Placeholders to fill | only `<YOUTUBE_URL>` (README.md and submission-draft.md) |
 
 ## 5. URLs for the cloudcampbd.com form
 
 - **GitHub repo:** https://github.com/abdullahalyf/Cloud-Sentinel (upstream, after the PR is merged), or the fork https://github.com/irfanulhoquetaseen/Cloud-Sentinel (has this work as soon as I push)
-- **Live demo:** `<VERCEL_URL>`, your Vercel production domain
-- **API docs:** `<RENDER_URL>/docs` (e.g. https://cloudsentinel-api.onrender.com/docs)
+- **Live demo:** https://cloudsentinel-sigma.vercel.app
+- **API docs:** https://cloudsentinel-api-s080.onrender.com/docs
 
 ## 6. Risks / not finished
 

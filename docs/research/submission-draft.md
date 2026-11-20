@@ -50,7 +50,7 @@
 
 ## Section 4: Demo, Repositories & Access Links
 * **GitHub Repository:** [https://github.com/abdullahalyf/Cloud-Sentinel](https://github.com/abdullahalyf/Cloud-Sentinel) (Public, MIT License)
-* **Live Demo:** `<VERCEL_URL>` (React dashboard on Vercel, API on Render free tier: the first load can take ~1 minute while the backend wakes up)
+* **Live Demo:** https://cloudsentinel-sigma.vercel.app · **API docs:** https://cloudsentinel-api-s080.onrender.com/docs (React dashboard on Vercel, API on Render free tier: the first load can take ~1 minute while the backend wakes up)
 * **Demo Video:** `<YOUTUBE_URL>` (≤ 3:01 walkthrough of "The 3 AM Incident")
 * **Local Run Command:**
   ```powershell
