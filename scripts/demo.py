@@ -1,10 +1,16 @@
 """
 Demo helper: talks to the C2 API exactly like the dashboard does.
 
-    python scripts/demo.py rogue beta paraphrase_loop   # kinds: loop paraphrase_loop token_bomb memory_leak bad_tool_call
+    python scripts/demo.py rogue beta paraphrase_loop   # make an agent misbehave (9 kinds, below)
     python scripts/demo.py pause|resume|kill|restart beta
     python scripts/demo.py fix beta                      # heal: fix beta's bad memory belief
     python scripts/demo.py reset                         # restart killed, resume paused, clear bad beliefs
+
+Rogue kinds (shared/contracts.py ROGUE_KINDS):
+    loop, paraphrase_loop, token_bomb, memory_leak, bad_tool_call,
+    prompt_injection, tool_storm, memory_poisoning, slow_budget_leak
+The Docker simulator agents (telemetry/simulators/agent.py) act out all 9. The offline fake fleet
+(`python -m brain --fake`) acts out the first 5 plus prompt_injection; it treats the other 3 as healthy.
 """
 from __future__ import annotations
 

@@ -78,9 +78,9 @@
 ### Slide 8: Technical Architecture & Standards
 * **Key Pillars:**
   * **OTel GenAI Standard:** Framework-agnostic spans; one-line adapters for LangGraph & CrewAI.
-  * **Dual Interface:** Production React 18 web control tower + **Standalone MCP Server** (16 tools) for Claude Desktop operators.
+  * **Dual Interface:** Production React 18 web control tower + **Standalone MCP Server** (17 tools) for Claude Desktop operators.
   * **Cryptographic Tamper-Evidence:** Hash-chained audit logs ensuring no operator or AI can alter historical decisions.
-  * **1,000-Agent Scale:** Linear tick latency of **12.9 ms** (using just 1.3% of the 1,000 ms budget).
+  * **1,000-Agent Scale:** Tick p95 of **129 ms** at 1,000 agents (just 12.9% of the 1,000 ms budget).
 * **Visual:** Architecture diagram highlighting OTel Collector, Engine, MCP Server, and Docker Socket Proxy.
 * **Speaker Notes:** "We built CloudSentinel on open standards. We don't invent proprietary telemetry—we ingest OpenTelemetry GenAI spans. And our MCP server lets operators manage the entire fleet using natural language in Claude Desktop."
 
@@ -98,7 +98,7 @@
 ---
 
 ### Slide 10: The Team & Submission
-* **Team CloudSentinel:**
+* **Team HECTORS (product: CloudSentinel):**
   * **Taseen:** Infra, Docker/K8s Execution, Integration Lead
   * **Alif:** Brain Engine, Detectors, Circuit Breaker FSM, MCP Server
   * **Tamjid:** Web Control Tower, React 18 Dashboard, Interactive Node Flows
