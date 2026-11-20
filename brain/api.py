@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -136,6 +137,13 @@ def create_app(store, policy: Policy, cfg: Settings, mode: str, judge: str,
                injection_gate: Optional[service.InjectionGate] = None) -> FastAPI:
     app = FastAPI(title="CloudSentinel C2 API", version=f"contract-{CONTRACT_VERSION}",
                   description="Command & Control for AI agent fleets: observe, pause, heal, kill.")
+
+    # Deploy: a dashboard on another domain (VITE_API_URL) may call the API directly. Only the
+    # origins listed in CS_CORS_ORIGINS get CORS headers; with none listed nothing changes.
+    if cfg.cors_origins:
+        app.add_middleware(CORSMiddleware, allow_origins=list(cfg.cors_origins),
+                           allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+                           allow_headers=["Content-Type", "X-CS-Token"])
 
     # A5: the policy in force. The manager knows the file, so the API can also reload it and
     # report the last error. Without a manager (a test, a script) the API still serves the
