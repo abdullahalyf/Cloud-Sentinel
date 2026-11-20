@@ -1,7 +1,7 @@
 """
 db/reset.py - wipe all demo data so the next demo starts from a clean slate.   Owner: Fojle.
 
-Deletes every row from all 9 tables (see shared/store.TABLES).
+Deletes every row from every table listed in shared/store.TABLES (audit_log included).
 Works with both stores (Supabase or local SQLite): whichever get_store() gives you.
 
   python telemetry/db/reset.py          # shows the row counts, then asks you to type "yes"
